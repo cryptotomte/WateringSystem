@@ -1,0 +1,17 @@
+{
+  "folders": [
+    {
+      "path": "."
+    }
+  ],
+  "settings": {
+    "editor.formatOnSave": true,
+    "files.autoSave": "afterDelay",
+    "C_Cpp.default.includePath": [
+      "${workspaceFolder}/include/**",
+      "${workspaceFolder}/src/**",
+      "${workspaceFolder}/lib/**",
+      "${workspaceFolder}/.pio/libdeps/**"
+    ]
+  }
+}

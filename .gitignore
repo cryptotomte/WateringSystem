@@ -1,0 +1,43 @@
+# General
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+
+# VS Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Logs
+logs
+*.log
+
+# Dependencies
+node_modules/
+
+# PlatformIO
+.pio
+.pioenvs
+.piolibdeps
+.clang_complete
+.gcc-flags.json
+
+# Build
+build/
+dist/
+
+# Compiled binaries
+*.bin
+*.elf
+*.hex
+
+# KiCad
+*.bak
+*-bak
+*-cache.lib
+*-rescue.lib
+_autosave*
