@@ -5,7 +5,8 @@
  * @date 2025-04-15
  */
 
-#pragma once
+#ifndef LITTLE_FS_STORAGE_H
+#define LITTLE_FS_STORAGE_H
 
 #include "storage/IDataStorage.h"
 #include <LittleFS.h>
@@ -65,3 +66,5 @@ public:
     int pruneOldReadings(time_t olderThan) override;
     bool getStorageStats(uint32_t* totalSpace, uint32_t* usedSpace) override;
 };
+
+#endif // LITTLE_FS_STORAGE_H

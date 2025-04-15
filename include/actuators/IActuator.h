@@ -5,7 +5,8 @@
  * @date 2025-04-15
  */
 
-#pragma once
+#ifndef I_ACTUATOR_H
+#define I_ACTUATOR_H
 
 /**
  * @brief Base interface for all actuators
@@ -45,3 +46,5 @@ public:
      */
     virtual const char* getName() const = 0;
 };
+
+#endif // I_ACTUATOR_H

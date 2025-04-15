@@ -5,7 +5,8 @@
  * @date 2025-04-15
  */
 
-#pragma once
+#ifndef MODBUS_SOIL_SENSOR_H
+#define MODBUS_SOIL_SENSOR_H
 
 #include "sensors/ISoilSensor.h"
 #include "communication/IModbusClient.h"
@@ -77,3 +78,5 @@ public:
     float getPhosphorus() override;
     float getPotassium() override;
 };
+
+#endif // MODBUS_SOIL_SENSOR_H

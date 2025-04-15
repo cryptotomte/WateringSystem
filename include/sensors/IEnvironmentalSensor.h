@@ -5,7 +5,8 @@
  * @date 2025-04-15
  */
 
-#pragma once
+#ifndef I_ENVIRONMENTAL_SENSOR_H
+#define I_ENVIRONMENTAL_SENSOR_H
 
 #include "ISensor.h"
 
@@ -36,3 +37,5 @@ public:
      */
     virtual float getPressure() = 0;
 };
+
+#endif // I_ENVIRONMENTAL_SENSOR_H

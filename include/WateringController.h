@@ -5,7 +5,8 @@
  * @date 2025-04-15
  */
 
-#pragma once
+#ifndef WATERING_CONTROLLER_H
+#define WATERING_CONTROLLER_H
 
 #include "sensors/IEnvironmentalSensor.h"
 #include "sensors/ISoilSensor.h"
@@ -142,10 +143,26 @@ public:
     void setMoistureThresholdLow(float threshold);
     
     /**
+     * @brief Get the low moisture threshold
+     * @return Low moisture threshold in percent
+     */
+    float getMoistureThresholdLow() const {
+        return moistureThresholdLow;
+    }
+    
+    /**
      * @brief Set the high moisture threshold
      * @param threshold Moisture level in percent to stop watering
      */
     void setMoistureThresholdHigh(float threshold);
+    
+    /**
+     * @brief Get the high moisture threshold
+     * @return High moisture threshold in percent
+     */
+    float getMoistureThresholdHigh() const {
+        return moistureThresholdHigh;
+    }
     
     /**
      * @brief Set watering duration
@@ -154,8 +171,26 @@ public:
     void setWateringDuration(unsigned int seconds);
     
     /**
+     * @brief Get watering duration
+     * @return Watering duration in seconds
+     */
+    unsigned int getWateringDuration() const {
+        return wateringDuration;
+    }
+    
+    /**
      * @brief Set minimum interval between waterings
      * @param seconds Minimum seconds between waterings
      */
     void setMinWateringInterval(unsigned long seconds);
+    
+    /**
+     * @brief Get minimum interval between waterings
+     * @return Minimum interval in seconds
+     */
+    unsigned long getMinWateringInterval() const {
+        return minWateringInterval;
+    }
 };
+
+#endif // WATERING_CONTROLLER_H

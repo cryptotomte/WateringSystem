@@ -5,7 +5,8 @@
  * @date 2025-04-15
  */
 
-#pragma once
+#ifndef BME280_SENSOR_H
+#define BME280_SENSOR_H
 
 #include "sensors/IEnvironmentalSensor.h"
 #include <Adafruit_BME280.h>
@@ -54,3 +55,5 @@ public:
     float getHumidity() override;
     float getPressure() override;
 };
+
+#endif // BME280_SENSOR_H

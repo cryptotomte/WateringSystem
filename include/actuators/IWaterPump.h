@@ -5,7 +5,8 @@
  * @date 2025-04-15
  */
 
-#pragma once
+#ifndef I_WATER_PUMP_H
+#define I_WATER_PUMP_H
 
 #include "IActuator.h"
 
@@ -57,3 +58,5 @@ public:
      */
     virtual void update() = 0;
 };
+
+#endif // I_WATER_PUMP_H

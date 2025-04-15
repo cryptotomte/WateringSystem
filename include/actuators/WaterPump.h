@@ -5,7 +5,8 @@
  * @date 2025-04-15
  */
 
-#pragma once
+#ifndef WATER_PUMP_H
+#define WATER_PUMP_H
 
 #include "actuators/IWaterPump.h"
 #include <Arduino.h>
@@ -65,3 +66,5 @@ public:
      */
     void update();
 };
+
+#endif // WATER_PUMP_H

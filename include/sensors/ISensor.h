@@ -5,7 +5,8 @@
  * @date 2025-04-15
  */
 
-#pragma once
+#ifndef I_SENSOR_H
+#define I_SENSOR_H
 
 /**
  * @brief Base interface for all sensors
@@ -51,3 +52,5 @@ public:
      */
     virtual const char* getName() const = 0;
 };
+
+#endif // I_SENSOR_H

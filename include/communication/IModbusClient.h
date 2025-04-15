@@ -5,7 +5,8 @@
  * @date 2025-04-15
  */
 
-#pragma once
+#ifndef I_MODBUS_CLIENT_H
+#define I_MODBUS_CLIENT_H
 
 #include <stdint.h>
 
@@ -68,3 +69,5 @@ public:
      */
     virtual void getStatistics(uint32_t* successCount, uint32_t* errorCount) = 0;
 };
+
+#endif // I_MODBUS_CLIENT_H

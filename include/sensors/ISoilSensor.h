@@ -5,7 +5,8 @@
  * @date 2025-04-15
  */
 
-#pragma once
+#ifndef I_SOIL_SENSOR_H
+#define I_SOIL_SENSOR_H
 
 #include "ISensor.h"
 
@@ -66,3 +67,5 @@ public:
      */
     virtual float getPotassium() = 0;
 };
+
+#endif // I_SOIL_SENSOR_H

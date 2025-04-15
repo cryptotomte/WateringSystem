@@ -5,7 +5,8 @@
  * @date 2025-04-15
  */
 
-#pragma once
+#ifndef I_DATA_STORAGE_H
+#define I_DATA_STORAGE_H
 
 #include <stdint.h>
 #include <time.h>
@@ -91,3 +92,5 @@ public:
      */
     virtual bool getStorageStats(uint32_t* totalSpace, uint32_t* usedSpace) = 0;
 };
+
+#endif // I_DATA_STORAGE_H

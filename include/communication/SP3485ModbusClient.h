@@ -5,7 +5,8 @@
  * @date 2025-04-15
  */
 
-#pragma once
+#ifndef SP3485_MODBUS_CLIENT_H
+#define SP3485_MODBUS_CLIENT_H
 
 #include "communication/IModbusClient.h"
 #include <HardwareSerial.h>
@@ -68,3 +69,5 @@ public:
     void setTimeout(uint32_t timeoutMs) override;
     void getStatistics(uint32_t* successCount, uint32_t* errorCount) override;
 };
+
+#endif // SP3485_MODBUS_CLIENT_H
