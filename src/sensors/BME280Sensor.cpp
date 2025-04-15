@@ -1,7 +1,7 @@
 /**
  * @file BME280Sensor.cpp
- * @brief Implementation of BME280Sensor class
- * @author WateringSystem Team
+ * @brief Implementation of the BME280 environmental sensor
+ * @author Paul Waserbrot
  * @date 2025-04-15
  */
 

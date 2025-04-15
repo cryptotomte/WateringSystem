@@ -1,7 +1,7 @@
 /**
  * @file IActuator.h
- * @brief Base interface for all actuator types in the WateringSystem
- * @author WateringSystem Team
+ * @brief Interface for all actuators in the system
+ * @author Paul Waserbrot
  * @date 2025-04-15
  */
 

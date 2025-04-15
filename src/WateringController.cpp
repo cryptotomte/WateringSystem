@@ -1,7 +1,7 @@
 /**
  * @file WateringController.cpp
- * @brief Implementation of the WateringController class
- * @author WateringSystem Team
+ * @brief Implementation of the main watering controller
+ * @author Paul Waserbrot
  * @date 2025-04-15
  */
 

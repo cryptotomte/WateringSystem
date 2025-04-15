@@ -1,7 +1,7 @@
 /**
  * @file LittleFSStorage.cpp
- * @brief Implementation of LittleFSStorage class
- * @author WateringSystem Team
+ * @brief Implementation of LittleFS data storage
+ * @author Paul Waserbrot
  * @date 2025-04-15
  */
 

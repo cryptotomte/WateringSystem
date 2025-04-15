@@ -1,7 +1,7 @@
 /**
  * @file WebServer.cpp
- * @brief Implementation of the WebServer class
- * @author WateringSystem Team
+ * @brief Implementation of web server for remote control and monitoring
+ * @author Paul Waserbrot
  * @date 2025-04-15
  */
 

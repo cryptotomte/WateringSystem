@@ -1,7 +1,7 @@
 /**
  * @file SP3485ModbusClient.cpp
- * @brief Implementation of SP3485ModbusClient class
- * @author WateringSystem Team
+ * @brief RS485 interface implementation for Modbus communication
+ * @author Paul Waserbrot
  * @date 2025-04-15
  */
 

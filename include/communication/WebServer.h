@@ -1,7 +1,7 @@
 /**
  * @file WebServer.h
  * @brief Web server interface for the watering system
- * @author WateringSystem Team
+ * @author Paul Waserbrot
  * @date 2025-04-15
  */
 

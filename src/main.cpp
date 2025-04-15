@@ -1,7 +1,7 @@
 /**
  * @file main.cpp
  * @brief Main application for the WateringSystem
- * @author WateringSystem Team
+ * @author Paul Waserbrot
  * @date 2025-04-15
  */
 

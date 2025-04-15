@@ -1,7 +1,7 @@
 /**
  * @file ModbusSoilSensor.cpp
- * @brief Implementation of ModbusSoilSensor class
- * @author WateringSystem Team
+ * @brief Implementation of soil sensor using Modbus protocol
+ * @author Paul Waserbrot
  * @date 2025-04-15
  */
 

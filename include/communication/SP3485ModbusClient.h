@@ -1,7 +1,7 @@
 /**
  * @file SP3485ModbusClient.h
- * @brief SP3485 based Modbus RTU client implementation
- * @author WateringSystem Team
+ * @brief Header for SP3485 RS485 based Modbus client
+ * @author Paul Waserbrot
  * @date 2025-04-15
  */
 

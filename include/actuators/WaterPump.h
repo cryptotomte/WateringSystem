@@ -1,7 +1,7 @@
 /**
  * @file WaterPump.h
  * @brief Water pump implementation
- * @author WateringSystem Team
+ * @author Paul Waserbrot
  * @date 2025-04-15
  */
 

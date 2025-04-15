@@ -1,7 +1,7 @@
 /**
  * @file IWaterPump.h
  * @brief Interface for water pump control in the WateringSystem
- * @author WateringSystem Team
+ * @author Paul Waserbrot
  * @date 2025-04-15
  */
 

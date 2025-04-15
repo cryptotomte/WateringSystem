@@ -1,7 +1,7 @@
 /**
  * @file WaterPump.cpp
- * @brief Implementation of WaterPump class
- * @author WateringSystem Team
+ * @brief Implementation of the water pump controller
+ * @author Paul Waserbrot
  * @date 2025-04-15
  */
 

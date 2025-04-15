@@ -1,7 +1,7 @@
 /**
  * @file IDataStorage.h
  * @brief Interface for data storage in the WateringSystem
- * @author WateringSystem Team
+ * @author Paul Waserbrot
  * @date 2025-04-15
  */
 

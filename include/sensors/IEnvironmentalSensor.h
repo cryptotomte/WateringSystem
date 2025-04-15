@@ -1,7 +1,7 @@
 /**
  * @file IEnvironmentalSensor.h
- * @brief Interface for environmental sensors in the WateringSystem
- * @author WateringSystem Team
+ * @brief Interface for environmental sensors
+ * @author Paul Waserbrot
  * @date 2025-04-15
  */
 

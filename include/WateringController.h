@@ -1,7 +1,7 @@
 /**
  * @file WateringController.h
  * @brief Main controller for the watering system
- * @author WateringSystem Team
+ * @author Paul Waserbrot
  * @date 2025-04-15
  */
 

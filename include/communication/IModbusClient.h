@@ -1,7 +1,7 @@
 /**
  * @file IModbusClient.h
- * @brief Interface for Modbus communication in the WateringSystem
- * @author WateringSystem Team
+ * @brief Interface for Modbus communication
+ * @author Paul Waserbrot
  * @date 2025-04-15
  */
 
