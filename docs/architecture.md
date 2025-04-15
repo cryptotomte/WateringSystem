@@ -1,59 +1,467 @@
-# System Architecture Documentation
+# WateringSystem Architecture
 
-## 1. Introduction
-### 1.1 Purpose
-Describe the purpose of this architecture document.
+## Overview
 
-### 1.2 System Overview
-High-level overview of the system architecture.
+This document describes the architectural design of the WateringSystem project. The architecture follows a modular, layered approach with clear separation of concerns and interface-based design principles.
 
-## 2. Architectural Representation
-Describe the views used to represent the architecture.
+## System Architecture
 
-## 3. System Components
-### 3.1 Component 1
-- Purpose:
-- Responsibilities:
-- Interfaces:
-- Dependencies:
+The WateringSystem follows a layered architecture pattern to ensure modularity, testability, and maintainability. The system is divided into the following layers:
 
-### 3.2 Component 2
-- Purpose:
-- Responsibilities:
-- Interfaces:
-- Dependencies:
+```
+┌─────────────────────────────────────────────┐
+│               User Interface                │
+│         (Web Server, HTML/CSS/JS)           │
+└───────────────────────┬─────────────────────┘
+                        │
+┌───────────────────────▼─────────────────────┐
+│             Application Logic                │
+│      (Watering Rules, Scheduling, etc.)     │
+└───────────────────────┬─────────────────────┘
+                        │
+┌───────────────────────▼─────────────────────┐
+│           Service Layer                      │
+│  (Sensor Data Processing, Data Storage)      │
+└───────────────────────┬─────────────────────┘
+                        │
+┌───────────────────────▼─────────────────────┐
+│        Hardware Abstraction Layer            │
+│    (Sensor & Actuator Interface Classes)     │
+└───────────────────────┬─────────────────────┘
+                        │
+┌───────────────────────▼─────────────────────┐
+│             Hardware Drivers                 │
+│     (BME280, RS485, Soil Sensor, Pump)      │
+└─────────────────────────────────────────────┘
+```
 
-## 4. Data Architecture
-### 4.1 Data Model
-Description of the data model used.
+### Layers Description
 
-### 4.2 Data Flow
-Diagram and description of how data flows through the system.
+1. **User Interface Layer**
+   - Provides web-based interface for monitoring and control
+   - Implements a lightweight web server
+   - Serves HTML, CSS, and JavaScript content from LittleFS
+   - Handles user authentication and authorization
 
-## 5. Hardware Architecture
-### 5.1 Hardware Components
-- Component 1: Description and specifications
-- Component 2: Description and specifications
+2. **Application Logic Layer**
+   - Implements watering rules and decision logic
+   - Manages scheduling and timing of watering events
+   - Handles alerts and notifications for out-of-range conditions
+   - Processes user configuration changes
 
-### 5.2 Hardware Interfaces
-Description of interfaces between hardware components.
+3. **Service Layer**
+   - Processes raw sensor data into meaningful values
+   - Manages data persistence (configuration, logs, history)
+   - Implements Modbus RTU protocol for soil sensor communication
+   - Provides data access services to upper layers
 
-## 6. Software Architecture
-### 6.1 Software Components
-- Component 1: Description and purpose
-- Component 2: Description and purpose
+4. **Hardware Abstraction Layer**
+   - Defines interfaces for all hardware components
+   - Provides concrete implementations for each hardware device
+   - Abstracts hardware details from upper layers
+   - Enables mock implementations for testing
 
-### 6.2 Software Interfaces
-APIs, libraries, and frameworks used.
+5. **Hardware Drivers Layer**
+   - Implements low-level communication with hardware
+   - Handles I2C, RS485, and GPIO communications
+   - Manages power control and timing requirements
+   - Reports hardware errors to upper layers
 
-## 7. Deployment Diagram
-Description of how components are deployed on physical hardware.
+## Component Diagram
 
-## 8. Performance Considerations
-How the architecture addresses performance requirements.
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         WateringSystem                          │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │
+        ┌─────────────────────────────────────────────┐
+        │                                             │
+┌───────▼────────┐    ┌────────────────┐    ┌─────────▼─────────┐
+│    WebServer   │    │ ConfigManager  │    │   SensorManager   │
+└───────┬────────┘    └────────┬───────┘    └─────────┬─────────┘
+        │                      │                      │
+        │             ┌────────▼───────┐     ┌────────▼────────┐
+        │             │ DataRepository │     │  SensorFactory  │
+        │             └────────────────┘     └────────┬────────┘
+        │                                             │
+┌───────▼────────┐                           ┌────────▼────────┐
+│   HTTPHandler  │                           │   ISensor       │◄────┐
+└────────────────┘                           └────────┬────────┘     │
+                                                      │              │
+                          ┌─────────────────┬─────────┼──────────┐   │
+                          │                 │         │          │   │
+                 ┌────────▼───────┐ ┌───────▼────┐ ┌─▼────────┐ │   │
+                 │ BME280Sensor   │ │ SoilSensor │ │ MockSensor│ │   │
+                 └────────────────┘ └───────┬────┘ └───────────┘ │   │
+                                            │                    │   │
+                                    ┌───────▼────────┐           │   │
+                                    │ ModbusClient   │           │   │
+                                    └────────────────┘           │   │
+                                                                 │   │
+┌────────────────┐                                   ┌───────────▼─┐ │
+│ WateringRules  │◄──────────────────────────────────┤ SensorReading│ │
+└───────┬────────┘                                   └───────────┬─┘ │
+        │                                                        │   │
+┌───────▼────────┐                                               │   │
+│ PumpController │◄──────────────────────────────────────────────┘   │
+└───────┬────────┘                                                    │
+        │                                                             │
+┌───────▼────────┐     ┌────────────────┐                            │
+│   IActuator    │◄────┤  MockActuator  │────────────────────────────┘
+└───────┬────────┘     └────────────────┘
+        │
+┌───────▼────────┐
+│    WaterPump   │
+└────────────────┘
+```
 
-## 9. Quality Attributes
-How the architecture addresses quality requirements.
+## Key Interfaces
 
-## 10. References
-Any reference documents or resources.
+The architecture is built around a set of key interfaces that enable modularity and testability:
+
+### Sensor Interfaces
+
+```cpp
+/**
+ * Base interface for all sensors
+ */
+class ISensor {
+public:
+    virtual ~ISensor() = default;
+    
+    /**
+     * Initialize the sensor
+     * @return true if initialization successful, false otherwise
+     */
+    virtual bool initialize() = 0;
+    
+    /**
+     * Read sensor data
+     * @return true if reading successful, false otherwise
+     */
+    virtual bool read() = 0;
+    
+    /**
+     * Check if sensor is available and working
+     * @return true if sensor is available, false otherwise
+     */
+    virtual bool isAvailable() = 0;
+    
+    /**
+     * Get last error code
+     * @return error code, 0 if no error
+     */
+    virtual int getLastError() = 0;
+};
+
+/**
+ * Interface for environmental sensors
+ */
+class IEnvironmentalSensor : public ISensor {
+public:
+    /**
+     * Get temperature in Celsius
+     * @return temperature value
+     */
+    virtual float getTemperature() = 0;
+    
+    /**
+     * Get relative humidity in percent
+     * @return humidity value
+     */
+    virtual float getHumidity() = 0;
+};
+
+/**
+ * Interface for soil sensors
+ */
+class ISoilSensor : public ISensor {
+public:
+    /**
+     * Get soil moisture in percent
+     * @return moisture value
+     */
+    virtual float getMoisture() = 0;
+    
+    /**
+     * Get soil temperature in Celsius
+     * @return temperature value
+     */
+    virtual float getTemperature() = 0;
+    
+    /**
+     * Get soil pH level
+     * @return pH value
+     */
+    virtual float getPH() = 0;
+    
+    /**
+     * Get electrical conductivity in µS/cm
+     * @return EC value
+     */
+    virtual float getEC() = 0;
+    
+    /**
+     * Get nitrogen level
+     * @return nitrogen value
+     */
+    virtual float getNitrogen() = 0;
+    
+    /**
+     * Get phosphorus level
+     * @return phosphorus value
+     */
+    virtual float getPhosphorus() = 0;
+    
+    /**
+     * Get potassium level
+     * @return potassium value
+     */
+    virtual float getPotassium() = 0;
+};
+```
+
+### Actuator Interfaces
+
+```cpp
+/**
+ * Base interface for all actuators
+ */
+class IActuator {
+public:
+    virtual ~IActuator() = default;
+    
+    /**
+     * Initialize the actuator
+     * @return true if initialization successful, false otherwise
+     */
+    virtual bool initialize() = 0;
+    
+    /**
+     * Check if actuator is available and working
+     * @return true if actuator is available, false otherwise
+     */
+    virtual bool isAvailable() = 0;
+    
+    /**
+     * Get last error code
+     * @return error code, 0 if no error
+     */
+    virtual int getLastError() = 0;
+};
+
+/**
+ * Interface for water pump control
+ */
+class IWaterPump : public IActuator {
+public:
+    /**
+     * Start the pump
+     * @return true if operation successful, false otherwise
+     */
+    virtual bool start() = 0;
+    
+    /**
+     * Stop the pump
+     * @return true if operation successful, false otherwise
+     */
+    virtual bool stop() = 0;
+    
+    /**
+     * Run the pump for a specific duration
+     * @param seconds Duration to run in seconds
+     * @return true if operation successful, false otherwise
+     */
+    virtual bool runFor(unsigned int seconds) = 0;
+    
+    /**
+     * Check if the pump is currently running
+     * @return true if running, false otherwise
+     */
+    virtual bool isRunning() = 0;
+};
+```
+
+### Communication Interfaces
+
+```cpp
+/**
+ * Interface for Modbus communication
+ */
+class IModbusClient {
+public:
+    virtual ~IModbusClient() = default;
+    
+    /**
+     * Initialize the Modbus client
+     * @return true if initialization successful, false otherwise
+     */
+    virtual bool initialize() = 0;
+    
+    /**
+     * Read holding registers from a Modbus device
+     * @param deviceAddress Modbus device address
+     * @param startRegister First register to read
+     * @param count Number of registers to read
+     * @param buffer Buffer to store read values
+     * @return true if operation successful, false otherwise
+     */
+    virtual bool readHoldingRegisters(uint8_t deviceAddress, uint16_t startRegister, 
+                                      uint16_t count, uint16_t* buffer) = 0;
+    
+    /**
+     * Write single register to a Modbus device
+     * @param deviceAddress Modbus device address
+     * @param registerAddress Register address to write
+     * @param value Value to write
+     * @return true if operation successful, false otherwise
+     */
+    virtual bool writeSingleRegister(uint8_t deviceAddress, uint16_t registerAddress, 
+                                    uint16_t value) = 0;
+    
+    /**
+     * Get last error code
+     * @return error code, 0 if no error
+     */
+    virtual int getLastError() = 0;
+};
+```
+
+### Storage Interfaces
+
+```cpp
+/**
+ * Interface for data storage
+ */
+class IDataStorage {
+public:
+    virtual ~IDataStorage() = default;
+    
+    /**
+     * Initialize the storage
+     * @return true if initialization successful, false otherwise
+     */
+    virtual bool initialize() = 0;
+    
+    /**
+     * Store configuration data
+     * @param key Configuration key
+     * @param data Data to store
+     * @return true if operation successful, false otherwise
+     */
+    virtual bool storeConfig(const String& key, const String& data) = 0;
+    
+    /**
+     * Retrieve configuration data
+     * @param key Configuration key
+     * @param defaultValue Default value if key not found
+     * @return Retrieved data or default value
+     */
+    virtual String getConfig(const String& key, const String& defaultValue = "") = 0;
+    
+    /**
+     * Store sensor reading
+     * @param sensorId ID of the sensor
+     * @param readingType Type of reading (temperature, humidity, etc.)
+     * @param value Reading value
+     * @param timestamp Time of reading
+     * @return true if operation successful, false otherwise
+     */
+    virtual bool storeSensorReading(const String& sensorId, const String& readingType, 
+                                  float value, time_t timestamp) = 0;
+    
+    /**
+     * Get sensor readings for a specific period
+     * @param sensorId ID of the sensor
+     * @param readingType Type of reading
+     * @param startTime Start time of the period
+     * @param endTime End time of the period
+     * @return JSON string with readings
+     */
+    virtual String getSensorReadings(const String& sensorId, const String& readingType, 
+                                   time_t startTime, time_t endTime) = 0;
+};
+```
+
+## Data Flow
+
+1. **Sensor Data Collection**
+   - Sensors are read at configured intervals
+   - Raw data is processed and converted to appropriate units
+   - Processed data is stored in temporary storage
+   - Readings are checked against configured thresholds
+
+2. **Decision Making**
+   - Soil moisture and other parameters are evaluated
+   - If watering criteria are met, watering process is triggered
+   - Historical data is considered for decision making
+   - Scheduling rules are applied
+
+3. **Actuation**
+   - Water pump is activated for a calculated duration
+   - Pump activity is monitored and logged
+   - Safety checks are performed during operation
+
+4. **User Interaction**
+   - Web interface displays current status and historical data
+   - User configures system parameters and schedules
+   - System responds to manual commands
+   - Alerts are displayed for out-of-range conditions
+
+## Testing Approach
+
+The architecture supports comprehensive testing at multiple levels:
+
+1. **Unit Testing**
+   - Each class is tested in isolation
+   - Mock implementations of interfaces are used
+   - Focus on individual component behavior
+
+2. **Integration Testing**
+   - Tests interaction between components
+   - Verifies proper communication between layers
+   - Focuses on interface compliance
+
+3. **System Testing**
+   - Tests the complete system behavior
+   - Verifies end-to-end functionality
+   - Simulates real-world scenarios
+
+## Deployment
+
+The system is deployed as firmware on the ESP32 microcontroller:
+
+1. **Build Process**
+   - PlatformIO builds the firmware
+   - Web assets are processed and included in the binary
+   - Configuration is embedded in the firmware
+
+2. **Installation**
+   - Firmware is flashed to the ESP32
+   - Initial configuration is performed
+   - System performs self-test and calibration
+
+3. **Updates**
+   - OTA (Over The Air) updates are supported
+   - Configuration is preserved during updates
+   - Version control ensures compatibility
+
+## Future Extensions
+
+The architecture is designed to support future extensions:
+
+1. **Additional Sensors**
+   - New sensor types can be added through interface implementation
+   - Minimal impact on existing code
+
+2. **Advanced Control Algorithms**
+   - More sophisticated watering algorithms can be implemented
+   - Machine learning integration for predictive watering
+
+3. **External Integrations**
+   - MQTT support for IoT integration
+   - REST API for external system integration
+
+4. **Mobile Application**
+   - Companion mobile app could be developed
+   - Would communicate with system via web API
