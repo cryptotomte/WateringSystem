@@ -165,11 +165,11 @@ bool LittleFSStorage::storeSensorReading(const String& sensorId, const String& r
         if (error) {
             // Error parsing JSON, create a new document
             doc.clear();
-            doc.createArray();
+            doc.to<JsonArray>(); // Fixed: using to<JsonArray>() instead of createArray()
         }
     } else {
         // Create a new array
-        doc.createArray();
+        doc.to<JsonArray>(); // Fixed: using to<JsonArray>() instead of createArray()
     }
     
     // Add new reading
@@ -221,7 +221,7 @@ String LittleFSStorage::getSensorReadings(const String& sensorId, const String& 
     
     // Filter readings by time range
     DynamicJsonDocument filteredReadings(8192);
-    JsonArray filteredArray = filteredReadings.createArray();
+    JsonArray filteredArray = filteredReadings.to<JsonArray>(); // Fixed: using to<JsonArray>() instead of createArray()
     
     for (JsonObject reading : allReadings.as<JsonArray>()) {
         time_t readingTime = reading["timestamp"];
@@ -318,7 +318,7 @@ int LittleFSStorage::pruneOldReadings(time_t olderThan)
                     
                     // Create a new array with only recent readings
                     DynamicJsonDocument newDoc(16384);
-                    JsonArray newArray = newDoc.createArray();
+                    JsonArray newArray = newDoc.to<JsonArray>(); // Fixed: using to<JsonArray>() instead of createArray()
                     
                     for (JsonObject reading : readings) {
                         time_t readingTime = reading["timestamp"];
