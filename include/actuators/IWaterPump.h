@@ -48,4 +48,12 @@ public:
      * @return Running time in seconds, 0 if not running
      */
     virtual unsigned int getRunTime() = 0;
+    
+    /**
+     * @brief Update function that should be called regularly
+     * 
+     * This function performs any periodic updates needed for the pump,
+     * such as checking if a timed run should be stopped.
+     */
+    virtual void update() = 0;
 };
