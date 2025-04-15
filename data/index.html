@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WateringSystem Control Panel</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>WateringSystem Control Panel</h1>
+            <div class="system-status">
+                <div id="connection-status" class="status-indicator connected">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Connected</span>
+                </div>
+                <div id="watering-status" class="status-indicator">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Watering Inactive</span>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <section class="dashboard">
+                <div class="card sensor-readings">
+                    <h2>Current Readings</h2>
+                    <div class="readings-container">
+                        <div class="reading-group environmental">
+                            <h3>Environmental Data</h3>
+                            <div class="reading" id="env-temperature">
+                                <span class="reading-label">Temperature:</span>
+                                <span class="reading-value">--</span>
+                                <span class="reading-unit">°C</span>
+                            </div>
+                            <div class="reading" id="env-humidity">
+                                <span class="reading-label">Humidity:</span>
+                                <span class="reading-value">--</span>
+                                <span class="reading-unit">%</span>
+                            </div>
+                            <div class="reading" id="env-pressure">
+                                <span class="reading-label">Pressure:</span>
+                                <span class="reading-value">--</span>
+                                <span class="reading-unit">hPa</span>
+                            </div>
+                        </div>
+
+                        <div class="reading-group soil">
+                            <h3>Soil Data</h3>
+                            <div class="reading" id="soil-moisture">
+                                <span class="reading-label">Moisture:</span>
+                                <span class="reading-value">--</span>
+                                <span class="reading-unit">%</span>
+                            </div>
+                            <div class="reading" id="soil-temperature">
+                                <span class="reading-label">Temperature:</span>
+                                <span class="reading-value">--</span>
+                                <span class="reading-unit">°C</span>
+                            </div>
+                            <div class="reading" id="soil-ph">
+                                <span class="reading-label">pH:</span>
+                                <span class="reading-value">--</span>
+                                <span class="reading-unit"></span>
+                            </div>
+                            <div class="reading" id="soil-ec">
+                                <span class="reading-label">EC:</span>
+                                <span class="reading-value">--</span>
+                                <span class="reading-unit">µS/cm</span>
+                            </div>
+                            <div class="reading hidden" id="soil-npk">
+                                <span class="reading-label">NPK:</span>
+                                <span class="reading-value">--</span>
+                                <span class="reading-unit">mg/kg</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="last-updated">
+                        Last updated: <span id="last-update-time">Never</span>
+                    </div>
+                    <button id="refresh-data" class="button primary">Refresh Data</button>
+                </div>
+
+                <div class="card control-panel">
+                    <h2>System Control</h2>
+                    <div class="control-group">
+                        <h3>Manual Controls</h3>
+                        <div class="button-group">
+                            <button id="start-watering" class="button primary">Start Watering</button>
+                            <button id="stop-watering" class="button danger">Stop Watering</button>
+                        </div>
+                        <div class="watering-duration">
+                            <label for="watering-duration-input">Watering duration:</label>
+                            <input type="number" id="watering-duration-input" min="1" max="300" value="20"> seconds
+                        </div>
+                    </div>
+                    
+                    <div class="control-group">
+                        <h3>Automatic Watering</h3>
+                        <div class="toggle-switch">
+                            <label for="auto-watering-toggle">Automatic watering:</label>
+                            <label class="switch">
+                                <input type="checkbox" id="auto-watering-toggle">
+                                <span class="slider round"></span>
+                            </label>
+                            <span id="auto-watering-status">Disabled</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="settings-and-charts">
+                <div class="card system-settings">
+                    <h2>System Settings</h2>
+                    <form id="settings-form">
+                        <div class="form-group">
+                            <label for="moisture-threshold-low">Moisture threshold low (%):</label>
+                            <input type="number" id="moisture-threshold-low" min="0" max="100" step="1">
+                        </div>
+                        <div class="form-group">
+                            <label for="moisture-threshold-high">Moisture threshold high (%):</label>
+                            <input type="number" id="moisture-threshold-high" min="0" max="100" step="1">
+                        </div>
+                        <div class="form-group">
+                            <label for="watering-duration-setting">Default watering duration (seconds):</label>
+                            <input type="number" id="watering-duration-setting" min="1" max="300">
+                        </div>
+                        <div class="form-group">
+                            <label for="min-watering-interval">Minimum interval between waterings (hours):</label>
+                            <input type="number" id="min-watering-interval" min="1" max="72" step="1">
+                        </div>
+                        <button type="submit" class="button primary">Save Settings</button>
+                    </form>
+                </div>
+
+                <div class="card data-visualization">
+                    <h2>Historical Data</h2>
+                    <div class="chart-controls">
+                        <div class="select-group">
+                            <label for="chart-sensor">Sensor:</label>
+                            <select id="chart-sensor">
+                                <option value="env">Environmental</option>
+                                <option value="soil">Soil</option>
+                            </select>
+                        </div>
+                        <div class="select-group">
+                            <label for="chart-reading">Reading:</label>
+                            <select id="chart-reading">
+                                <option value="temperature">Temperature</option>
+                                <option value="humidity">Humidity</option>
+                                <option value="moisture">Moisture</option>
+                                <option value="pressure">Pressure</option>
+                                <option value="ph">pH</option>
+                                <option value="ec">EC</option>
+                            </select>
+                        </div>
+                        <div class="select-group">
+                            <label for="chart-time-range">Time range:</label>
+                            <select id="chart-time-range">
+                                <option value="1h">Last hour</option>
+                                <option value="6h">Last 6 hours</option>
+                                <option value="24h" selected>Last 24 hours</option>
+                                <option value="7d">Last 7 days</option>
+                                <option value="30d">Last 30 days</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="data-chart"></canvas>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <div class="system-info">
+                <div>WateringSystem v1.0</div>
+                <div>IP: <span id="system-ip">--</span></div>
+                <div>Storage: <span id="storage-usage">--</span></div>
+            </div>
+            <div class="copyright">
+                &copy; 2025 WateringSystem Team
+            </div>
+        </footer>
+    </div>
+    
+    <!-- Notifications -->
+    <div id="notification-container"></div>
+    
+    <!-- Modal for watering confirmation -->
+    <div id="confirmation-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Confirm Action</h3>
+                <span class="close-modal">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p id="modal-message">Are you sure you want to start watering?</p>
+            </div>
+            <div class="modal-footer">
+                <button id="modal-cancel" class="button secondary">Cancel</button>
+                <button id="modal-confirm" class="button primary">Confirm</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Include Chart.js for data visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Our application script -->
+    <script src="script.js"></script>
+</body>
+</html>

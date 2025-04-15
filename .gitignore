@@ -41,3 +41,6 @@ dist/
 *-cache.lib
 *-rescue.lib
 _autosave*
+
+# GitHub Copilot
+.github/copilot-instructions.md
