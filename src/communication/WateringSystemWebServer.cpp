@@ -1,19 +1,25 @@
 /**
- * @file WebServer.cpp
+ * @file WateringSystemWebServer.cpp
  * @brief Implementation of web server for remote control and monitoring
  * @author Paul Waserbrot
  * @date 2025-04-15
  */
 
-#include "communication/WebServer.h"
+// Include our own header first
+#include "communication/WateringSystemWebServer.h"
+
+// Third-party includes with correct order to avoid conflicts
 #include <ArduinoJson.h>
 #include <LittleFS.h>
-#include <AsyncJson.h>
-#include <ESPAsyncWebServer.h>
-#include <AsyncElegantOTA.h>
+#include <WiFi.h>
 #include <time.h>
 
-WebServer::WebServer(WateringController* controller, 
+// Use AsyncJson after ArduinoJson
+#include <AsyncJson.h>
+
+// Other includes can be added here as needed
+
+WateringSystemWebServer::WateringSystemWebServer(WateringController* controller, 
                    IEnvironmentalSensor* environmental,
                    ISoilSensor* soil,
                    IWaterPump* pump,
@@ -27,10 +33,12 @@ WebServer::WebServer(WateringController* controller,
     , server(port)
     , initialized(false)
     , lastError(0)
+    , isInApMode(false)
+    , wifiConfigCallback(nullptr)
 {
 }
 
-WebServer::~WebServer()
+WateringSystemWebServer::~WateringSystemWebServer()
 {
     // Stop the server in case it's still running
     if (initialized) {
@@ -38,7 +46,7 @@ WebServer::~WebServer()
     }
 }
 
-bool WebServer::initialize()
+bool WateringSystemWebServer::initialize()
 {
     if (initialized) {
         return true;
@@ -64,13 +72,22 @@ bool WebServer::initialize()
     return true;
 }
 
-void WebServer::setupEndpoints()
+void WateringSystemWebServer::setupEndpoints()
 {
-    // Serve static files from LittleFS
-    server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
-    
-    // Initialize the AsyncElegantOTA
-    AsyncElegantOTA.begin(&server);
+    // Set the appropriate default file based on mode
+    if (isInApMode) {
+        // In AP mode, use wifi_setup.html as the default page
+        server.serveStatic("/", LittleFS, "/").setDefaultFile("wifi_setup.html");
+        
+        // Also serve the regular index.html for users who have already configured
+        server.serveStatic("/index.html", LittleFS, "/index.html");
+    } else {
+        // Normal operation mode, use index.html
+        server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
+        
+        // Also serve the wifi setup page if needed
+        server.serveStatic("/wifi_setup.html", LittleFS, "/wifi_setup.html");
+    }
     
     // API endpoints
     server.on("/api/sensor-data", HTTP_GET, [this](AsyncWebServerRequest *request) {
@@ -98,13 +115,24 @@ void WebServer::setupEndpoints()
         request->send(200, "application/json", response);
     });
     
+    // WiFi configuration endpoints (always available, but only functional in AP mode)
+    server.on("/api/wifi/scan", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        String response = handleWiFiScanRequest(request);
+        request->send(200, "application/json", response);
+    });
+    
+    server.on("/api/wifi/config", HTTP_POST, [this](AsyncWebServerRequest *request) {
+        String response = handleWiFiConfigRequest(request);
+        request->send(200, "application/json", response);
+    });
+    
     // Handle 404 (Not Found)
     server.onNotFound([](AsyncWebServerRequest *request) {
         request->send(404, "text/plain", "Not found");
     });
 }
 
-String WebServer::handleSensorDataRequest(AsyncWebServerRequest* request)
+String WateringSystemWebServer::handleSensorDataRequest(AsyncWebServerRequest* request)
 {
     // Read latest sensor data
     bool envSuccess = envSensor->read();
@@ -156,7 +184,7 @@ String WebServer::handleSensorDataRequest(AsyncWebServerRequest* request)
     return response;
 }
 
-String WebServer::handleStatusRequest(AsyncWebServerRequest* request)
+String WateringSystemWebServer::handleStatusRequest(AsyncWebServerRequest* request)
 {
     DynamicJsonDocument doc(1024);
     
@@ -187,9 +215,19 @@ String WebServer::handleStatusRequest(AsyncWebServerRequest* request)
     
     // Network
     JsonObject network = doc.createNestedObject("network");
-    network["ip"] = WiFi.localIP().toString();
-    network["rssi"] = WiFi.RSSI();
-    network["ssid"] = WiFi.SSID();
+    
+    if (isInApMode) {
+        network["mode"] = "AP";
+        network["ip"] = WiFi.softAPIP().toString();
+        network["ssid"] = WiFi.softAPSSID();
+        network["stationCount"] = WiFi.softAPgetStationNum();
+    } else {
+        network["mode"] = "STA";
+        network["ip"] = WiFi.localIP().toString();
+        network["rssi"] = WiFi.RSSI();
+        network["ssid"] = WiFi.SSID();
+        network["connected"] = WiFi.status() == WL_CONNECTED;
+    }
     
     // Add timestamp
     doc["timestamp"] = time(nullptr);
@@ -199,7 +237,7 @@ String WebServer::handleStatusRequest(AsyncWebServerRequest* request)
     return response;
 }
 
-String WebServer::handleControlRequest(AsyncWebServerRequest* request)
+String WateringSystemWebServer::handleControlRequest(AsyncWebServerRequest* request)
 {
     DynamicJsonDocument doc(256);
     bool success = false;
@@ -243,7 +281,7 @@ String WebServer::handleControlRequest(AsyncWebServerRequest* request)
     return response;
 }
 
-String WebServer::handleConfigRequest(AsyncWebServerRequest* request)
+String WateringSystemWebServer::handleConfigRequest(AsyncWebServerRequest* request)
 {
     DynamicJsonDocument doc(256);
     bool success = false;
@@ -289,7 +327,7 @@ String WebServer::handleConfigRequest(AsyncWebServerRequest* request)
     return response;
 }
 
-String WebServer::handleHistoricalDataRequest(AsyncWebServerRequest* request)
+String WateringSystemWebServer::handleHistoricalDataRequest(AsyncWebServerRequest* request)
 {
     DynamicJsonDocument doc(8192); // Larger doc for historical data
     
@@ -334,7 +372,107 @@ String WebServer::handleHistoricalDataRequest(AsyncWebServerRequest* request)
     return response;
 }
 
-bool WebServer::start()
+String WateringSystemWebServer::handleWiFiScanRequest(AsyncWebServerRequest* request)
+{
+    DynamicJsonDocument doc(4096); // Large document for WiFi scan results
+    JsonArray networks = doc.createNestedArray("networks");
+    
+    // Scan for WiFi networks
+    int networksFound = WiFi.scanNetworks();
+    
+    for(int i = 0; i < networksFound; i++) {
+        if(i >= 20) break; // Limit to 20 networks to prevent memory issues
+        
+        JsonObject network = networks.createNestedObject();
+        network["ssid"] = WiFi.SSID(i);
+        network["rssi"] = WiFi.RSSI(i);
+        network["encryption"] = WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
+    }
+    
+    // Clean up scan results
+    WiFi.scanDelete();
+    
+    doc["count"] = networksFound;
+    doc["success"] = true;
+    doc["apMode"] = isInApMode;
+    
+    String response;
+    serializeJson(doc, response);
+    return response;
+}
+
+String WateringSystemWebServer::handleWiFiConfigRequest(AsyncWebServerRequest* request)
+{
+    DynamicJsonDocument doc(512);
+    bool success = false;
+    String message = "WiFi configuration not updated";
+    
+    // Only process WiFi configuration if in AP mode and callback is set
+    if(!isInApMode) {
+        doc["success"] = false;
+        doc["message"] = "WiFi configuration only available in AP mode";
+        
+        String response;
+        serializeJson(doc, response);
+        return response;
+    }
+    
+    if(!wifiConfigCallback) {
+        doc["success"] = false;
+        doc["message"] = "WiFi configuration callback not set";
+        
+        String response;
+        serializeJson(doc, response);
+        return response;
+    }
+    
+    // Get WiFi parameters
+    if(request->hasParam("ssid", true) && request->hasParam("password", true)) {
+        String ssid = request->getParam("ssid", true)->value();
+        String password = request->getParam("password", true)->value();
+        
+        // Validate SSID
+        if(ssid.length() < 1 || ssid.length() > 32) {
+            doc["success"] = false;
+            doc["message"] = "Invalid SSID length (1-32 characters required)";
+            
+            String response;
+            serializeJson(doc, response);
+            return response;
+        }
+        
+        // Validate password (8+ characters or empty for open networks)
+        if(password.length() > 0 && password.length() < 8) {
+            doc["success"] = false;
+            doc["message"] = "WiFi password must be at least 8 characters";
+            
+            String response;
+            serializeJson(doc, response);
+            return response;
+        }
+        
+        // Call the callback to save the configuration
+        success = wifiConfigCallback(ssid, password);
+        
+        if(success) {
+            message = "WiFi configuration saved successfully. The system will restart and attempt to connect to the network.";
+        } else {
+            message = "Failed to save WiFi configuration";
+        }
+    } else {
+        message = "Missing required parameters: ssid and password";
+    }
+    
+    doc["success"] = success;
+    doc["message"] = message;
+    doc["restartRequired"] = success;
+    
+    String response;
+    serializeJson(doc, response);
+    return response;
+}
+
+bool WateringSystemWebServer::start()
 {
     if (!initialized) {
         if (!initialize()) {
@@ -347,7 +485,7 @@ bool WebServer::start()
     return true;
 }
 
-bool WebServer::stop()
+bool WateringSystemWebServer::stop()
 {
     if (!initialized) {
         return false;
@@ -357,12 +495,27 @@ bool WebServer::stop()
     return true;
 }
 
-bool WebServer::isRunning() const
+bool WateringSystemWebServer::isRunning() const
 {
     return initialized;
 }
 
-int WebServer::getLastError() const
+void WateringSystemWebServer::setWiFiConfigCallback(WiFiConfigSaveCallback callback)
+{
+    wifiConfigCallback = callback;
+}
+
+void WateringSystemWebServer::enableApMode(bool enabled)
+{
+    isInApMode = enabled;
+}
+
+bool WateringSystemWebServer::isApModeEnabled() const
+{
+    return isInApMode;
+}
+
+int WateringSystemWebServer::getLastError() const
 {
     return lastError;
 }

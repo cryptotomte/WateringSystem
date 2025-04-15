@@ -1,11 +1,12 @@
 /**
- * @file WebServer.h
+ * @file WateringSystemWebServer.h
  * @brief Web server interface for the watering system
  * @author Paul Waserbrot
  * @date 2025-04-15
  */
 
-#pragma once
+#ifndef WATERING_SYSTEM_WEB_SERVER_H
+#define WATERING_SYSTEM_WEB_SERVER_H
 
 #include "WateringController.h"
 #include "sensors/IEnvironmentalSensor.h"
@@ -15,13 +16,16 @@
 #include <memory>
 #include <ESPAsyncWebServer.h>  
 
+// Forward declaration of WiFi config callback type
+typedef bool (*WiFiConfigSaveCallback)(const String&, const String&);
+
 /**
  * @brief Web server for monitoring and controlling the watering system
  * 
  * This class provides a web interface to monitor sensor data, control
  * the water pump, and configure the watering system.
  */
-class WebServer {
+class WateringSystemWebServer {
 private:
     // System components
     WateringController* controller;
@@ -36,6 +40,10 @@ private:
     // Server state
     bool initialized;
     int lastError;
+    bool isInApMode;
+    
+    // WiFi configuration callback
+    WiFiConfigSaveCallback wifiConfigCallback;
     
     // Default server port
     static const int DEFAULT_PORT = 80;
@@ -86,10 +94,24 @@ private:
      * @return JSON response with historical data
      */
     String handleHistoricalDataRequest(AsyncWebServerRequest* request);
+    
+    /**
+     * @brief Handle WiFi configuration requests
+     * @param request API request
+     * @return JSON response with WiFi configuration result
+     */
+    String handleWiFiConfigRequest(AsyncWebServerRequest* request);
+    
+    /**
+     * @brief Handle WiFi scanning requests
+     * @param request API request
+     * @return JSON response with available WiFi networks
+     */
+    String handleWiFiScanRequest(AsyncWebServerRequest* request);
 
 public:
     /**
-     * @brief Constructor for WebServer
+     * @brief Constructor for WateringSystemWebServer
      * @param controller Pointer to watering controller
      * @param environmental Pointer to environmental sensor
      * @param soil Pointer to soil sensor
@@ -97,7 +119,7 @@ public:
      * @param storage Pointer to data storage
      * @param port Server port (default: 80)
      */
-    WebServer(WateringController* controller, 
+    WateringSystemWebServer(WateringController* controller, 
              IEnvironmentalSensor* environmental,
              ISoilSensor* soil,
              IWaterPump* pump,
@@ -107,7 +129,7 @@ public:
     /**
      * @brief Destructor
      */
-    virtual ~WebServer();
+    virtual ~WateringSystemWebServer();
     
     /**
      * @brief Initialize the web server
@@ -138,4 +160,24 @@ public:
      * @return Error code, 0 if no error
      */
     int getLastError() const;
+    
+    /**
+     * @brief Set the WiFi configuration callback
+     * @param callback Function to call when WiFi credentials are saved
+     */
+    void setWiFiConfigCallback(WiFiConfigSaveCallback callback);
+    
+    /**
+     * @brief Enable AP mode configuration interface
+     * @param enabled true to enable AP mode interface, false otherwise
+     */
+    void enableApMode(bool enabled);
+    
+    /**
+     * @brief Check if AP mode is enabled
+     * @return true if in AP mode, false otherwise
+     */
+    bool isApModeEnabled() const;
 };
+
+#endif // WATERING_SYSTEM_WEB_SERVER_H
