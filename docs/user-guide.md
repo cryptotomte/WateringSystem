@@ -129,6 +129,40 @@ When automatic watering is active, the system will:
 - Stop watering when moisture rises above the high threshold
 - Respect the minimum interval between watering cycles
 
+### Reservoir Management
+The WateringSystem includes an automatic reservoir filling feature that maintains water levels in your main reservoir. This ensures your plants always have access to water, even during extended periods of absence.
+
+To use the reservoir management feature:
+
+1. In the "System Control" section, find the "Reservoir Control" area
+2. Toggle the switch to enable the reservoir pump feature
+3. Observe the current water level indicator in the reservoir status display
+
+![Reservoir Controls](../images/reservoir_controls.png)
+*Figure 8: Reservoir management controls and status display*
+
+When the reservoir management feature is enabled:
+- The system automatically monitors water levels using sensors
+- When water level drops too low, the reservoir pump activates to refill
+- When water level reaches the high mark, the pump automatically stops
+- A safety timeout prevents continuous pumping if something goes wrong
+
+**Manual Reservoir Control:**
+You can also manually control the reservoir pump:
+
+1. Ensure the reservoir pump feature is enabled (toggle switch on)
+2. Set your desired fill duration in seconds (or use 0 for automatic stop at high level)
+3. Click "Start Filling" to begin pumping water into the reservoir
+4. If needed, click "Stop Filling" to halt the process immediately
+
+**Understanding the Water Level Display:**
+The water level indicator provides visual feedback about your reservoir's status:
+- **Low** (Yellow): Water level is below the low sensor - will trigger automatic filling
+- **Medium** (Blue): Water level is between sensors - no action needed
+- **Full** (Green): Water level has reached the high sensor - pump will not activate
+
+This feature helps ensure uninterrupted operation of your automatic watering system by maintaining adequate water supply in the main reservoir.
+
 ## Web Interface
 The WateringSystem provides an intuitive web interface that allows you to monitor and control your system from any device on your local network.
 
@@ -337,6 +371,20 @@ This allows you to perform custom analysis, create your own visualizations, or m
   2. Check your moisture threshold settings
   3. Verify the last watering time to ensure minimum interval has passed
   4. Test the pump using manual watering to ensure it's functional
+
+#### Reservoir Pump Not Working
+- **Symptom**: Reservoir pump doesn't activate or reservoir doesn't fill properly
+- **Possible causes**:
+  - Reservoir pump feature is disabled
+  - Water level sensors are disconnected or malfunctioning
+  - Pump is disconnected or damaged
+  - Tubing is blocked or kinked
+- **Solution**:
+  1. Verify the reservoir pump feature is enabled (toggle switch should be on)
+  2. Check the water level sensor connections
+  3. Test the pump using manual filling to isolate the issue
+  4. Inspect tubing for blockages or damage
+  5. Verify the water source for the reservoir pump has sufficient water
 
 ### Diagnostics
 To help diagnose issues:

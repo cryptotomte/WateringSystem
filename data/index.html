@@ -108,6 +108,43 @@
                             <span id="auto-watering-status">Disabled</span>
                         </div>
                     </div>
+                    
+                    <div class="control-group" id="reservoir-controls">
+                        <h3>Reservoir Control</h3>
+                        <div class="toggle-switch">
+                            <label for="reservoir-toggle">Reservoir pump feature:</label>
+                            <label class="switch">
+                                <input type="checkbox" id="reservoir-toggle">
+                                <span class="slider round"></span>
+                            </label>
+                            <span id="reservoir-status">Disabled</span>
+                        </div>
+                        
+                        <div class="reservoir-status">
+                            <div class="level-indicator">
+                                <div class="level-label">Water Level:</div>
+                                <div class="level-bar">
+                                    <div class="level-bar-inner" id="water-level-indicator"></div>
+                                </div>
+                                <div class="level-text" id="water-level-text">Unknown</div>
+                            </div>
+                            
+                            <div class="status-indicator" id="reservoir-pump-status">
+                                <span class="status-dot"></span>
+                                <span class="status-text">Pump Inactive</span>
+                            </div>
+                        </div>
+                        
+                        <div class="button-group reservoir-buttons">
+                            <button id="start-reservoir-pump" class="button primary" disabled>Start Filling</button>
+                            <button id="stop-reservoir-pump" class="button danger" disabled>Stop Filling</button>
+                        </div>
+                        <div class="reservoir-duration">
+                            <label for="reservoir-duration-input">Fill duration:</label>
+                            <input type="number" id="reservoir-duration-input" min="1" max="300" value="60" disabled> seconds
+                            <span class="help-text">(0 for automatic stop at high level)</span>
+                        </div>
+                    </div>
                 </div>
             </section>
 

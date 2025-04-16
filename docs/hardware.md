@@ -31,11 +31,13 @@ This document provides detailed specifications for the hardware components used 
 | GPIO 16 | TX2 | RS485 Converter TX |
 | GPIO 17 | RX2 | RS485 Converter RX |
 | GPIO 25 | DE/RE | RS485 Converter Direction Control |
-| GPIO 26 | Pump Control | Water Pump MOSFET Gate |
-| GPIO 27 | Status LED | System Status Indicator |
+| GPIO 26 | Plant Pump Control | Main Water Pump MOSFET Gate |
+| GPIO 27 | Reservoir Pump Control | Reservoir Filling Pump MOSFET Gate |
+| GPIO 32 | Reservoir Low Level | Water Reservoir Low Level Sensor |
+| GPIO 33 | Reservoir High Level | Water Reservoir High Level Sensor |
+| GPIO 2 | Status LED | System Status Indicator |
 | GPIO 4 | Button 1 | Manual Mode Button |
 | GPIO 5 | Button 2 | Configuration Button |
-| GPIO 36 (ADC1_0) | Water Level | Water Level Sensor |
 
 ### 2. Environmental Sensor
 
@@ -210,55 +212,51 @@ This document provides detailed specifications for the hardware components used 
                           │   │   │   │
 ┌─────────────┐           │   │   │   │           ┌────────────┐
 │             │◄──SDA─────┘   │   │   └───TX────►│            │
-│   BME280    │                   │               │   RS485    │
-│             │◄──SCL─────────────┘   └───RX────►│ Converter  │
-└─────────────┘                               │   │            │
-                                              │   └──────┬─────┘
-                          ┌─────────────┐     │          │
-                          │             │     │          │
-┌─────────────┐           │   Water     │     │     ┌────▼─────┐
-│             │◄──────────┤   Level     │     │     │          │
-│ Water Level │           │   ADC       │     │     │  RS485   │
-│   Sensor    │           │             │     │     │   Bus    │
-└─────────────┘           └──────┬──────┘     │     │          │
-                                 │            │     └────┬─────┘
-                                 │            │          │
-                                 │            │          │
-┌─────────────┐                  │            │     ┌────▼─────┐
-│   12V DC    │                  │            │     │          │
-│   Power     ├──12V─────────────┼────────────┼─────┤  Soil    │
-│   Supply    │                  │            │     │  Sensor  │
-└──────┬──────┘                  │            │     │          │
-       │                         │            │     └──────────┘
-       │                         │            │
-       │                         │            │
-┌──────▼──────┐                  │            │     ┌──────────┐
-│   3.3V      │                  │            │     │   User   │
-│  Regulator  ├──3.3V────────────┼────────────┼─────┤ Interface│
-│             │                  │            │     │(Buttons) │
-└─────────────┘                  │            │     └──────────┘
-                                 │            │
-                                 │            │     ┌──────────┐
-                                 │            │     │          │
-                                 └──────┬─────┼─────┤  Status  │
-                                        │     │     │   LEDs   │
-                                        │     │     │          │
-                                 ┌──────▼─────▼─────▼──────────┘
-                                 │
-                                 │     ┌──────────┐
-                                 │     │          │
-                                 └─────┤   Pump   │
-                                       │ Control  │
-                                       │          │
-                                       └─────┬────┘
-                                             │
-                                             │
-                                       ┌─────▼────┐
-                                       │          │
-                                       │   Water  │
-                                       │   Pump   │
-                                       │          │
-                                       └──────────┘
+│   BME280    │               │   │               │   RS485    │
+│             │◄──SCL─────────┘   └───RX────────►│ Converter  │
+└─────────────┘                   │               │            │
+                                  └───DE/RE─────►└──────┬─────┘
+                                                        │
+┌─────────────┐                                    ┌────▼─────┐
+│  Reservoir  │                                    │          │
+│  Low Level  │◄──GPIO32───┐                       │  RS485   │
+│   Sensor    │            │                       │   Bus    │
+└─────────────┘            │                       │          │
+                           │                       └────┬─────┘
+┌─────────────┐            │                            │
+│  Reservoir  │            │                            │
+│  High Level │◄──GPIO33───┤                       ┌────▼─────┐
+│   Sensor    │            │                       │          │
+└─────────────┘            │                       │  Soil    │
+                           │                       │  Sensor  │
+                           │                       │          │
+┌─────────────┐            │                       └──────────┘
+│   12V DC    │            │
+│   Power     ├──12V───────┼───────────────┬──────────────┐
+│   Supply    │            │               │              │
+└──────┬──────┘            │               │              │
+       │                   │               │              │
+       │                   │               │              │
+┌──────▼──────┐            │          ┌────▼────┐    ┌────▼────┐
+│   3.3V      │            │          │         │    │         │
+│  Regulator  ├──3.3V──────┼──────────┤  Plant  │    │Reservoir│
+│             │            │          │  Pump   │    │  Pump   │
+└─────────────┘            │          │ Control │    │ Control │
+                           │          │         │    │         │
+                           │          └────┬────┘    └────┬────┘
+┌─────────────┐            │               │              │
+│   User      │            │               │              │
+│  Interface  │◄───GPIO4/5─┤          ┌────▼────┐    ┌────▼────┐
+│  (Buttons)  │            │          │         │    │         │
+└─────────────┘            │          │  Plant  │    │Reservoir│
+                           │          │  Water  │    │  Water  │
+                           │          │  Pump   │    │  Pump   │
+┌─────────────┐            │          │         │    │         │
+│             │            │          └─────────┘    └─────────┘
+│   Status    │◄───GPIO2───┘
+│    LED      │
+│             │
+└─────────────┘
 ```
 
 ## BOM (Bill of Materials)
@@ -269,21 +267,23 @@ This document provides detailed specifications for the hardware components used 
 | 2 | BME280 Sensor Module | 1 | Environmental sensing |
 | 3 | RS485 Soil Sensor | 1 | Soil parameters measurement |
 | 4 | SP3485C RS485 to TTL Converter | 1 | Full-featured RS485 transceiver |
-| 5 | 12V DC Water Pump | 1 | 1-3 LPM flow rate |
-| 6 | IRLZ44N N-Channel MOSFET | 1 | Pump control |
-| 7 | 1N4007 Diode | 1 | Flyback protection |
-| 8 | 12V DC Power Supply (2A) | 1 | Main power source |
-| 9 | 3.3V LDO Voltage Regulator | 1 | For digital components |
-| 10 | Capacitors (various values) | ~10 | Power filtering |
-| 11 | Resistors (various values) | ~12 | Pull-up/down, current limiting |
-| 12 | Status LEDs | 3 | Power, status, error indication |
-| 13 | Push Buttons | 2 | User interface |
-| 14 | Terminal Blocks | 4 | For power and pump connections |
-| 15 | PCB | 1 | Custom designed |
-| 16 | Enclosure | 1 | Waterproof, IP65 or better |
-| 17 | Water Tubing | 1-2m | Food-grade silicone |
-| 18 | Shielded Twisted Pair Cable | As needed | For RS485 connection |
-| 19 | Water Level Sensor | 1 | Optional, for reservoir monitoring |
+| 5 | 12V DC Water Pump | 1 | 1-3 LPM flow rate for plant watering |
+| 6 | 12V DC Water Pump | 1 | 1-3 LPM flow rate for reservoir filling |
+| 7 | IRLZ44N N-Channel MOSFET | 2 | Pump control (1 per pump) |
+| 8 | 1N4007 Diode | 2 | Flyback protection (1 per pump) |
+| 9 | Water Level Sensor | 2 | For reservoir low and high water level detection |
+| 10 | 12V DC Power Supply (2A) | 1 | Main power source |
+| 11 | 3.3V LDO Voltage Regulator | 1 | For digital components |
+| 12 | Capacitors (various values) | ~10 | Power filtering |
+| 13 | Resistors (various values) | ~12 | Pull-up/down, current limiting |
+| 14 | Status LEDs | 3 | Power, status, error indication |
+| 15 | Push Buttons | 2 | User interface |
+| 16 | Terminal Blocks | 6 | For power and pump connections |
+| 17 | PCB | 1 | Custom designed |
+| 18 | Enclosure | 1 | Waterproof, IP65 or better |
+| 19 | Water Tubing | 2-3m | Food-grade silicone |
+| 20 | Shielded Twisted Pair Cable | As needed | For RS485 connection |
+| 21 | Water Reservoir | 1 | Main water storage container |
 
 ## Safety Considerations
 

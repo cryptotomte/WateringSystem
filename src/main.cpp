@@ -29,6 +29,8 @@
 #define PIN_RS485_DE          25
 #define PIN_MAIN_PUMP_CONTROL 26
 #define PIN_RESERVOIR_PUMP_CONTROL 27  // Added new pin for reservoir pump
+#define PIN_RESERVOIR_LOW_LEVEL   32  // Sensor for low water level in reservoir
+#define PIN_RESERVOIR_HIGH_LEVEL  33  // Sensor for high water level in reservoir
 #define PIN_STATUS_LED        2       // Changed to a new pin since PIN_RESERVOIR_PUMP_CONTROL now uses pin 27
 #define PIN_BUTTON_MANUAL     4
 #define PIN_BUTTON_CONFIG     5
@@ -54,7 +56,7 @@ WaterPump plantPump(PIN_MAIN_PUMP_CONTROL, "PlantPump");         // Renamed for 
 WaterPump reservoirPump(PIN_RESERVOIR_PUMP_CONTROL, "ReservoirPump"); // Added new pump for filling reservoir
 LittleFSStorage dataStorage;
 WateringController controller(&envSensor, &soilSensor, &plantPump, &dataStorage);
-WateringSystemWebServer webServer(&controller, &envSensor, &soilSensor, &plantPump, &dataStorage, WEB_SERVER_PORT);
+WateringSystemWebServer webServer(&controller, &envSensor, &soilSensor, &plantPump, &dataStorage, WEB_SERVER_PORT, &reservoirPump);
 
 // System state
 unsigned long lastStatusUpdate = 0;
@@ -63,6 +65,14 @@ bool manualButtonPressed = false;
 bool configButtonPressed = false;
 bool systemReady = false;
 bool apMode = false;
+
+// Reservoir system state
+bool reservoirPumpEnabled = false;   // Is reservoir pump feature enabled
+bool reservoirLowLevel = false;      // Is water level low in reservoir
+bool reservoirHighLevel = false;     // Is water level high in reservoir
+bool reservoirPumpRunning = false;   // Is reservoir pump currently running
+unsigned long reservoirPumpStartTime = 0; // When the reservoir pump started
+#define RESERVOIR_PUMP_MAX_RUNTIME 300000 // Maximum run time for reservoir pump (5 minutes)
 
 // Restart state (moved to global scope to fix the build error)
 bool restartScheduled = false;
@@ -94,6 +104,10 @@ void initHardware() {
   // Initialize buttons with pull-ups
   pinMode(PIN_BUTTON_MANUAL, INPUT_PULLUP);
   pinMode(PIN_BUTTON_CONFIG, INPUT_PULLUP);
+  
+  // Initialize reservoir level sensors with pull-ups
+  pinMode(PIN_RESERVOIR_LOW_LEVEL, INPUT_PULLUP);
+  pinMode(PIN_RESERVOIR_HIGH_LEVEL, INPUT_PULLUP);
   
   // Initialize I2C for BME280
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
@@ -378,6 +392,152 @@ void updateStatus() {
 }
 
 /**
+ * @brief Handle reservoir pump control based on water level sensors
+ */
+void handleReservoirPump() {
+  // Skip if reservoir pump feature is disabled
+  if (!reservoirPumpEnabled) {
+    // Make sure pump is off if feature is disabled
+    if (reservoirPump.isRunning()) {
+      reservoirPump.stop();
+      reservoirPumpRunning = false;
+      Serial.println("Reservoir pump stopped (feature disabled)");
+    }
+    return;
+  }
+  
+  // Read water level sensors (sensors are active LOW with pull-ups)
+  reservoirLowLevel = digitalRead(PIN_RESERVOIR_LOW_LEVEL) == LOW;
+  reservoirHighLevel = digitalRead(PIN_RESERVOIR_HIGH_LEVEL) == LOW;
+  
+  // If pump is running, check if it should be stopped
+  if (reservoirPumpRunning) {
+    bool shouldStop = false;
+    
+    // Stop if high level is reached
+    if (reservoirHighLevel) {
+      shouldStop = true;
+      Serial.println("Reservoir pump stopped (high water level reached)");
+    }
+    
+    // Safety timeout - stop if pump has been running too long
+    if (millis() - reservoirPumpStartTime > RESERVOIR_PUMP_MAX_RUNTIME) {
+      shouldStop = true;
+      Serial.println("Reservoir pump stopped (safety timeout)");
+    }
+    
+    if (shouldStop) {
+      reservoirPump.stop();
+      reservoirPumpRunning = false;
+    }
+  }
+  // If pump is not running, check if it should be started
+  else if (reservoirLowLevel && !reservoirHighLevel) {
+    // Start pump if level is low and not already high
+    reservoirPump.start();
+    reservoirPumpRunning = true;
+    reservoirPumpStartTime = millis();
+    Serial.println("Reservoir pump started (low water level detected)");
+  }
+}
+
+/**
+ * @brief Start manual reservoir filling
+ * @param seconds Duration in seconds to run the pump, 0 for indefinite (until high level reached)
+ * @return true if operation started successfully, false otherwise
+ */
+bool startManualReservoirFilling(uint16_t seconds) {
+  // Only allow if feature is enabled
+  if (!reservoirPumpEnabled) {
+    Serial.println("Cannot start manual reservoir filling (feature disabled)");
+    return false;
+  }
+  
+  // Check if high level is already reached
+  reservoirHighLevel = digitalRead(PIN_RESERVOIR_HIGH_LEVEL) == LOW;
+  if (reservoirHighLevel) {
+    Serial.println("Cannot start manual reservoir filling (reservoir already full)");
+    return false;
+  }
+  
+  // Start the pump
+  reservoirPump.start();
+  reservoirPumpRunning = true;
+  reservoirPumpStartTime = millis();
+  
+  // If a duration was specified, set up automatic stop
+  if (seconds > 0) {
+    reservoirPumpStartTime = millis() - (RESERVOIR_PUMP_MAX_RUNTIME - (seconds * 1000));
+    Serial.printf("Reservoir pump started manually for %d seconds\n", seconds);
+  } else {
+    Serial.println("Reservoir pump started manually (will run until high level reached)");
+  }
+  
+  return true;
+}
+
+/**
+ * @brief Stop the reservoir pump
+ */
+void stopReservoirPump() {
+  if (reservoirPumpRunning) {
+    reservoirPump.stop();
+    reservoirPumpRunning = false;
+    Serial.println("Reservoir pump stopped manually");
+  }
+}
+
+/**
+ * @brief Enable or disable the reservoir pump feature
+ * @param enabled true to enable, false to disable
+ */
+void enableReservoirPump(bool enabled) {
+  reservoirPumpEnabled = enabled;
+  
+  // If disabling, make sure pump is stopped
+  if (!enabled && reservoirPumpRunning) {
+    reservoirPump.stop();
+    reservoirPumpRunning = false;
+    Serial.println("Reservoir pump stopped (feature disabled)");
+  }
+  
+  Serial.printf("Reservoir pump feature %s\n", enabled ? "enabled" : "disabled");
+}
+
+/**
+ * @brief Check if reservoir pump feature is enabled
+ * @return true if enabled, false otherwise
+ */
+bool isReservoirPumpEnabled() {
+  return reservoirPumpEnabled;
+}
+
+/**
+ * @brief Get reservoir status information
+ * @param isLow Pointer to store low level status
+ * @param isHigh Pointer to store high level status
+ * @param isRunning Pointer to store pump running status
+ * @return true if status was successfully retrieved, false otherwise
+ */
+bool getReservoirStatus(bool* isLow, bool* isHigh, bool* isRunning) {
+  // Read sensors directly for latest status
+  if (isLow != nullptr) {
+    *isLow = digitalRead(PIN_RESERVOIR_LOW_LEVEL) == LOW;
+  }
+  
+  if (isHigh != nullptr) {
+    *isHigh = digitalRead(PIN_RESERVOIR_HIGH_LEVEL) == LOW;
+  }
+  
+  if (isRunning != nullptr) {
+    *isRunning = reservoirPumpRunning;
+  }
+  
+  // Return true to indicate success
+  return true;
+}
+
+/**
  * @brief Arduino setup function
  */
 void setup() {
@@ -419,6 +579,14 @@ void setup() {
   // Initialize web server
   if (webServer.initialize()) {
     Serial.println("Web server initialized successfully");
+    
+    // Register reservoir pump callbacks
+    webServer.setReservoirPumpEnableCallback(enableReservoirPump);
+    webServer.setReservoirPumpStatusCallback(getReservoirStatus);
+    webServer.setReservoirPumpManualFillCallback(startManualReservoirFilling);
+    webServer.setReservoirPumpStopCallback(stopReservoirPump);
+    webServer.setReservoirPumpEnabledCheckCallback(isReservoirPumpEnabled);
+    
     webServer.start();
   } else {
     Serial.printf("Web server initialization failed, error: %d\n", 
@@ -464,6 +632,9 @@ void loop() {
   
   // Update status display periodically
   updateStatus();
+  
+  // Handle reservoir pump control
+  handleReservoirPump();
   
   // LED status indication
   if (apMode) {

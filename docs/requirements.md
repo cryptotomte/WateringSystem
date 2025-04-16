@@ -79,7 +79,9 @@ The WateringSystem operates as a standalone device that can be placed near plant
 - The system shall interface with a BME280 sensor via I2C protocol
 - The system shall interface with the soil sensor via RS485/Modbus RTU protocol
 - The system shall include a high-quality RS485 to TTL converter for reliable communication with the soil sensor
-- The system shall control a 12V water pump via appropriate driver circuit
+- The system shall control a 12V water pump via appropriate driver circuit for plant watering
+- The system shall control a secondary 12V water pump for reservoir filling
+- The system shall interface with water level sensors to monitor reservoir levels
 - The system shall include status LEDs to indicate operation status
 - The system shall include manual override buttons for direct control
 
@@ -162,6 +164,15 @@ The WateringSystem operates as a standalone device that can be placed near plant
 - The system shall consider other soil parameters (EC, pH) when determining watering needs
 - The system shall prevent overwatering through configurable limits
 - The system shall provide manual override capabilities for immediate watering
+
+### 5.3 Reservoir Management
+- The system shall automatically maintain water levels in the main reservoir using a secondary pump
+- The system shall use water level sensors to detect low and high water levels in the reservoir
+- The system shall automatically start the reservoir pump when low water level is detected
+- The system shall automatically stop the reservoir pump when high water level is detected
+- The system shall include safety timeout functionality to prevent continuous pump operation
+- The system shall allow manual control of the reservoir pump through the web interface
+- The system shall provide status information about the reservoir water level and pump operation
 
 ### 5.3 Web Interface
 - The system shall provide a responsive web interface accessible from the local network

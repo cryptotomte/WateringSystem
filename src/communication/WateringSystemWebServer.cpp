@@ -22,19 +22,26 @@
 WateringSystemWebServer::WateringSystemWebServer(WateringController* controller, 
                    IEnvironmentalSensor* environmental,
                    ISoilSensor* soil,
-                   IWaterPump* pump,
+                   IWaterPump* plant,
                    IDataStorage* storage,
-                   int port)
+                   int port,
+                   IWaterPump* reservoir)
     : controller(controller)
     , envSensor(environmental)
     , soilSensor(soil)
-    , waterPump(pump)
+    , plantPump(plant)
+    , reservoirPump(reservoir)
     , dataStorage(storage)
     , server(port)
     , initialized(false)
     , lastError(0)
     , isInApMode(false)
     , wifiConfigCallback(nullptr)
+    , reservoirPumpEnableCallback(nullptr)
+    , reservoirPumpStatusCallback(nullptr)
+    , reservoirPumpManualFillCallback(nullptr)
+    , reservoirPumpStopCallback(nullptr)
+    , reservoirPumpEnabledCheckCallback(nullptr)
 {
 }
 
@@ -53,7 +60,7 @@ bool WateringSystemWebServer::initialize()
     }
     
     // Check that all required components are provided
-    if (!controller || !envSensor || !soilSensor || !waterPump || !dataStorage) {
+    if (!controller || !envSensor || !soilSensor || !plantPump || !dataStorage) {
         lastError = 1; // Missing component
         return false;
     }
@@ -112,6 +119,12 @@ void WateringSystemWebServer::setupEndpoints()
     
     server.on("/api/historical-data", HTTP_GET, [this](AsyncWebServerRequest *request) {
         String response = handleHistoricalDataRequest(request);
+        request->send(200, "application/json", response);
+    });
+    
+    // Reservoir pump control endpoint
+    server.on("/api/reservoir", HTTP_POST, [this](AsyncWebServerRequest *request) {
+        String response = handleReservoirPumpRequest(request);
         request->send(200, "application/json", response);
     });
     
@@ -189,11 +202,31 @@ String WateringSystemWebServer::handleStatusRequest(AsyncWebServerRequest* reque
     DynamicJsonDocument doc(1024);
     
     // System status
-    doc["pumpRunning"] = waterPump->isRunning();
+    doc["pumpRunning"] = plantPump->isRunning();
     doc["wateringEnabled"] = controller->isWateringEnabled();
     
-    if (waterPump->isRunning()) {
-        doc["runTime"] = waterPump->getRunTime();
+    if (plantPump->isRunning()) {
+        doc["runTime"] = plantPump->getRunTime();
+    }
+    
+    // Reservoir status if available
+    if (reservoirPump != nullptr && reservoirPumpStatusCallback && reservoirPumpEnabledCheckCallback) {
+        bool isLow = false;
+        bool isHigh = false;
+        bool isRunning = false;
+        
+        JsonObject reservoir = doc.createNestedObject("reservoir");
+        reservoir["enabled"] = reservoirPumpEnabledCheckCallback();
+        
+        if (reservoirPumpStatusCallback(&isLow, &isHigh, &isRunning)) {
+            reservoir["lowLevelDetected"] = isLow;
+            reservoir["highLevelDetected"] = isHigh;
+            reservoir["pumpRunning"] = isRunning;
+            
+            if (isRunning && reservoirPump) {
+                reservoir["runTime"] = reservoirPump->getRunTime();
+            }
+        }
     }
     
     // Configuration
@@ -472,6 +505,108 @@ String WateringSystemWebServer::handleWiFiConfigRequest(AsyncWebServerRequest* r
     return response;
 }
 
+String WateringSystemWebServer::handleReservoirPumpRequest(AsyncWebServerRequest* request)
+{
+    DynamicJsonDocument doc(256);
+    bool success = false;
+    String message = "Invalid command";
+    
+    // Check if reservoir pump feature has been enabled
+    bool hasReservoirFeature = reservoirPump != nullptr && reservoirPumpEnabledCheckCallback != nullptr;
+    bool isReservoirEnabled = hasReservoirFeature && reservoirPumpEnabledCheckCallback();
+    
+    // Return error if feature is not available or not enabled
+    if (!hasReservoirFeature) {
+        doc["success"] = false;
+        doc["message"] = "Reservoir pump feature not available";
+        
+        String response;
+        serializeJson(doc, response);
+        return response;
+    }
+    
+    // Get command parameter
+    if (request->hasParam("command", true)) {
+        String command = request->getParam("command", true)->value();
+        
+        if (command == "enable") {
+            // Enable the reservoir pump feature
+            if (reservoirPumpEnableCallback) {
+                reservoirPumpEnableCallback(true);
+                success = true;
+                message = "Reservoir pump feature enabled";
+            } else {
+                message = "Enable callback not set";
+            }
+        }
+        else if (command == "disable") {
+            // Disable the reservoir pump feature
+            if (reservoirPumpEnableCallback) {
+                reservoirPumpEnableCallback(false);
+                success = true;
+                message = "Reservoir pump feature disabled";
+            } else {
+                message = "Disable callback not set";
+            }
+        }
+        else if (command == "start" && isReservoirEnabled) {
+            // Start manual reservoir filling
+            if (reservoirPumpManualFillCallback) {
+                // Get duration parameter (optional)
+                int duration = 0;
+                if (request->hasParam("duration", true)) {
+                    duration = request->getParam("duration", true)->value().toInt();
+                }
+                
+                success = reservoirPumpManualFillCallback(duration);
+                message = success ? "Reservoir filling started" : "Failed to start reservoir filling";
+            } else {
+                message = "Start callback not set";
+            }
+        }
+        else if (command == "stop" && isReservoirEnabled) {
+            // Stop the reservoir pump
+            if (reservoirPumpStopCallback) {
+                reservoirPumpStopCallback();
+                success = true;
+                message = "Reservoir pump stopped";
+            } else {
+                message = "Stop callback not set";
+            }
+        }
+        else if (command == "status") {
+            // Get reservoir status
+            if (reservoirPumpStatusCallback) {
+                bool isLow = false;
+                bool isHigh = false;
+                bool isRunning = false;
+                
+                success = reservoirPumpStatusCallback(&isLow, &isHigh, &isRunning);
+                
+                if (success) {
+                    JsonObject status = doc.createNestedObject("status");
+                    status["enabled"] = isReservoirEnabled;
+                    status["lowLevelDetected"] = isLow;
+                    status["highLevelDetected"] = isHigh;
+                    status["pumpRunning"] = isRunning;
+                    message = "Status retrieved successfully";
+                } else {
+                    message = "Failed to get reservoir status";
+                }
+            } else {
+                message = "Status callback not set";
+            }
+        }
+    }
+    
+    doc["success"] = success;
+    doc["message"] = message;
+    
+    String response;
+    serializeJson(doc, response);
+    return response;
+}
+
 bool WateringSystemWebServer::start()
 {
     if (!initialized) {
@@ -518,4 +653,29 @@ bool WateringSystemWebServer::isApModeEnabled() const
 int WateringSystemWebServer::getLastError() const
 {
     return lastError;
+}
+
+void WateringSystemWebServer::setReservoirPumpEnableCallback(ReservoirPumpEnableCallback callback)
+{
+    reservoirPumpEnableCallback = callback;
+}
+
+void WateringSystemWebServer::setReservoirPumpStatusCallback(ReservoirPumpStatusCallback callback)
+{
+    reservoirPumpStatusCallback = callback;
+}
+
+void WateringSystemWebServer::setReservoirPumpManualFillCallback(ReservoirPumpManualFillCallback callback)
+{
+    reservoirPumpManualFillCallback = callback;
+}
+
+void WateringSystemWebServer::setReservoirPumpStopCallback(ReservoirPumpStopCallback callback)
+{
+    reservoirPumpStopCallback = callback;
+}
+
+void WateringSystemWebServer::setReservoirPumpEnabledCheckCallback(ReservoirPumpEnabledCheckCallback callback)
+{
+    reservoirPumpEnabledCheckCallback = callback;
 }

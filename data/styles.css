@@ -590,3 +590,103 @@ input:checked + .slider:before {
         gap: var(--spacing-sm);
     }
 }
+
+/* Reservoir specific styles */
+.reservoir-status {
+    margin-top: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+    padding: var(--spacing-md);
+    background-color: rgba(0, 0, 0, 0.03);
+    border-radius: var(--border-radius-sm);
+}
+
+.level-indicator {
+    margin-bottom: var(--spacing-md);
+}
+
+.level-label {
+    font-weight: 500;
+    margin-bottom: var(--spacing-xs);
+}
+
+.level-bar {
+    height: 20px;
+    width: 100%;
+    background-color: #e0e0e0;
+    border-radius: var(--border-radius-sm);
+    overflow: hidden;
+    position: relative;
+}
+
+.level-bar-inner {
+    height: 100%;
+    width: 0;
+    background-color: var(--primary-color);
+    transition: width var(--transition-normal);
+}
+
+.level-text {
+    margin-top: var(--spacing-xs);
+    font-size: var(--font-size-small);
+    text-align: center;
+}
+
+.reservoir-buttons {
+    margin-bottom: var(--spacing-sm);
+}
+
+.reservoir-duration {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    flex-wrap: wrap;
+}
+
+.help-text {
+    font-size: var(--font-size-small);
+    color: var(--disabled-color);
+}
+
+#reservoir-pump-status {
+    margin-top: var(--spacing-md);
+}
+
+#reservoir-pump-status.active .status-dot {
+    background-color: var(--info-color);
+}
+
+#reservoir-pump-status.running .status-dot {
+    background-color: var(--success-color);
+    animation: pulse 1.5s infinite;
+}
+
+#water-level-indicator.empty {
+    width: 0%;
+}
+
+#water-level-indicator.low {
+    width: 30%;
+    background-color: var(--warning-color);
+}
+
+#water-level-indicator.medium {
+    width: 60%;
+    background-color: var(--info-color);
+}
+
+#water-level-indicator.full {
+    width: 100%;
+    background-color: var(--success-color);
+}
+
+@keyframes pulse {
+    0% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+    100% {
+        opacity: 1;
+    }
+}

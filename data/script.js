@@ -24,6 +24,12 @@ const appState = {
         moistureThresholdHigh: 60,
         wateringDuration: 20,
         minWateringInterval: 6
+    },
+    reservoir: {
+        enabled: false,
+        pumpRunning: false,
+        lowLevelDetected: false,
+        highLevelDetected: false
     }
 };
 
@@ -51,6 +57,16 @@ const elements = {
     wateringDurationInput: document.getElementById('watering-duration-input'),
     autoWateringToggle: document.getElementById('auto-watering-toggle'),
     autoWateringStatus: document.getElementById('auto-watering-status'),
+    
+    // Reservoir control
+    reservoirToggle: document.getElementById('reservoir-toggle'),
+    reservoirStatus: document.getElementById('reservoir-status'),
+    waterLevelIndicator: document.getElementById('water-level-indicator'),
+    waterLevelText: document.getElementById('water-level-text'),
+    reservoirPumpStatus: document.getElementById('reservoir-pump-status'),
+    startReservoirPumpBtn: document.getElementById('start-reservoir-pump'),
+    stopReservoirPumpBtn: document.getElementById('stop-reservoir-pump'),
+    reservoirDurationInput: document.getElementById('reservoir-duration-input'),
     
     // Settings form
     settingsForm: document.getElementById('settings-form'),
@@ -133,6 +149,25 @@ function setupEventListeners() {
     // Auto watering toggle
     elements.autoWateringToggle.addEventListener('change', (e) => {
         setAutoWatering(e.target.checked);
+    });
+    
+    // Reservoir controls
+    elements.reservoirToggle.addEventListener('change', (e) => {
+        setReservoirPumpEnabled(e.target.checked);
+    });
+    
+    elements.startReservoirPumpBtn.addEventListener('click', () => {
+        showConfirmation(
+            'Are you sure you want to start filling the reservoir?',
+            () => startReservoirFilling(elements.reservoirDurationInput.value)
+        );
+    });
+    
+    elements.stopReservoirPumpBtn.addEventListener('click', () => {
+        showConfirmation(
+            'Are you sure you want to stop the reservoir pump?',
+            stopReservoirPump
+        );
     });
     
     // Settings form
@@ -265,28 +300,43 @@ async function fetchSystemStatus() {
  */
 function updateSystemStatus(data) {
     // Update watering status
-    appState.isWatering = data.isWatering;
-    updateWateringStatus(data.isWatering);
+    appState.isWatering = data.pumpRunning;
+    updateWateringStatus(data.pumpRunning);
     
     // Update auto watering status
-    appState.autoWateringEnabled = data.autoWateringEnabled;
-    elements.autoWateringToggle.checked = data.autoWateringEnabled;
-    elements.autoWateringStatus.textContent = data.autoWateringEnabled ? 'Enabled' : 'Disabled';
+    appState.autoWateringEnabled = data.wateringEnabled;
+    elements.autoWateringToggle.checked = data.wateringEnabled;
+    elements.autoWateringStatus.textContent = data.wateringEnabled ? 'Enabled' : 'Disabled';
+    
+    // Update reservoir status if available
+    if (data.reservoir) {
+        appState.reservoir.enabled = data.reservoir.enabled;
+        appState.reservoir.pumpRunning = data.reservoir.pumpRunning;
+        appState.reservoir.lowLevelDetected = data.reservoir.lowLevelDetected;
+        appState.reservoir.highLevelDetected = data.reservoir.highLevelDetected;
+        
+        updateReservoirStatus(data.reservoir);
+    }
     
     // Update system info
-    if (data.system) {
-        elements.systemIp.textContent = data.system.ip || '--';
-        
-        if (data.system.storage) {
-            const usedPercent = ((data.system.storage.used / data.system.storage.total) * 100).toFixed(1);
-            elements.storageUsage.textContent = `${usedPercent}% (${formatBytes(data.system.storage.used)} / ${formatBytes(data.system.storage.total)})`;
-        }
+    if (data.network) {
+        elements.systemIp.textContent = data.network.ip || '--';
+    }
+    
+    if (data.storage) {
+        const usedPercent = ((data.storage.usedKB / data.storage.totalKB) * 100).toFixed(1);
+        elements.storageUsage.textContent = `${usedPercent}% (${data.storage.usedKB} KB / ${data.storage.totalKB} KB)`;
     }
     
     // Update settings if available
-    if (data.settings) {
-        appState.settings = data.settings;
-        updateSettingsForm(data.settings);
+    if (data.config) {
+        appState.settings = {
+            moistureThresholdLow: data.config.moistureThresholdLow,
+            moistureThresholdHigh: data.config.moistureThresholdHigh,
+            wateringDuration: data.config.wateringDuration,
+            minWateringInterval: data.config.minWateringInterval
+        };
+        updateSettingsForm(appState.settings);
     }
 }
 
@@ -745,6 +795,180 @@ function formatBytes(bytes, decimals = 1) {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
+/**
+ * Update the reservoir status display
+ * @param {Object} reservoirData - Reservoir status data from the API
+ */
+function updateReservoirStatus(reservoirData) {
+    // Update toggle
+    elements.reservoirToggle.checked = reservoirData.enabled;
+    elements.reservoirStatus.textContent = reservoirData.enabled ? 'Enabled' : 'Disabled';
+    
+    // Update buttons and input states
+    elements.startReservoirPumpBtn.disabled = !reservoirData.enabled || reservoirData.pumpRunning || reservoirData.highLevelDetected;
+    elements.stopReservoirPumpBtn.disabled = !reservoirData.enabled || !reservoirData.pumpRunning;
+    elements.reservoirDurationInput.disabled = !reservoirData.enabled;
+    
+    // Update water level indicator
+    let levelClass = 'empty';
+    let levelText = 'Empty';
+    
+    if (reservoirData.highLevelDetected) {
+        levelClass = 'full';
+        levelText = 'Full';
+    } else if (reservoirData.lowLevelDetected) {
+        levelClass = 'medium';
+        levelText = 'Medium';
+    } else {
+        levelClass = 'low';
+        levelText = 'Low';
+    }
+    
+    elements.waterLevelIndicator.className = 'level-bar-inner ' + levelClass;
+    elements.waterLevelText.textContent = levelText;
+    
+    // Update pump status
+    if (reservoirData.pumpRunning) {
+        elements.reservoirPumpStatus.classList.add('running');
+        elements.reservoirPumpStatus.classList.remove('active');
+        elements.reservoirPumpStatus.querySelector('.status-text').textContent = 'Pump Running';
+    } else if (reservoirData.enabled) {
+        elements.reservoirPumpStatus.classList.add('active');
+        elements.reservoirPumpStatus.classList.remove('running');
+        elements.reservoirPumpStatus.querySelector('.status-text').textContent = 'Pump Ready';
+    } else {
+        elements.reservoirPumpStatus.classList.remove('active', 'running');
+        elements.reservoirPumpStatus.querySelector('.status-text').textContent = 'Pump Inactive';
+    }
+}
+
+/**
+ * Enable or disable the reservoir pump feature via API
+ * @param {boolean} enabled - Whether the reservoir pump feature should be enabled
+ */
+async function setReservoirPumpEnabled(enabled) {
+    try {
+        const response = await fetch(`${API_CONFIG.ENDPOINT}/reservoir`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ command: enabled ? 'enable' : 'disable' })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error ${response.status}`);
+        }
+        
+        const data = await response.json();
+        if (data.success) {
+            appState.reservoir.enabled = enabled;
+            showNotification('Reservoir Pump', `Reservoir pump feature has been ${enabled ? 'enabled' : 'disabled'}.`, 'info');
+            
+            // Update UI immediately for better responsiveness
+            updateReservoirStatus({
+                ...appState.reservoir,
+                enabled: enabled
+            });
+            
+            // Fetch full status to ensure everything is in sync
+            fetchSystemStatus();
+        } else {
+            throw new Error(data.message || 'Unknown error');
+        }
+    } catch (error) {
+        console.error('Error setting reservoir pump feature:', error);
+        showNotification('Reservoir Error', `Failed to ${enabled ? 'enable' : 'disable'} reservoir pump feature: ${error.message}`, 'error');
+        
+        // Revert UI to previous state
+        elements.reservoirToggle.checked = appState.reservoir.enabled;
+    }
+}
+
+/**
+ * Start reservoir filling via API
+ * @param {number} duration - Filling duration in seconds (0 for automatic stop at high level)
+ */
+async function startReservoirFilling(duration) {
+    try {
+        const response = await fetch(`${API_CONFIG.ENDPOINT}/reservoir`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+                command: 'start',
+                duration: parseInt(duration) || 0
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error ${response.status}`);
+        }
+        
+        const data = await response.json();
+        if (data.success) {
+            if (parseInt(duration) > 0) {
+                showNotification('Reservoir Filling Started', `Reservoir filling started for ${duration} seconds.`, 'success');
+            } else {
+                showNotification('Reservoir Filling Started', 'Reservoir filling started (will stop automatically when full).', 'success');
+            }
+            
+            // Update UI immediately for better responsiveness
+            updateReservoirStatus({
+                ...appState.reservoir,
+                pumpRunning: true
+            });
+            
+            // Fetch full status to ensure everything is in sync
+            fetchSystemStatus();
+        } else {
+            throw new Error(data.message || 'Unknown error');
+        }
+    } catch (error) {
+        console.error('Error starting reservoir filling:', error);
+        showNotification('Reservoir Error', `Failed to start reservoir filling: ${error.message}`, 'error');
+    }
+}
+
+/**
+ * Stop reservoir pump via API
+ */
+async function stopReservoirPump() {
+    try {
+        const response = await fetch(`${API_CONFIG.ENDPOINT}/reservoir`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ command: 'stop' })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error ${response.status}`);
+        }
+        
+        const data = await response.json();
+        if (data.success) {
+            showNotification('Reservoir Pump Stopped', 'Reservoir pump has been stopped.', 'info');
+            
+            // Update UI immediately for better responsiveness
+            updateReservoirStatus({
+                ...appState.reservoir,
+                pumpRunning: false
+            });
+            
+            // Fetch full status to ensure everything is in sync
+            fetchSystemStatus();
+        } else {
+            throw new Error(data.message || 'Unknown error');
+        }
+    } catch (error) {
+        console.error('Error stopping reservoir pump:', error);
+        showNotification('Reservoir Error', `Failed to stop reservoir pump: ${error.message}`, 'error');
+    }
 }
 
 // Initialize the application when the DOM is fully loaded

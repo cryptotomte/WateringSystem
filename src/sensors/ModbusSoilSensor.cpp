@@ -221,7 +221,7 @@ bool ModbusSoilSensor::calibrateMoisture(float referenceValue)
     
     // Store calibration factor in sensor (optional)
     uint16_t calibFactorRegValue = convertFloatToRegister(moistureCalibrationFactor, 100.0f);
-    if (!modbusClient->writeHoldingRegister(deviceAddress, REG_MOISTURE_CALIB, calibFactorRegValue)) {
+    if (!modbusClient->writeSingleRegister(deviceAddress, REG_MOISTURE_CALIB, calibFactorRegValue)) {
         // Non-fatal error - we'll still use the calibration factor locally
         lastError = 8; // Failed to write calibration factor to sensor
     } else {
@@ -260,7 +260,7 @@ bool ModbusSoilSensor::calibratePH(float referenceValue)
     
     // Store calibration factor in sensor (optional)
     uint16_t calibFactorRegValue = convertFloatToRegister(phCalibrationFactor, 100.0f);
-    if (!modbusClient->writeHoldingRegister(deviceAddress, REG_PH_CALIB, calibFactorRegValue)) {
+    if (!modbusClient->writeSingleRegister(deviceAddress, REG_PH_CALIB, calibFactorRegValue)) {
         // Non-fatal error - we'll still use the calibration factor locally
         lastError = 11; // Failed to write calibration factor to sensor
     } else {
@@ -299,7 +299,7 @@ bool ModbusSoilSensor::calibrateEC(float referenceValue)
     
     // Store calibration factor in sensor (optional)
     uint16_t calibFactorRegValue = convertFloatToRegister(ecCalibrationFactor, 100.0f);
-    if (!modbusClient->writeHoldingRegister(deviceAddress, REG_EC_CALIB, calibFactorRegValue)) {
+    if (!modbusClient->writeSingleRegister(deviceAddress, REG_EC_CALIB, calibFactorRegValue)) {
         // Non-fatal error - we'll still use the calibration factor locally
         lastError = 14; // Failed to write calibration factor to sensor
     } else {

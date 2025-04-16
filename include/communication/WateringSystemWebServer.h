@@ -19,6 +19,13 @@
 // Forward declaration of WiFi config callback type
 typedef bool (*WiFiConfigSaveCallback)(const String&, const String&);
 
+// Forward declaration of Reservoir pump callback types
+typedef void (*ReservoirPumpEnableCallback)(bool);
+typedef bool (*ReservoirPumpStatusCallback)(bool*, bool*, bool*);
+typedef bool (*ReservoirPumpManualFillCallback)(uint16_t);
+typedef void (*ReservoirPumpStopCallback)();
+typedef bool (*ReservoirPumpEnabledCheckCallback)();
+
 /**
  * @brief Web server for monitoring and controlling the watering system
  * 
@@ -31,7 +38,8 @@ private:
     WateringController* controller;
     IEnvironmentalSensor* envSensor;
     ISoilSensor* soilSensor;
-    IWaterPump* waterPump;
+    IWaterPump* plantPump;  // Renamed from waterPump to plantPump for clarity
+    IWaterPump* reservoirPump; // Added for reservoir control
     IDataStorage* dataStorage;
     
     // Web server
@@ -44,6 +52,13 @@ private:
     
     // WiFi configuration callback
     WiFiConfigSaveCallback wifiConfigCallback;
+    
+    // Reservoir pump callbacks
+    ReservoirPumpEnableCallback reservoirPumpEnableCallback;
+    ReservoirPumpStatusCallback reservoirPumpStatusCallback;
+    ReservoirPumpManualFillCallback reservoirPumpManualFillCallback;
+    ReservoirPumpStopCallback reservoirPumpStopCallback;
+    ReservoirPumpEnabledCheckCallback reservoirPumpEnabledCheckCallback;
     
     // Default server port
     static const int DEFAULT_PORT = 80;
@@ -115,16 +130,18 @@ public:
      * @param controller Pointer to watering controller
      * @param environmental Pointer to environmental sensor
      * @param soil Pointer to soil sensor
-     * @param pump Pointer to water pump
+     * @param plant Pointer to plant water pump
+     * @param reservoir Pointer to reservoir pump (can be nullptr if not used)
      * @param storage Pointer to data storage
      * @param port Server port (default: 80)
      */
     WateringSystemWebServer(WateringController* controller, 
              IEnvironmentalSensor* environmental,
              ISoilSensor* soil,
-             IWaterPump* pump,
+             IWaterPump* plant,
              IDataStorage* storage,
-             int port = DEFAULT_PORT);
+             int port = DEFAULT_PORT,
+             IWaterPump* reservoir = nullptr);
     
     /**
      * @brief Destructor
@@ -178,6 +195,43 @@ public:
      * @return true if in AP mode, false otherwise
      */
     bool isApModeEnabled() const;
+    
+    /**
+     * @brief Set the reservoir pump enable callback
+     * @param callback Function to call when reservoir pump feature is enabled/disabled
+     */
+    void setReservoirPumpEnableCallback(ReservoirPumpEnableCallback callback);
+    
+    /**
+     * @brief Set the reservoir pump status callback
+     * @param callback Function to call to get reservoir pump status
+     */
+    void setReservoirPumpStatusCallback(ReservoirPumpStatusCallback callback);
+    
+    /**
+     * @brief Set the reservoir pump manual fill callback
+     * @param callback Function to call to start manual reservoir filling
+     */
+    void setReservoirPumpManualFillCallback(ReservoirPumpManualFillCallback callback);
+    
+    /**
+     * @brief Set the reservoir pump stop callback
+     * @param callback Function to call to stop the reservoir pump
+     */
+    void setReservoirPumpStopCallback(ReservoirPumpStopCallback callback);
+    
+    /**
+     * @brief Set the reservoir pump enabled check callback
+     * @param callback Function to call to check if reservoir pump feature is enabled
+     */
+    void setReservoirPumpEnabledCheckCallback(ReservoirPumpEnabledCheckCallback callback);
+    
+    /**
+     * @brief Handle reservoir pump API requests
+     * @param request API request
+     * @return JSON response with reservoir pump operation result
+     */
+    String handleReservoirPumpRequest(AsyncWebServerRequest* request);
 };
 
 #endif // WATERING_SYSTEM_WEB_SERVER_H
