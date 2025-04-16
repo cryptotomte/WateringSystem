@@ -2,14 +2,16 @@
  * @file ModbusSoilSensor.h
  * @brief Modbus soil sensor implementation
  * @author WateringSystem Team
- * @date 2025-04-15
+ * @date 2025-04-16
  */
 
-#ifndef MODBUS_SOIL_SENSOR_H
-#define MODBUS_SOIL_SENSOR_H
+#ifndef WATERINGSYSTEM_SENSORS_MODBUSSOILSENSOR_H
+#define WATERINGSYSTEM_SENSORS_MODBUSSOILSENSOR_H
 
 #include "sensors/ISoilSensor.h"
 #include "communication/IModbusClient.h"
+#include <map>
+#include <string>
 
 /**
  * @brief Implementation of the soil sensor interface for RS485 Modbus sensors
@@ -36,7 +38,24 @@ private:
     float phosphorus;
     float potassium;
     
-    // Register map
+    // Calibration factors for each parameter
+    float moistureCalibrationFactor;
+    float phCalibrationFactor;
+    float ecCalibrationFactor;
+    
+    // Valid ranges for sensor readings
+    struct ValidRange {
+        float min;
+        float max;
+        bool isSet;
+        
+        ValidRange() : min(0.0f), max(0.0f), isSet(false) {}
+        ValidRange(float minVal, float maxVal) : min(minVal), max(maxVal), isSet(true) {}
+    };
+    
+    std::map<std::string, ValidRange> validRanges;
+    
+    // Register map for sensor readings
     static const uint16_t REG_MOISTURE = 0x0000;
     static const uint16_t REG_TEMPERATURE = 0x0001;
     static const uint16_t REG_PH = 0x0002;
@@ -45,7 +64,16 @@ private:
     static const uint16_t REG_PHOSPHORUS = 0x0005;
     static const uint16_t REG_POTASSIUM = 0x0006;
     static const uint16_t REG_HUMIDITY = 0x0007;
-
+    
+    // Register map for calibration
+    static const uint16_t REG_MOISTURE_CALIB = 0x0100;
+    static const uint16_t REG_PH_CALIB = 0x0101;
+    static const uint16_t REG_EC_CALIB = 0x0102;
+    
+    // Utility methods
+    float convertRegisterToFloat(uint16_t registerValue, float scale);
+    uint16_t convertFloatToRegister(float value, float scale);
+    
 public:
     /**
      * @brief Constructor for ModbusSoilSensor
@@ -77,6 +105,15 @@ public:
     float getNitrogen() override;
     float getPhosphorus() override;
     float getPotassium() override;
+    
+    // Calibration methods
+    bool calibrateMoisture(float referenceValue) override;
+    bool calibratePH(float referenceValue) override;
+    bool calibrateEC(float referenceValue) override;
+    
+    // Range validation methods
+    bool setValidRange(const char* parameter, float minValue, float maxValue) override;
+    bool isWithinValidRange(const char* parameter, float value) override;
 };
 
-#endif // MODBUS_SOIL_SENSOR_H
+#endif // WATERINGSYSTEM_SENSORS_MODBUSSOILSENSOR_H

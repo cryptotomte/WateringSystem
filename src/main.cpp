@@ -27,8 +27,9 @@
 #define PIN_RS485_TX          16
 #define PIN_RS485_RX          17
 #define PIN_RS485_DE          25
-#define PIN_PUMP_CONTROL      26
-#define PIN_STATUS_LED        27
+#define PIN_MAIN_PUMP_CONTROL 26
+#define PIN_RESERVOIR_PUMP_CONTROL 27  // Added new pin for reservoir pump
+#define PIN_STATUS_LED        2       // Changed to a new pin since PIN_RESERVOIR_PUMP_CONTROL now uses pin 27
 #define PIN_BUTTON_MANUAL     4
 #define PIN_BUTTON_CONFIG     5
 
@@ -49,10 +50,11 @@ BME280Sensor envSensor(BME280_I2C_ADDR, "BME280");
 HardwareSerial rs485Serial(2);  // Using UART2 for RS485
 SP3485ModbusClient modbusClient(&rs485Serial, PIN_RS485_DE);
 ModbusSoilSensor soilSensor(&modbusClient, SOIL_SENSOR_MODBUS_ADDR, "SoilSensor");
-WaterPump waterPump(PIN_PUMP_CONTROL, "MainPump");
+WaterPump plantPump(PIN_MAIN_PUMP_CONTROL, "PlantPump");         // Renamed for clarity
+WaterPump reservoirPump(PIN_RESERVOIR_PUMP_CONTROL, "ReservoirPump"); // Added new pump for filling reservoir
 LittleFSStorage dataStorage;
-WateringController controller(&envSensor, &soilSensor, &waterPump, &dataStorage);
-WateringSystemWebServer webServer(&controller, &envSensor, &soilSensor, &waterPump, &dataStorage, WEB_SERVER_PORT);
+WateringController controller(&envSensor, &soilSensor, &plantPump, &dataStorage);
+WateringSystemWebServer webServer(&controller, &envSensor, &soilSensor, &plantPump, &dataStorage, WEB_SERVER_PORT);
 
 // System state
 unsigned long lastStatusUpdate = 0;
@@ -286,7 +288,7 @@ void handleButtons() {
     Serial.println("Manual watering button pressed");
     
     // Toggle the pump
-    if (waterPump.isRunning()) {
+    if (plantPump.isRunning()) {
       controller.stopWatering();
       Serial.println("Manual watering stopped");
     } else {
@@ -348,7 +350,7 @@ void updateStatus() {
   }
   
   // Report pump status
-  Serial.printf("Pump status: %s\n", waterPump.isRunning() ? 
+  Serial.printf("Pump status: %s\n", plantPump.isRunning() ? 
                                      "Running" : "Stopped");
   
   // Report system status
@@ -467,7 +469,7 @@ void loop() {
   if (apMode) {
     // Fast blinking in AP mode
     digitalWrite(PIN_STATUS_LED, ((millis() / 200) % 2) ? HIGH : LOW);
-  } else if (waterPump.isRunning()) {
+  } else if (plantPump.isRunning()) {
     // Medium blinking when pump is running
     digitalWrite(PIN_STATUS_LED, ((millis() / 500) % 2) ? HIGH : LOW);
   } else {
