@@ -14,7 +14,9 @@
 #include "actuators/IWaterPump.h"
 #include "storage/IDataStorage.h"
 #include <memory>
-#include <ESPAsyncWebServer.h>  
+#include <ESPAsyncWebServer.h>
+#include <AsyncJson.h>
+#include <ArduinoJson.h>
 
 // Forward declaration of WiFi config callback type
 typedef bool (*WiFiConfigSaveCallback)(const String&, const String&);
@@ -123,6 +125,19 @@ private:
      * @return JSON response with available WiFi networks
      */
     String handleWiFiScanRequest(AsyncWebServerRequest* request);
+
+    /**
+     * @brief Handle auto watering request with JSON data
+     * @param request Web request
+     * @param json JSON data
+     */
+    void handleAutoWateringJsonRequest(AsyncWebServerRequest *request, JsonVariant &json);
+    
+    /**
+     * @brief Handle auto watering request with form data
+     * @param request Web request
+     */
+    void handleAutoWateringFormRequest(AsyncWebServerRequest *request);
 
 public:
     /**

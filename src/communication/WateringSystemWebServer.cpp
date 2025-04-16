@@ -65,10 +65,11 @@ bool WateringSystemWebServer::initialize()
         return false;
     }
     
-    // Verify LittleFS is mounted
-    if (!LittleFS.begin(false)) {
-        lastError = 2; // Failed to mount filesystem
-        return false;
+    // We no longer initialize LittleFS here since it's already initialized in LittleFSStorage
+    // Just verify that it's mounted by checking if a file exists
+    if (!LittleFS.exists("/index.html")) {
+        Serial.println("Warning: index.html not found in LittleFS. Web interface may not work correctly.");
+        // Continue anyway, as we might be in AP mode using wifi_setup.html
     }
     
     // Setup web server endpoints
@@ -81,23 +82,46 @@ bool WateringSystemWebServer::initialize()
 
 void WateringSystemWebServer::setupEndpoints()
 {
-    // Set the appropriate default file based on mode
+    // Set up static file serving
     if (isInApMode) {
         // In AP mode, use wifi_setup.html as the default page
         server.serveStatic("/", LittleFS, "/").setDefaultFile("wifi_setup.html");
-        
-        // Also serve the regular index.html for users who have already configured
-        server.serveStatic("/index.html", LittleFS, "/index.html");
     } else {
         // Normal operation mode, use index.html
         server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
-        
-        // Also serve the wifi setup page if needed
-        server.serveStatic("/wifi_setup.html", LittleFS, "/wifi_setup.html");
     }
     
-    // API endpoints
+    // Explicitly serve common static files
+    server.serveStatic("/index.html", LittleFS, "/index.html");
+    server.serveStatic("/wifi_setup.html", LittleFS, "/wifi_setup.html");
+    server.serveStatic("/script.js", LittleFS, "/script.js");
+    server.serveStatic("/styles.css", LittleFS, "/styles.css");
+    server.serveStatic("/favicon.ico", LittleFS, "/favicon.ico");
+    
+    // *** IMPORTANT FIX: Handle the "/api" route differently, accepting it as a valid route prefix
+    // This fixes the 400 Bad Request issue when clients call /api/sensors
+    server.on("/api", HTTP_GET, [](AsyncWebServerRequest *request) {
+        // Instead of returning 400, return instructions about available endpoints
+        request->send(200, "application/json", "{\"message\":\"API root. Available endpoints: /api/sensors, /api/status, etc.\"}");
+    });
+    
+    // API endpoints - match both endpoints from client code for compatibility
     server.on("/api/sensor-data", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        String response = handleSensorDataRequest(request);
+        request->send(200, "application/json", response);
+    });
+    
+    // Add a compatible endpoint for /api/sensors that client uses
+    server.on("/api/sensors", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        // Add explicit debug message
+        Serial.println("API endpoint /api/sensors called");
+        
+        String response = handleSensorDataRequest(request);
+        request->send(200, "application/json", response);
+    });
+    
+    // Also provide endpoint without /api prefix for flexibility
+    server.on("/sensors", HTTP_GET, [this](AsyncWebServerRequest *request) {
         String response = handleSensorDataRequest(request);
         request->send(200, "application/json", response);
     });
@@ -107,7 +131,106 @@ void WateringSystemWebServer::setupEndpoints()
         request->send(200, "application/json", response);
     });
     
+    // Also provide status endpoint without /api prefix
+    server.on("/status", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        String response = handleStatusRequest(request);
+        request->send(200, "application/json", response);
+    });
+    
+    // Add compatible endpoints for the control operations with /api prefix
+    server.on("/api/control/water/start", HTTP_POST, [this](AsyncWebServerRequest *request) {
+        Serial.println("API endpoint /api/control/water/start called");
+        
+        // Extract duration parameter if present
+        int duration = 0;
+        if (request->hasParam("duration", true)) {
+            duration = request->getParam("duration", true)->value().toInt();
+        }
+        
+        bool success = controller->manualWatering(duration);
+        String message = success ? "Watering started" : "Failed to start watering";
+        
+        AsyncResponseStream *response = request->beginResponseStream("application/json");
+        response->printf("{\"success\":%s,\"message\":\"%s\"}", success ? "true" : "false", message.c_str());
+        request->send(response);
+    });
+    
+    // Add same endpoint without /api prefix
+    server.on("/control/water/start", HTTP_POST, [this](AsyncWebServerRequest *request) {
+        Serial.println("Endpoint /control/water/start called");
+        
+        // Extract duration parameter if present
+        int duration = 0;
+        if (request->hasParam("duration", true)) {
+            duration = request->getParam("duration", true)->value().toInt();
+        }
+        
+        bool success = controller->manualWatering(duration);
+        String message = success ? "Watering started" : "Failed to start watering";
+        
+        AsyncResponseStream *response = request->beginResponseStream("application/json");
+        response->printf("{\"success\":%s,\"message\":\"%s\"}", success ? "true" : "false", message.c_str());
+        request->send(response);
+    });
+    
+    server.on("/api/control/water/stop", HTTP_POST, [this](AsyncWebServerRequest *request) {
+        bool success = controller->stopWatering();
+        String message = success ? "Watering stopped" : "Failed to stop watering";
+        
+        AsyncResponseStream *response = request->beginResponseStream("application/json");
+        response->printf("{\"success\":%s,\"message\":\"%s\"}", success ? "true" : "false", message.c_str());
+        request->send(response);
+    });
+    
+    // Add same endpoint without /api prefix
+    server.on("/control/water/stop", HTTP_POST, [this](AsyncWebServerRequest *request) {
+        bool success = controller->stopWatering();
+        String message = success ? "Watering stopped" : "Failed to stop watering";
+        
+        AsyncResponseStream *response = request->beginResponseStream("application/json");
+        response->printf("{\"success\":%s,\"message\":\"%s\"}", success ? "true" : "false", message.c_str());
+        request->send(response);
+    });
+    
+    // Create JSON handlers for the auto watering endpoint
+    AsyncCallbackJsonWebHandler* autoWateringHandler = new AsyncCallbackJsonWebHandler(
+        "/api/control/auto", 
+        [this](AsyncWebServerRequest *request, JsonVariant &json) {
+            Serial.println("JSON API endpoint /api/control/auto called");
+            handleAutoWateringJsonRequest(request, json);
+        }
+    );
+    server.addHandler(autoWateringHandler);
+    
+    // Add handler for the endpoint without /api prefix
+    AsyncCallbackJsonWebHandler* autoWateringHandlerNoPrefix = new AsyncCallbackJsonWebHandler(
+        "/control/auto", 
+        [this](AsyncWebServerRequest *request, JsonVariant &json) {
+            Serial.println("JSON endpoint /control/auto called");
+            handleAutoWateringJsonRequest(request, json);
+        }
+    );
+    server.addHandler(autoWateringHandlerNoPrefix);
+    
+    // Add fallback handlers for form-based requests (for backward compatibility)
+    server.on("/api/control/auto", HTTP_POST, [this](AsyncWebServerRequest *request) {
+        Serial.println("Form-based API endpoint /api/control/auto called");
+        handleAutoWateringFormRequest(request);
+    });
+    
+    server.on("/control/auto", HTTP_POST, [this](AsyncWebServerRequest *request) {
+        Serial.println("Form-based endpoint /control/auto called");
+        handleAutoWateringFormRequest(request);
+    });
+    
+    // Keep the original endpoint for compatibility
     server.on("/api/control", HTTP_POST, [this](AsyncWebServerRequest *request) {
+        String response = handleControlRequest(request);
+        request->send(200, "application/json", response);
+    });
+    
+    // Add endpoint without /api prefix 
+    server.on("/control", HTTP_POST, [this](AsyncWebServerRequest *request) {
         String response = handleControlRequest(request);
         request->send(200, "application/json", response);
     });
@@ -117,6 +240,24 @@ void WateringSystemWebServer::setupEndpoints()
         request->send(200, "application/json", response);
     });
     
+    // Add endpoint without /api prefix
+    server.on("/config", HTTP_POST, [this](AsyncWebServerRequest *request) {
+        String response = handleConfigRequest(request);
+        request->send(200, "application/json", response);
+    });
+    
+    server.on("/api/history", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        String response = handleHistoricalDataRequest(request);
+        request->send(200, "application/json", response);
+    });
+    
+    // Add endpoint without /api prefix
+    server.on("/history", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        String response = handleHistoricalDataRequest(request);
+        request->send(200, "application/json", response);
+    });
+    
+    // Keep original endpoint for compatibility
     server.on("/api/historical-data", HTTP_GET, [this](AsyncWebServerRequest *request) {
         String response = handleHistoricalDataRequest(request);
         request->send(200, "application/json", response);
@@ -128,8 +269,20 @@ void WateringSystemWebServer::setupEndpoints()
         request->send(200, "application/json", response);
     });
     
+    // Add endpoint without /api prefix
+    server.on("/reservoir", HTTP_POST, [this](AsyncWebServerRequest *request) {
+        String response = handleReservoirPumpRequest(request);
+        request->send(200, "application/json", response);
+    });
+    
     // WiFi configuration endpoints (always available, but only functional in AP mode)
     server.on("/api/wifi/scan", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        String response = handleWiFiScanRequest(request);
+        request->send(200, "application/json", response);
+    });
+    
+    // Add endpoint without /api prefix
+    server.on("/wifi/scan", HTTP_GET, [this](AsyncWebServerRequest *request) {
         String response = handleWiFiScanRequest(request);
         request->send(200, "application/json", response);
     });
@@ -139,17 +292,147 @@ void WateringSystemWebServer::setupEndpoints()
         request->send(200, "application/json", response);
     });
     
+    // Add endpoint without /api prefix
+    server.on("/wifi/config", HTTP_POST, [this](AsyncWebServerRequest *request) {
+        String response = handleWiFiConfigRequest(request);
+        request->send(200, "application/json", response);
+    });
+    
     // Handle 404 (Not Found)
     server.onNotFound([](AsyncWebServerRequest *request) {
-        request->send(404, "text/plain", "Not found");
+        // Log the unhandled request
+        Serial.print("Unhandled request: ");
+        Serial.println(request->url());
+        
+        // Check if it's an API request to give a more helpful error
+        if (request->url().startsWith("/api/")) {
+            request->send(404, "application/json", "{\"success\":false,\"message\":\"API endpoint not found\"}");
+        } else {
+            request->send(404, "text/plain", "Not found");
+        }
     });
+}
+
+/**
+ * Handle auto watering request with JSON data
+ */
+void WateringSystemWebServer::handleAutoWateringJsonRequest(AsyncWebServerRequest *request, JsonVariant &json)
+{
+    // Default value (only used if no valid parameter is found)
+    bool enable = false;
+    bool paramFound = false;
+    
+    if (json.is<JsonObject>()) {
+        JsonObject jsonObj = json.as<JsonObject>();
+        
+        if (jsonObj.containsKey("enabled")) {
+            enable = jsonObj["enabled"].as<bool>();
+            paramFound = true;
+            Serial.print("Auto watering JSON parameter 'enabled' received: ");
+            Serial.println(enable ? "true" : "false");
+        }
+    }
+    
+    // Only proceed if we found a parameter, otherwise log an error
+    if (paramFound) {
+        // Log the action being taken
+        Serial.print("Setting auto watering to: ");
+        Serial.println(enable ? "Enabled" : "Disabled");
+        
+        controller->enableWatering(enable);
+        String message = enable ? "Automatic watering enabled" : "Automatic watering disabled";
+        
+        AsyncResponseStream *response = request->beginResponseStream("application/json");
+        response->printf("{\"success\":true,\"message\":\"%s\",\"enabled\":%s}", 
+                         message.c_str(), 
+                         enable ? "true" : "false");
+        request->send(response);
+    } else {
+        Serial.println("No valid auto watering parameter found in JSON");
+        
+        AsyncResponseStream *response = request->beginResponseStream("application/json");
+        response->printf("{\"success\":false,\"message\":\"No valid parameter found in JSON request\"}");
+        request->send(response);
+    }
+}
+
+/**
+ * Handle auto watering request with form data
+ */
+void WateringSystemWebServer::handleAutoWateringFormRequest(AsyncWebServerRequest *request)
+{
+    // Default value (only used if no valid parameter is found)
+    bool enable = false;
+    bool paramFound = false;
+    
+    // Check for 'enabled' parameter (used by client, form-encoded)
+    if (request->hasParam("enabled", true)) {
+        String value = request->getParam("enabled", true)->value();
+        enable = (value == "true" || value == "1");
+        paramFound = true;
+        Serial.print("Auto watering form parameter 'enabled' received: ");
+        Serial.println(value);
+    }
+    // Also check for 'enable' parameter (backward compatibility)
+    else if (request->hasParam("enable", true)) {
+        String value = request->getParam("enable", true)->value();
+        enable = (value == "true" || value == "1");
+        paramFound = true;
+        Serial.print("Auto watering form parameter 'enable' received: ");
+        Serial.println(value);
+    }
+    
+    // Only proceed if we found a parameter, otherwise log an error
+    if (paramFound) {
+        // Log the action being taken
+        Serial.print("Setting auto watering to: ");
+        Serial.println(enable ? "Enabled" : "Disabled");
+        
+        controller->enableWatering(enable);
+        String message = enable ? "Automatic watering enabled" : "Automatic watering disabled";
+        
+        AsyncResponseStream *response = request->beginResponseStream("application/json");
+        response->printf("{\"success\":true,\"message\":\"%s\",\"enabled\":%s}", 
+                         message.c_str(), 
+                         enable ? "true" : "false");
+        request->send(response);
+    } else {
+        Serial.println("No valid auto watering parameter found in form data");
+        
+        AsyncResponseStream *response = request->beginResponseStream("application/json");
+        response->printf("{\"success\":false,\"message\":\"No valid parameter found in form request\"}");
+        request->send(response);
+    }
 }
 
 String WateringSystemWebServer::handleSensorDataRequest(AsyncWebServerRequest* request)
 {
+    // Add debug log
+    Serial.println("handleSensorDataRequest called");
+
     // Read latest sensor data
     bool envSuccess = envSensor->read();
+    
+    Serial.print("Environment sensor read result: ");
+    Serial.println(envSuccess ? "Success" : "Failed");
+    
+    if (envSuccess) {
+        Serial.printf("  Temp: %.1f°C, Humidity: %.1f%%, Pressure: %.1f hPa\n", 
+            envSensor->getTemperature(), 
+            envSensor->getHumidity(), 
+            envSensor->getPressure());
+    } else {
+        Serial.printf("  Error code: %d\n", envSensor->getLastError());
+    }
+    
     bool soilSuccess = soilSensor->read();
+    
+    Serial.print("Soil sensor read result: ");
+    Serial.println(soilSuccess ? "Success" : "Failed");
+    
+    if (!soilSuccess) {
+        Serial.printf("  Error code: %d\n", soilSensor->getLastError());
+    }
     
     // Create JSON response
     DynamicJsonDocument doc(1024);
@@ -194,6 +477,11 @@ String WateringSystemWebServer::handleSensorDataRequest(AsyncWebServerRequest* r
     
     String response;
     serializeJson(doc, response);
+    
+    // Debug: print the response
+    Serial.println("Sensor data response:");
+    Serial.println(response);
+    
     return response;
 }
 
