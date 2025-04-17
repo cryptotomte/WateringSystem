@@ -1,201 +1,278 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WateringSystem Control Panel</title>
-    <link rel="stylesheet" href="styles.css">
+    <!-- Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js and Adapter -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <!-- Link to custom styles (minimal) -->
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        /* Add minor style overrides or additions if needed */
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 4px;
+        }
+
+        .status-connected {
+            background-color: #38a169;
+        }
+
+        /* green-600 */
+        .status-disconnected {
+            background-color: #e53e3e;
+        }
+
+        /* red-600 */
+        .status-active {
+            background-color: #3182ce;
+        }
+
+        /* blue-600 */
+        .status-inactive {
+            background-color: #a0aec0;
+        }
+
+        /* gray-500 */
+        .status-warning {
+            background-color: #dd6b20;
+        }
+
+        /* orange-600 */
+        .status-running {
+            background-color: #38a169;
+            animation: pulse 1.5s infinite;
+        }
+
+        /* green-600 */
+
+        @keyframes pulse {
+            0% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+
+            100% {
+                opacity: 1;
+            }
+        }
+
+        /* Ensure chart canvas has a defined height */
+        #data-chart {
+            height: 300px !important;
+        }
+    </style>
 </head>
-<body>
-    <div class="container">
-        <header>
-            <h1>WateringSystem Control Panel</h1>
-            <div class="system-status">
-                <div id="connection-status" class="status-indicator connected">
-                    <span class="status-dot"></span>
-                    <span class="status-text">Connected</span>
+
+<body class="bg-gray-100 font-sans">
+    <div class="container mx-auto p-4 lg:p-6">
+        <!-- Header -->
+        <header class="mb-6 flex flex-col sm:flex-row justify-between items-center bg-white p-4 rounded-lg shadow">
+            <h1 class="text-2xl lg:text-3xl font-bold text-gray-800 mb-2 sm:mb-0">WateringSystem</h1>
+            <div class="flex space-x-4 text-sm">
+                <div id="connection-status" class="flex items-center">
+                    <span class="status-dot status-disconnected"></span>
+                    <span class="status-text text-gray-600">Disconnected</span>
                 </div>
-                <div id="watering-status" class="status-indicator">
-                    <span class="status-dot"></span>
-                    <span class="status-text">Watering Inactive</span>
+                <div id="watering-status" class="flex items-center">
+                    <span class="status-dot status-inactive"></span>
+                    <span class="status-text text-gray-600">Watering Inactive</span>
                 </div>
             </div>
         </header>
 
-        <main>
-            <section class="dashboard">
-                <div class="card sensor-readings">
-                    <h2>Current Readings</h2>
-                    <div class="readings-container">
-                        <div class="reading-group environmental">
-                            <h3>Environmental Data</h3>
-                            <div class="reading" id="env-temperature">
-                                <span class="reading-label">Temperature:</span>
-                                <span class="reading-value">--</span>
-                                <span class="reading-unit">°C</span>
+        <main class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Left Column (Readings & Controls) -->
+            <div class="lg:col-span-2 space-y-6">
+                <!-- Sensor Readings Card -->
+                <section class="bg-white p-4 sm:p-6 rounded-lg shadow">
+                    <h2 class="text-xl font-semibold mb-4 text-gray-700 border-b pb-2">Current Readings</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Environmental Data -->
+                        <div class="space-y-3">
+                            <h3 class="font-medium text-gray-600">Environmental</h3>
+                            <div id="env-temperature" class="flex justify-between items-center text-sm">
+                                <span class="reading-label text-gray-500">Temperature:</span>
+                                <div><span class="reading-value font-semibold">--</span><span
+                                        class="reading-unit text-gray-400 ml-1">°C</span></div>
                             </div>
-                            <div class="reading" id="env-humidity">
-                                <span class="reading-label">Humidity:</span>
-                                <span class="reading-value">--</span>
-                                <span class="reading-unit">%</span>
+                            <div id="env-humidity" class="flex justify-between items-center text-sm">
+                                <span class="reading-label text-gray-500">Humidity:</span>
+                                <div><span class="reading-value font-semibold">--</span><span
+                                        class="reading-unit text-gray-400 ml-1">%</span></div>
                             </div>
-                            <div class="reading" id="env-pressure">
-                                <span class="reading-label">Pressure:</span>
-                                <span class="reading-value">--</span>
-                                <span class="reading-unit">hPa</span>
+                            <div id="env-pressure" class="flex justify-between items-center text-sm">
+                                <span class="reading-label text-gray-500">Pressure:</span>
+                                <div><span class="reading-value font-semibold">--</span><span
+                                        class="reading-unit text-gray-400 ml-1">hPa</span></div>
                             </div>
                         </div>
+                        <!-- Soil Data -->
+                        <div class="space-y-3">
+                            <h3 class="font-medium text-gray-600">Soil</h3>
+                            <div id="soil-moisture" class="flex justify-between items-center text-sm">
+                                <span class="reading-label text-gray-500">Moisture:</span>
+                                <div><span class="reading-value font-semibold">--</span><span
+                                        class="reading-unit text-gray-400 ml-1">%</span></div>
+                            </div>
+                            <div id="soil-temperature" class="flex justify-between items-center text-sm">
+                                <span class="reading-label text-gray-500">Temperature:</span>
+                                <div><span class="reading-value font-semibold">--</span><span
+                                        class="reading-unit text-gray-400 ml-1">°C</span></div>
+                            </div>
+                            <div id="soil-ph" class="flex justify-between items-center text-sm">
+                                <span class="reading-label text-gray-500">pH:</span>
+                                <div><span class="reading-value font-semibold">--</span><span
+                                        class="reading-unit text-gray-400 ml-1"></span></div>
+                            </div>
+                            <div id="soil-ec" class="flex justify-between items-center text-sm">
+                                <span class="reading-label text-gray-500">EC:</span>
+                                <div><span class="reading-value font-semibold">--</span><span
+                                        class="reading-unit text-gray-400 ml-1">µS/cm</span></div>
+                            </div>
+                            <div id="soil-npk" class="flex justify-between items-center text-sm hidden">
+                                <span class="reading-label text-gray-500">NPK:</span>
+                                <div><span class="reading-value font-semibold">--</span><span
+                                        class="reading-unit text-gray-400 ml-1">mg/kg</span></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-4 pt-4 border-t flex justify-between items-center">
+                        <button id="refresh-data"
+                            class="text-sm bg-blue-500 hover:bg-blue-600 text-white py-1 px-3 rounded transition duration-150 ease-in-out">Refresh</button>
+                        <div class="text-xs text-gray-400">
+                            Last updated: <span id="last-update-time">Never</span>
+                        </div>
+                    </div>
+                </section>
 
-                        <div class="reading-group soil">
-                            <h3>Soil Data</h3>
-                            <div class="reading" id="soil-moisture">
-                                <span class="reading-label">Moisture:</span>
-                                <span class="reading-value">--</span>
-                                <span class="reading-unit">%</span>
+                <!-- Control Panel Card -->
+                <section class="bg-white p-4 sm:p-6 rounded-lg shadow">
+                    <h2 class="text-xl font-semibold mb-4 text-gray-700 border-b pb-2">System Control</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Manual & Auto Watering -->
+                        <div class="space-y-4">
+                            <h3 class="font-medium text-gray-600">Watering</h3>
+                            <!-- Manual Controls -->
+                            <div>
+                                <label for="watering-duration-input"
+                                    class="block text-sm font-medium text-gray-500 mb-1">Manual Duration (sec):</label>
+                                <input type="number" id="watering-duration-input" min="1" max="300" value="20"
+                                    class="w-full p-2 border border-gray-300 rounded text-sm focus:ring-blue-500 focus:border-blue-500">
                             </div>
-                            <div class="reading" id="soil-temperature">
-                                <span class="reading-label">Temperature:</span>
-                                <span class="reading-value">--</span>
-                                <span class="reading-unit">°C</span>
+                            <div class="flex space-x-2">
+                                <button id="start-watering"
+                                    class="flex-1 bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded text-sm transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed">Start</button>
+                                <button id="stop-watering"
+                                    class="flex-1 bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded text-sm transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed">Stop</button>
                             </div>
-                            <div class="reading" id="soil-ph">
-                                <span class="reading-label">pH:</span>
-                                <span class="reading-value">--</span>
-                                <span class="reading-unit"></span>
-                            </div>
-                            <div class="reading" id="soil-ec">
-                                <span class="reading-label">EC:</span>
-                                <span class="reading-value">--</span>
-                                <span class="reading-unit">µS/cm</span>
-                            </div>
-                            <div class="reading hidden" id="soil-npk">
-                                <span class="reading-label">NPK:</span>
-                                <span class="reading-value">--</span>
-                                <span class="reading-unit">mg/kg</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="last-updated">
-                        Last updated: <span id="last-update-time">Never</span>
-                    </div>
-                    <button id="refresh-data" class="button primary">Refresh Data</button>
-                </div>
-
-                <div class="card control-panel">
-                    <h2>System Control</h2>
-                    <div class="control-group">
-                        <h3>Manual Controls</h3>
-                        <div class="button-group">
-                            <button id="start-watering" class="button primary">Start Watering</button>
-                            <button id="stop-watering" class="button danger">Stop Watering</button>
-                        </div>
-                        <div class="watering-duration">
-                            <label for="watering-duration-input">Watering duration:</label>
-                            <input type="number" id="watering-duration-input" min="1" max="300" value="20"> seconds
-                        </div>
-                    </div>
-                    
-                    <div class="control-group">
-                        <h3>Automatic Watering</h3>
-                        <div class="toggle-switch">
-                            <label for="auto-watering-toggle">Automatic watering:</label>
-                            <label class="switch">
-                                <input type="checkbox" id="auto-watering-toggle">
-                                <span class="slider round"></span>
-                            </label>
-                            <span id="auto-watering-status">Disabled</span>
-                        </div>
-                    </div>
-                    
-                    <div class="control-group" id="reservoir-controls">
-                        <h3>Reservoir Control</h3>
-                        <div class="toggle-switch">
-                            <label for="reservoir-toggle">Reservoir pump feature:</label>
-                            <label class="switch">
-                                <input type="checkbox" id="reservoir-toggle">
-                                <span class="slider round"></span>
-                            </label>
-                            <span id="reservoir-status">Disabled</span>
-                        </div>
-                        
-                        <div class="reservoir-status">
-                            <div class="level-indicator">
-                                <div class="level-label">Water Level:</div>
-                                <div class="level-bar">
-                                    <div class="level-bar-inner" id="water-level-indicator"></div>
+                            <!-- Auto Watering -->
+                            <div class="flex items-center justify-between pt-4 border-t">
+                                <label for="auto-watering-toggle" class="text-sm font-medium text-gray-500">Automatic
+                                    Watering:</label>
+                                <div class="flex items-center">
+                                    <span id="auto-watering-status" class="text-sm text-gray-500 mr-2">Disabled</span>
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" id="auto-watering-toggle" class="sr-only peer">
+                                        <div
+                                            class="w-11 h-6 bg-gray-200 rounded-full peer peer-focus:ring-4 peer-focus:ring-blue-300 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600">
+                                        </div>
+                                    </label>
                                 </div>
-                                <div class="level-text" id="water-level-text">Unknown</div>
-                            </div>
-                            
-                            <div class="status-indicator" id="reservoir-pump-status">
-                                <span class="status-dot"></span>
-                                <span class="status-text">Pump Inactive</span>
                             </div>
                         </div>
-                        
-                        <div class="button-group reservoir-buttons">
-                            <button id="start-reservoir-pump" class="button primary" disabled>Start Filling</button>
-                            <button id="stop-reservoir-pump" class="button danger" disabled>Stop Filling</button>
-                        </div>
-                        <div class="reservoir-duration">
-                            <label for="reservoir-duration-input">Fill duration:</label>
-                            <input type="number" id="reservoir-duration-input" min="1" max="300" value="60" disabled> seconds
-                            <span class="help-text">(0 for automatic stop at high level)</span>
+
+                        <!-- Reservoir Control -->
+                        <div class="space-y-4">
+                            <h3 class="font-medium text-gray-600">Reservoir</h3>
+                            <!-- Reservoir Enable -->
+                            <div class="flex items-center justify-between">
+                                <label for="reservoir-toggle" class="text-sm font-medium text-gray-500">Reservoir
+                                    Feature:</label>
+                                <div class="flex items-center">
+                                    <span id="reservoir-status" class="text-sm text-gray-500 mr-2">Disabled</span>
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" id="reservoir-toggle" class="sr-only peer">
+                                        <div
+                                            class="w-11 h-6 bg-gray-200 rounded-full peer peer-focus:ring-4 peer-focus:ring-blue-300 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600">
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
+                            <!-- Water Level -->
+                            <div class="pt-4 border-t">
+                                <div class="text-sm font-medium text-gray-500 mb-1">Water Level: <span
+                                        id="water-level-text" class="font-normal">Unknown</span></div>
+                                <div class="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                                    <div id="water-level-indicator"
+                                        class="bg-blue-600 h-2.5 rounded-full transition-all duration-500 ease-out"
+                                        style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <!-- Pump Status -->
+                            <div id="reservoir-pump-status" class="flex items-center text-sm">
+                                <span class="status-dot status-inactive"></span>
+                                <span class="status-text text-gray-500">Pump Inactive</span>
+                            </div>
+                            <!-- Manual Fill -->
+                            <div>
+                                <label for="reservoir-duration-input"
+                                    class="block text-sm font-medium text-gray-500 mb-1">Manual Fill Duration (sec,
+                                    0=auto):</label>
+                                <input type="number" id="reservoir-duration-input" min="0" max="300" value="60"
+                                    class="w-full p-2 border border-gray-300 rounded text-sm focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
+                                    disabled>
+                            </div>
+                            <div class="flex space-x-2">
+                                <button id="start-reservoir-pump"
+                                    class="flex-1 bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded text-sm transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed">Start
+                                    Fill</button>
+                                <button id="stop-reservoir-pump"
+                                    class="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-2 px-4 rounded text-sm transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed">Stop
+                                    Fill</button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            </section>
+                </section>
 
-            <section class="settings-and-charts">
-                <div class="card system-settings">
-                    <h2>System Settings</h2>
-                    <form id="settings-form">
-                        <div class="form-group">
-                            <label for="moisture-threshold-low">Moisture threshold low (%):</label>
-                            <input type="number" id="moisture-threshold-low" min="0" max="100" step="1">
-                        </div>
-                        <div class="form-group">
-                            <label for="moisture-threshold-high">Moisture threshold high (%):</label>
-                            <input type="number" id="moisture-threshold-high" min="0" max="100" step="1">
-                        </div>
-                        <div class="form-group">
-                            <label for="watering-duration-setting">Default watering duration (seconds):</label>
-                            <input type="number" id="watering-duration-setting" min="1" max="300">
-                        </div>
-                        <div class="form-group">
-                            <label for="min-watering-interval">Minimum interval between waterings (hours):</label>
-                            <input type="number" id="min-watering-interval" min="1" max="72" step="1">
-                        </div>
-                        <button type="submit" class="button primary">Save Settings</button>
-                    </form>
-                </div>
-
-                <div class="card data-visualization">
-                    <h2>Historical Data</h2>
-                    <div class="chart-controls">
-                        <div class="select-group">
-                            <label for="chart-sensor">Sensor:</label>
-                            <select id="chart-sensor">
+                <!-- Data Visualization Card -->
+                <section class="bg-white p-4 sm:p-6 rounded-lg shadow">
+                    <h2 class="text-xl font-semibold mb-4 text-gray-700 border-b pb-2">Historical Data</h2>
+                    <!-- Chart Controls -->
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                        <div>
+                            <label for="chart-sensor"
+                                class="block text-sm font-medium text-gray-500 mb-1">Sensor:</label>
+                            <select id="chart-sensor"
+                                class="w-full p-2 border border-gray-300 rounded text-sm focus:ring-blue-500 focus:border-blue-500">
                                 <option value="env">Environmental</option>
                                 <option value="soil">Soil</option>
                             </select>
                         </div>
-                        <div class="select-group">
-                            <label for="chart-reading">Reading:</label>
-                            <select id="chart-reading">
-                                <option value="temperature">Temperature</option>
-                                <option value="humidity">Humidity</option>
-                                <option value="moisture">Moisture</option>
-                                <option value="pressure">Pressure</option>
-                                <option value="ph">pH</option>
-                                <option value="ec">EC</option>
+                        <div>
+                            <label for="chart-reading"
+                                class="block text-sm font-medium text-gray-500 mb-1">Reading:</label>
+                            <select id="chart-reading"
+                                class="w-full p-2 border border-gray-300 rounded text-sm focus:ring-blue-500 focus:border-blue-500">
+                                <!-- Options populated by JS -->
                             </select>
                         </div>
-                        <div class="select-group">
-                            <label for="chart-time-range">Time range:</label>
-                            <select id="chart-time-range">
+                        <div>
+                            <label for="chart-time-range" class="block text-sm font-medium text-gray-500 mb-1">Time
+                                Range:</label>
+                            <select id="chart-time-range"
+                                class="w-full p-2 border border-gray-300 rounded text-sm focus:ring-blue-500 focus:border-blue-500">
                                 <option value="1h">Last hour</option>
                                 <option value="6h">Last 6 hours</option>
                                 <option value="24h" selected>Last 24 hours</option>
@@ -204,48 +281,95 @@
                             </select>
                         </div>
                     </div>
-                    <div class="chart-container">
+                    <!-- Chart Canvas -->
+                    <div class="relative h-[300px]">
                         <canvas id="data-chart"></canvas>
                     </div>
-                </div>
-            </section>
+                </section>
+            </div>
+
+            <!-- Right Column (Settings) -->
+            <div class="lg:col-span-1 space-y-6">
+                <section class="bg-white p-4 sm:p-6 rounded-lg shadow">
+                    <h2 class="text-xl font-semibold mb-4 text-gray-700 border-b pb-2">System Settings</h2>
+                    <form id="settings-form" class="space-y-4">
+                        <div>
+                            <label for="moisture-threshold-low"
+                                class="block text-sm font-medium text-gray-500 mb-1">Moisture Threshold Low (%):</label>
+                            <input type="number" id="moisture-threshold-low" min="0" max="100" step="1"
+                                class="w-full p-2 border border-gray-300 rounded text-sm focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label for="moisture-threshold-high"
+                                class="block text-sm font-medium text-gray-500 mb-1">Moisture Threshold High
+                                (%):</label>
+                            <input type="number" id="moisture-threshold-high" min="0" max="100" step="1"
+                                class="w-full p-2 border border-gray-300 rounded text-sm focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label for="watering-duration-setting"
+                                class="block text-sm font-medium text-gray-500 mb-1">Default Watering Duration
+                                (sec):</label>
+                            <input type="number" id="watering-duration-setting" min="1" max="300"
+                                class="w-full p-2 border border-gray-300 rounded text-sm focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label for="min-watering-interval" class="block text-sm font-medium text-gray-500 mb-1">Min
+                                Interval Between Waterings (hrs):</label>
+                            <input type="number" id="min-watering-interval" min="1" max="72" step="1"
+                                class="w-full p-2 border border-gray-300 rounded text-sm focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <button type="submit"
+                            class="w-full bg-indigo-500 hover:bg-indigo-600 text-white py-2 px-4 rounded text-sm transition duration-150 ease-in-out">Save
+                            Settings</button>
+                    </form>
+                </section>
+                <!-- System Info Card -->
+                <section class="bg-white p-4 sm:p-6 rounded-lg shadow">
+                    <h2 class="text-xl font-semibold mb-4 text-gray-700 border-b pb-2">System Info</h2>
+                    <div class="space-y-2 text-sm text-gray-600">
+                        <div>IP Address: <span id="system-ip" class="font-medium text-gray-800">--</span></div>
+                        <div>Storage Usage: <span id="storage-usage" class="font-medium text-gray-800">--</span></div>
+                        <div>Version: <span class="font-medium text-gray-800">v1.0</span></div>
+                    </div>
+                </section>
+            </div>
         </main>
 
-        <footer>
-            <div class="system-info">
-                <div>WateringSystem v1.0</div>
-                <div>IP: <span id="system-ip">--</span></div>
-                <div>Storage: <span id="storage-usage">--</span></div>
-            </div>
-            <div class="copyright">
-                &copy; 2025 WateringSystem Team
-            </div>
+        <!-- Footer -->
+        <footer class="mt-8 text-center text-xs text-gray-400">
+            &copy; 2025 WateringSystem Team
         </footer>
     </div>
-    
-    <!-- Notifications -->
-    <div id="notification-container"></div>
-    
-    <!-- Modal for watering confirmation -->
-    <div id="confirmation-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Confirm Action</h3>
-                <span class="close-modal">&times;</span>
-            </div>
-            <div class="modal-body">
-                <p id="modal-message">Are you sure you want to start watering?</p>
-            </div>
-            <div class="modal-footer">
-                <button id="modal-cancel" class="button secondary">Cancel</button>
-                <button id="modal-confirm" class="button primary">Confirm</button>
+
+    <!-- Notification Container -->
+    <div id="notification-container" class="fixed top-4 right-4 z-50 space-y-2">
+        <!-- Notifications will be added here by JS -->
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div id="confirmation-modal"
+        class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-40 hidden items-center justify-center">
+        <div class="relative mx-auto p-5 border w-full max-w-sm shadow-lg rounded-md bg-white">
+            <div class="mt-3 text-center">
+                <h3 class="text-lg leading-6 font-medium text-gray-900">Confirm Action</h3>
+                <span
+                    class="close-modal absolute top-2 right-3 text-gray-400 hover:text-gray-600 text-2xl cursor-pointer">&times;</span>
+                <div class="mt-2 px-7 py-3">
+                    <p id="modal-message" class="text-sm text-gray-500">Are you sure?</p>
+                </div>
+                <div class="items-center px-4 py-3 space-x-2">
+                    <button id="modal-cancel"
+                        class="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 text-sm font-medium transition duration-150 ease-in-out">Cancel</button>
+                    <button id="modal-confirm"
+                        class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm font-medium transition duration-150 ease-in-out">Confirm</button>
+                </div>
             </div>
         </div>
     </div>
-    
-    <!-- Include Chart.js for data visualization -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Our application script -->
+
+    <!-- Application Script -->
     <script src="script.js"></script>
 </body>
+
 </html>
