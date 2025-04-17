@@ -1,10 +1,11 @@
 /* styles.css - Minimal custom styles complementing Tailwind CSS */
 
-/* Define custom properties if needed, although Tailwind handles most styling */
+/* Define custom properties here if needed, although Tailwind handles most styling */
+/* Example:
 :root {
-    /* Example: Define a brand color if not directly using Tailwind colors */
-    /* --brand-green: #2e7d32; */
+    --brand-green: #2e7d32;
 }
+*/
 
 /* Custom style for the reservoir level bar fill animation/transition */
 #water-level-indicator {
