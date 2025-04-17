@@ -37,9 +37,9 @@
 
 // Other constants
 #define SOIL_SENSOR_MODBUS_ADDR 0x01
-#define BME280_I2C_ADDR       0x76
+#define BME280_I2C_ADDR       0x77
 #define WIFI_TIMEOUT          60000  // 60 seconds timeout for WiFi connection
-#define NTP_SERVER            "pool.ntp.org"
+#define NTP_SERVER            "0.se.pool.ntp.org"
 #define STATUS_CHECK_INTERVAL 5000   // 5 seconds between status checks/display
 #define WEB_SERVER_PORT       80
 #define CONFIG_FILE_PATH      "/wifi_config.json"
