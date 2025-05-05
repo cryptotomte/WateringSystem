@@ -51,6 +51,12 @@ public:
     virtual unsigned int getRunTime() = 0;
     
     /**
+     * @brief Get the configured run duration in seconds
+     * @return Run duration in seconds, 0 if indefinite
+     */
+    virtual unsigned int getRunDuration() const = 0;
+    
+    /**
      * @brief Update function that should be called regularly
      * 
      * This function performs any periodic updates needed for the pump,

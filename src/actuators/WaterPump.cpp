@@ -58,17 +58,24 @@ const char* WaterPump::getName() const
 
 bool WaterPump::start()
 {
+    Serial.println("WaterPump::start - Attempting to start pump");
+    
     if (!initialized) {
+        Serial.println("WaterPump::start - Pump not initialized, attempting to initialize");
         if (!initialize()) {
+            Serial.println("WaterPump::start - Pump initialization failed");
             return false;
         }
+        Serial.println("WaterPump::start - Pump initialization successful");
     }
     
+    Serial.printf("WaterPump::start - Setting pin %d HIGH\n", controlPin);
     digitalWrite(controlPin, HIGH);
     running = true;
     startTime = millis();
     runDuration = 0; // Indefinite run
     
+    Serial.println("WaterPump::start - Pump started successfully");
     return true;
 }
 
@@ -87,15 +94,20 @@ bool WaterPump::stop()
 
 bool WaterPump::runFor(unsigned int seconds)
 {
+    Serial.printf("WaterPump::runFor - Attempting to run pump for %d seconds\n", seconds);
+    
     if (seconds == 0) {
+        Serial.println("WaterPump::runFor - Duration is 0, stopping pump");
         return stop();
     }
     
     if (!start()) {
+        Serial.println("WaterPump::runFor - Failed to start pump");
         return false;
     }
     
     runDuration = seconds;
+    Serial.printf("WaterPump::runFor - Pump set to run for %d seconds\n", seconds);
     return true;
 }
 
@@ -113,6 +125,11 @@ unsigned int WaterPump::getRunTime()
     
     // Return elapsed time in seconds
     return (millis() - startTime) / 1000;
+}
+
+unsigned int WaterPump::getRunDuration() const
+{
+    return runDuration;
 }
 
 void WaterPump::checkTimedRun()

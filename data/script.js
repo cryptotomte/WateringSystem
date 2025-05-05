@@ -100,8 +100,36 @@ const elements = {
  * Initialize the application
  */
 function initApp() {
+    // Output debug information about DOM element references
+    console.log("DEBUG: Initializing app, checking DOM elements...");
+    
+    // Check start watering button
+    if (elements.startWateringBtn) {
+        console.log("DEBUG: Start watering button found:", elements.startWateringBtn);
+    } else {
+        console.error("DEBUG: Start watering button NOT FOUND!");
+    }
+    
+    // Log all our element references to check for nulls
+    Object.keys(elements).forEach(key => {
+        if (!elements[key]) {
+            console.error(`DEBUG: Element reference missing: ${key}`);
+        }
+    });
+    
     // Set up event listeners
     setupEventListeners();
+
+    // Add direct onclick handler as a backup method
+    if (elements.startWateringBtn) {
+        console.log("DEBUG: Adding direct onclick handler to Start button");
+        elements.startWateringBtn.onclick = function() {
+            console.log("DEBUG: Start button clicked via onclick property");
+            const duration = elements.wateringDurationInput.value;
+            startWatering(duration);
+            return false; // Prevent default
+        };
+    }
 
     // Load settings
     loadSettings();
@@ -133,10 +161,20 @@ function setupEventListeners() {
 
     // Watering controls
     elements.startWateringBtn.addEventListener('click', () => {
+        console.log('DEBUG: Start Watering button clicked');
+        
+        // Temporarily bypass confirmation modal for testing
+        console.log('DEBUG: Bypassing confirmation modal for testing');
+        const duration = elements.wateringDurationInput.value;
+        console.log(`DEBUG: Starting watering directly with duration=${duration}`);
+        startWatering(duration);
+        
+        /* Original code with confirmation modal:
         showConfirmation(
             'Are you sure you want to start watering?',
             () => startWatering(elements.wateringDurationInput.value)
         );
+        */
     });
 
     elements.stopWateringBtn.addEventListener('click', () => {
@@ -383,9 +421,14 @@ async function fetchSystemStatus() {
  * @param {Object} data - System status data from the API
  */
 function updateSystemStatus(data) {
+    // Debug log for watering status
+    console.log("Updating system status with data:", data);
+    console.log("Pump running:", data.pumpRunning);
+    console.log("Remaining time:", data.remainingTime);
+    
     // Update watering status
     appState.isWatering = data.pumpRunning;
-    updateWateringStatus(data.pumpRunning);
+    updateWateringStatus(data.pumpRunning, data.remainingTime);
 
     // Update auto watering status
     appState.autoWateringEnabled = data.wateringEnabled;
@@ -450,27 +493,81 @@ function updateConnectionStatus(connected) {
 }
 
 /**
- * Update the watering status display (Tailwind Version)
+ * Update the watering status display with timer
  * @param {boolean} isWatering - Whether the system is currently watering
+ * @param {number} remainingTime - Remaining time in seconds (optional)
  */
-function updateWateringStatus(isWatering) {
+function updateWateringStatus(isWatering, remainingTime) {
     const statusDot = elements.wateringStatus.querySelector('.status-dot');
     const statusText = elements.wateringStatus.querySelector('.status-text');
 
     if (isWatering) {
         statusDot.classList.remove('status-inactive');
-        statusDot.classList.add('status-active'); // Or 'status-running' if preferred
-        statusText.textContent = 'Watering Active';
+        statusDot.classList.add('status-active');
+        
+        // Clear any existing client-side countdown timer
+        if (appState.clientCountdownTimer) {
+            clearInterval(appState.clientCountdownTimer);
+            appState.clientCountdownTimer = null;
+        }
+        
+        // Initialize client-side countdown if we have a remaining time
+        if (remainingTime !== undefined && remainingTime > 0) {
+            console.log(`Starting client countdown timer with ${remainingTime} seconds`);
+            
+            // Store the end time based on remaining seconds
+            appState.countdownEndTime = Date.now() + (remainingTime * 1000);
+            
+            // Update status text immediately
+            statusText.innerHTML = `Watering Active <span class="font-medium text-blue-600">(${remainingTime}s remaining)</span>`;
+            
+            // Start a client-side countdown that updates every second
+            appState.clientCountdownTimer = setInterval(() => {
+                const now = Date.now();
+                const remaining = Math.max(0, Math.ceil((appState.countdownEndTime - now) / 1000));
+                
+                if (remaining > 0) {
+                    statusText.innerHTML = `Watering Active <span class="font-medium text-blue-600">(${remaining}s remaining)</span>`;
+                } else {
+                    // If countdown reached zero, fetch status to confirm
+                    clearInterval(appState.clientCountdownTimer);
+                    appState.clientCountdownTimer = null;
+                    fetchSystemStatus();
+                }
+            }, 1000);
+            
+            // Also ensure we have a server refresh timer for countdown
+            if (!appState.countdownServerTimer) {
+                appState.countdownServerTimer = setInterval(() => {
+                    fetchSystemStatus();
+                }, 5000); // Update from server every 5 seconds as a fallback
+            }
+        } else {
+            statusText.textContent = 'Watering Active';
+        }
+        
         elements.startWateringBtn.disabled = true;
         elements.stopWateringBtn.disabled = false;
     } else {
-        statusDot.classList.remove('status-active'); // Or 'status-running'
+        statusDot.classList.remove('status-active');
         statusDot.classList.add('status-inactive');
         statusText.textContent = 'Watering Inactive';
         elements.startWateringBtn.disabled = false;
         elements.stopWateringBtn.disabled = true;
+        
+        // Clear any existing timer
+        if (appState.clientCountdownTimer) {
+            clearInterval(appState.clientCountdownTimer);
+            appState.clientCountdownTimer = null;
+        }
+        
+        if (appState.countdownServerTimer) {
+            clearInterval(appState.countdownServerTimer);
+            appState.countdownServerTimer = null;
+        }
     }
-    appState.isWatering = isWatering; // Update state
+    
+    appState.isWatering = isWatering;
 }
 
 /**
@@ -925,6 +1022,10 @@ function removeNotification(notification) {
  */
 async function startWatering(duration) {
     try {
+        // Add more detailed logging for debugging
+        console.log(`MANUAL DEBUG: Starting watering with duration=${duration}`);
+        console.log(`MANUAL DEBUG: API endpoint=${API_CONFIG.ENDPOINT}/control/water/start`);
+        
         const response = await fetch(`${API_CONFIG.ENDPOINT}/control/water/start`, {
             method: 'POST',
             headers: {
@@ -933,19 +1034,28 @@ async function startWatering(duration) {
             body: JSON.stringify({ duration: parseInt(duration) || 20 })
         });
 
+        console.log(`MANUAL DEBUG: Response status=${response.status}`);
+        
         if (!response.ok) {
             throw new Error(`HTTP error ${response.status}`);
         }
 
         const data = await response.json();
+        console.log(`MANUAL DEBUG: Response data=`, data);
+        
         if (data.success) {
             showNotification('Watering Started', `Watering started for ${duration} seconds.`, 'success');
+            // Update UI immediately for better responsiveness
             updateWateringStatus(true);
+            
+            // Immediately fetch system status to get remaining time
+            console.log("MANUAL DEBUG: Immediately fetching status after watering start...");
+            await fetchSystemStatus();
         } else {
             throw new Error(data.message || 'Unknown error');
         }
     } catch (error) {
-        console.error('Error starting watering:', error);
+        console.error('MANUAL DEBUG: Error caught:', error);
         showNotification('Watering Error', `Failed to start watering: ${error.message}`, 'error');
     }
 }

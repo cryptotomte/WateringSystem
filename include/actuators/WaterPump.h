@@ -57,14 +57,8 @@ public:
     bool runFor(unsigned int seconds) override;
     bool isRunning() override;
     unsigned int getRunTime() override;
-    
-    /**
-     * @brief Update function that should be called regularly
-     * 
-     * This function checks if a timed run should be stopped and
-     * should be called regularly in the main loop.
-     */
-    void update();
+    unsigned int getRunDuration() const override;
+    void update() override;
 };
 
 #endif // WATER_PUMP_H

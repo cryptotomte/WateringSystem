@@ -52,38 +52,64 @@ bool WateringController::initialize()
         return true;
     }
     
-    // Check that all required components are provided
-    if (!envSensor || !soilSensor || !waterPump || !dataStorage) {
-        lastError = 1; // Missing component
+    // Check minimum required components for manual operation
+    if (!waterPump || !dataStorage) {
+        lastError = 1; // Missing critical component
+        Serial.println("WateringController - Missing critical component (pump or storage)");
         return false;
     }
     
-    // Initialize all components
-    bool success = true;
+    bool fullSuccess = true;
+    bool pumpSuccess = false;
+    bool storageSuccess = false;
     
-    if (!dataStorage->initialize()) {
+    // Initialize storage
+    if (dataStorage->initialize()) {
+        storageSuccess = true;
+    } else {
         lastError = 2; // Data storage initialization failed
-        success = false;
+        fullSuccess = false;
+        Serial.println("WateringController - Data storage initialization failed");
     }
     
-    if (!envSensor->initialize()) {
-        lastError = 3; // Environmental sensor initialization failed
-        success = false;
-    }
-    
-    if (!soilSensor->initialize()) {
-        lastError = 4; // Soil sensor initialization failed
-        success = false;
-    }
-    
-    if (!waterPump->initialize()) {
+    // Initialize water pump (critical for manual operation)
+    if (waterPump->initialize()) {
+        pumpSuccess = true;
+    } else {
         lastError = 5; // Water pump initialization failed
-        success = false;
+        fullSuccess = false;
+        Serial.println("WateringController - Water pump initialization failed");
     }
     
-    if (success) {
-        // Load configuration from storage
-        loadConfiguration();
+    // Initialize sensors (non-critical for manual operation)
+    bool envSensorSuccess = false;
+    if (envSensor) {
+        if (envSensor->initialize()) {
+            envSensorSuccess = true;
+        } else {
+            lastError = 3; // Environmental sensor initialization failed
+            fullSuccess = false;
+            Serial.println("WateringController - Environmental sensor initialization failed");
+        }
+    }
+    
+    bool soilSensorSuccess = false;
+    if (soilSensor) {
+        if (soilSensor->initialize()) {
+            soilSensorSuccess = true;
+        } else {
+            lastError = 4; // Soil sensor initialization failed
+            fullSuccess = false;
+            Serial.println("WateringController - Soil sensor initialization failed");
+        }
+    }
+    
+    // We can initialize the controller if at minimum the pump works properly
+    if (pumpSuccess) {
+        // Load configuration from storage if available
+        if (storageSuccess) {
+            loadConfiguration();
+        }
         
         // Set initial timestamps
         lastSensorReadTime = 0; // Force immediate sensor read
@@ -91,10 +117,14 @@ bool WateringController::initialize()
         lastWateringTime = 0;   // Reset watering timer
         
         initialized = true;
-        lastError = 0;
+        lastError = fullSuccess ? 0 : lastError; // Keep last error if not full success
+        
+        Serial.println("WateringController initialized successfully (manual mode available)");
+    } else {
+        Serial.println("WateringController initialization failed for manual operation");
     }
     
-    return success;
+    return initialized;
 }
 
 void WateringController::loadConfiguration()
@@ -274,22 +304,38 @@ bool WateringController::isWateringEnabled() const
 
 bool WateringController::manualWatering(unsigned int duration)
 {
+    Serial.println("DEBUG-CONTROLLER: WateringController::manualWatering called");
+    
     if (!initialized) {
+        Serial.println("DEBUG-CONTROLLER: WateringController not initialized, trying to initialize");
         if (!initialize()) {
+            Serial.printf("DEBUG-CONTROLLER: Initialization failed with error: %d\n", lastError);
             return false;
         }
+        Serial.println("DEBUG-CONTROLLER: Initialization successful");
+    }
+    
+    if (!waterPump) {
+        Serial.println("DEBUG-CONTROLLER: Water pump is null");
+        lastError = 10; // Invalid water pump
+        return false;
     }
     
     bool result = false;
     
     if (duration > 0) {
+        Serial.printf("DEBUG-CONTROLLER: Starting pump for %d seconds\n", duration);
         result = waterPump->runFor(duration);
     } else {
+        Serial.println("DEBUG-CONTROLLER: Starting pump indefinitely");
         result = waterPump->start();
     }
     
     if (result) {
+        Serial.println("DEBUG-CONTROLLER: Pump started successfully");
         lastWateringTime = millis();
+    } else {
+        Serial.printf("DEBUG-CONTROLLER: Failed to start pump, error: %d\n", waterPump->getLastError());
     }
     
     return result;
