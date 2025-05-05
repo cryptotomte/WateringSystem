@@ -136,9 +136,18 @@ void WaterPump::checkTimedRun()
 {
     if (running && runDuration > 0) {
         unsigned long elapsedMillis = millis() - startTime;
+        unsigned int elapsedSeconds = elapsedMillis / 1000;
+        
+        // Debug timestamp when close to completion
+        if (elapsedSeconds >= (runDuration - 2) && elapsedSeconds <= runDuration) {
+            Serial.printf("WaterPump::checkTimedRun - Pump '%s' running for %u seconds of %u duration (elapsed ms: %lu)\n", 
+                      name, elapsedSeconds, runDuration, elapsedMillis);
+        }
         
         // Check if we've reached the run duration
         if (elapsedMillis >= (runDuration * 1000)) {
+            Serial.printf("WaterPump::checkTimedRun - Pump '%s' reached run duration of %u seconds, stopping\n", 
+                      name, runDuration);
             stop();
         }
     }

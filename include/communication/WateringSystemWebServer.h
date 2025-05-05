@@ -106,6 +106,13 @@ private:
     String handleConfigRequest(AsyncWebServerRequest* request);
     
     /**
+     * @brief Handle configuration requests with JSON data
+     * @param json JSON request data
+     * @return JSON response with configuration result
+     */
+    String handleConfigJsonRequest(JsonVariant &json);
+    
+    /**
      * @brief Handle historical data requests
      * @param request API request
      * @return JSON response with historical data
