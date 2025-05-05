@@ -12,9 +12,22 @@
 LittleFSStorage::LittleFSStorage(const char* configFileName, const char* sensorDataFolder)
     : initialized(false)
     , lastError(0)
-    , configFile(configFileName)
-    , dataFolder(sensorDataFolder)
 {
+    // Keep leading slash for LittleFS paths, but avoid double slashes
+    if (configFileName && configFileName[0] == '/') {
+        configFile = String(configFileName);  // Keep the leading slash
+    } else {
+        configFile = String("/") + (configFileName ? configFileName : "config.json");
+    }
+    
+    if (sensorDataFolder && sensorDataFolder[0] == '/') {
+        dataFolder = String(sensorDataFolder);  // Keep the leading slash
+    } else {
+        dataFolder = String("/") + (sensorDataFolder ? sensorDataFolder : "data");
+    }
+    
+    Serial.printf("LittleFSStorage initialized with config file: %s, data folder: %s\n", 
+                  configFile.c_str(), dataFolder.c_str());
 }
 
 LittleFSStorage::~LittleFSStorage()
@@ -47,19 +60,31 @@ bool LittleFSStorage::initialize()
 
 bool LittleFSStorage::ensureDataDirectory()
 {
+    Serial.printf("Ensuring data directory exists: %s\n", dataFolder.c_str());
+    
     if (!LittleFS.exists(dataFolder)) {
+        Serial.println("Data directory does not exist, creating it now");
         // Create the data directory if it doesn't exist
         if (!LittleFS.mkdir(dataFolder)) {
+            Serial.println("Failed to create data directory!");
             return false;
         }
+        Serial.println("Data directory created successfully");
+    } else {
+        Serial.println("Data directory already exists");
     }
     return true;
 }
 
 String LittleFSStorage::getSensorDataFilename(const String& sensorId, const String& readingType)
 {
-    // Format: /data/sensorId_readingType.json
-    return String(dataFolder) + "/" + sensorId + "_" + readingType + ".json";
+    // Format: /data/sensorId_readingType.json (with leading slash)
+    // Make sure we avoid double slashes
+    if (dataFolder.endsWith("/")) {
+        return dataFolder + sensorId + "_" + readingType + ".json";
+    } else {
+        return dataFolder + "/" + sensorId + "_" + readingType + ".json";
+    }
 }
 
 bool LittleFSStorage::storeConfig(const String& key, const String& data)
@@ -73,34 +98,52 @@ bool LittleFSStorage::storeConfig(const String& key, const String& data)
     // Load existing configuration
     DynamicJsonDocument doc(4096); // Adjust size as needed
     
-    if (LittleFS.exists(configFile)) {
-        File file = LittleFS.open(configFile, "r");
-        if (!file) {
-            lastError = 3; // Failed to open file
+    // Check if config file exists and create it if it doesn't
+    if (!LittleFS.exists(configFile)) {
+        Serial.printf("Config file %s does not exist, creating it\n", configFile.c_str());
+        File createFile = LittleFS.open(configFile, "w");
+        if (!createFile) {
+            Serial.printf("Failed to create config file %s\n", configFile.c_str());
+            lastError = 3; // Failed to create file
             return false;
         }
-        
-        DeserializationError error = deserializeJson(doc, file);
-        file.close();
-        
-        if (error) {
-            // Error parsing JSON, create a new document
-            doc.clear();
-        }
+        // Create an empty JSON object
+        createFile.print("{}");
+        createFile.close();
+        Serial.println("Created empty config file");
+    }
+    
+    // Now open the config file for reading
+    File file = LittleFS.open(configFile, "r");
+    if (!file) {
+        lastError = 3; // Failed to open file
+        Serial.printf("Failed to open config file %s for reading\n", configFile.c_str());
+        return false;
+    }
+    
+    DeserializationError error = deserializeJson(doc, file);
+    file.close();
+    
+    if (error) {
+        // Error parsing JSON, create a new document
+        Serial.printf("Error parsing JSON in config file: %s, creating new document\n", error.c_str());
+        doc.clear();
     }
     
     // Update or add the key-value pair
     doc[key] = data;
     
     // Write back to the file
-    File file = LittleFS.open(configFile, "w");
-    if (!file) {
+    File writeFile = LittleFS.open(configFile, "w");
+    if (!writeFile) {
         lastError = 4; // Failed to open file for writing
+        Serial.printf("Failed to open config file %s for writing\n", configFile.c_str());
         return false;
     }
     
-    serializeJson(doc, file);
-    file.close();
+    serializeJson(doc, writeFile);
+    writeFile.close();
+    Serial.printf("Successfully stored config for key %s\n", key.c_str());
     
     return true;
 }
@@ -109,17 +152,32 @@ String LittleFSStorage::getConfig(const String& key, const String& defaultValue)
 {
     if (!initialized) {
         if (!initialize()) {
+            Serial.println("Failed to initialize before reading config");
             return defaultValue;
         }
     }
     
     if (!LittleFS.exists(configFile)) {
+        Serial.printf("Config file %s does not exist, returning default value for %s\n", 
+                      configFile.c_str(), key.c_str());
+        
+        // Create empty config file for future use
+        File createFile = LittleFS.open(configFile, "w");
+        if (createFile) {
+            createFile.print("{}");
+            createFile.close();
+            Serial.println("Created empty config file for future use");
+        } else {
+            Serial.printf("Failed to create empty config file %s\n", configFile.c_str());
+        }
+        
         return defaultValue;
     }
     
     File file = LittleFS.open(configFile, "r");
     if (!file) {
         lastError = 3; // Failed to open file
+        Serial.printf("Failed to open config file %s for reading\n", configFile.c_str());
         return defaultValue;
     }
     
@@ -129,14 +187,18 @@ String LittleFSStorage::getConfig(const String& key, const String& defaultValue)
     
     if (error) {
         lastError = 5; // JSON parsing error
+        Serial.printf("Error parsing config file: %s\n", error.c_str());
         return defaultValue;
     }
     
     if (!doc.containsKey(key)) {
+        Serial.printf("Key '%s' not found in config file, returning default value\n", key.c_str());
         return defaultValue;
     }
     
-    return doc[key].as<String>();
+    String value = doc[key].as<String>();
+    Serial.printf("Read config key '%s' with value '%s'\n", key.c_str(), value.c_str());
+    return value;
 }
 
 bool LittleFSStorage::storeSensorReading(const String& sensorId, const String& readingType, 
@@ -318,7 +380,7 @@ int LittleFSStorage::pruneOldReadings(time_t olderThan)
                     
                     // Create a new array with only recent readings
                     DynamicJsonDocument newDoc(16384);
-                    JsonArray newArray = newDoc.to<JsonArray>(); // Fixed: using to<JsonArray>() instead of createArray()
+                    JsonArray newArray = newDoc.to<JsonArray>();
                     
                     for (JsonObject reading : readings) {
                         time_t readingTime = reading["timestamp"];
@@ -331,7 +393,15 @@ int LittleFSStorage::pruneOldReadings(time_t olderThan)
                     
                     // Write back to the file if we pruned anything
                     if (newArray.size() < originalSize) {
-                        File writeFile = LittleFS.open(String(dataFolder) + "/" + filename, "w");
+                        // Ensure correct path format with leading slash
+                        String fullPath;
+                        if (dataFolder.endsWith("/")) {
+                            fullPath = dataFolder + filename;
+                        } else {
+                            fullPath = dataFolder + "/" + filename;
+                        }
+                        
+                        File writeFile = LittleFS.open(fullPath, "w");
                         if (writeFile) {
                             serializeJson(newArray, writeFile);
                             writeFile.close();

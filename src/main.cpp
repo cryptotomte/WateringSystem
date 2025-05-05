@@ -538,6 +538,49 @@ bool getReservoirStatus(bool* isLow, bool* isHigh, bool* isRunning) {
 }
 
 /**
+ * @brief Initialize the file system
+ * @return true if initialized successfully, false otherwise
+ */
+bool initFileSystem() {
+  Serial.println("Initializing LittleFS file system...");
+  
+  if (!LittleFS.begin(true)) { // Use format_if_failed=true to handle corruption
+    Serial.println("Failed to mount LittleFS file system!");
+    return false;
+  }
+  
+  Serial.println("LittleFS file system initialized successfully");
+  
+  // Print out file system info
+  size_t totalBytes = LittleFS.totalBytes();
+  size_t usedBytes = LittleFS.usedBytes();
+  Serial.printf("LittleFS: %u bytes total, %u bytes used (%0.1f%%)\n", 
+                totalBytes, usedBytes, (usedBytes * 100.0) / totalBytes);
+  
+  // Debug: list files
+  Serial.println("Files in LittleFS root:");
+  File root = LittleFS.open("/");
+  if (root && root.isDirectory()) {
+    File file = root.openNextFile();
+    while (file) {
+      char fileTime[20];
+      time_t t = file.getLastWrite();
+      struct tm* tm = localtime(&t);
+      strftime(fileTime, sizeof(fileTime), "%Y-%m-%d %H:%M:%S", tm);
+      
+      Serial.printf("  %s  %8d bytes  %s%s\n", 
+                    fileTime, 
+                    file.size(), 
+                    file.name(),
+                    file.isDirectory() ? "/" : "");
+      file = root.openNextFile();
+    }
+  }
+  
+  return true;
+}
+
+/**
  * @brief Arduino setup function
  */
 void setup() {
@@ -545,6 +588,10 @@ void setup() {
   initHardware();
   
   // Initialize file system and data storage
+  if (!initFileSystem()) {
+    Serial.println("Error initializing file system");
+  }
+  
   if (!dataStorage.initialize()) {
     Serial.println("Error initializing data storage");
   }

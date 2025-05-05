@@ -82,13 +82,24 @@ bool WateringSystemWebServer::initialize()
 
 void WateringSystemWebServer::setupEndpoints()
 {
-    // Set up static file serving
+    // Set up static file serving - Fix path issues
     if (isInApMode) {
         // In AP mode, use wifi_setup.html as the default page
         server.serveStatic("/", LittleFS, "/").setDefaultFile("wifi_setup.html");
     } else {
         // Normal operation mode, use index.html
         server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
+    }
+    
+    // Debug - show what files are available in LittleFS
+    Serial.println("Setting up web endpoints with the following files in LittleFS:");
+    File root = LittleFS.open("/");
+    if (root && root.isDirectory()) {
+        File file = root.openNextFile();
+        while (file) {
+            Serial.printf("  %8d bytes  %s\n", file.size(), file.name());
+            file = root.openNextFile();
+        }
     }
     
     // Explicitly serve common static files

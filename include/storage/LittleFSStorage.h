@@ -23,8 +23,8 @@ class LittleFSStorage : public IDataStorage {
 private:
     bool initialized;
     int lastError;
-    const char* configFile;
-    const char* dataFolder;
+    String configFile;    // Changed from const char* to String
+    String dataFolder;    // Changed from const char* to String
     
     /**
      * @brief Ensure data directory exists
