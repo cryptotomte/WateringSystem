@@ -100,36 +100,8 @@ const elements = {
  * Initialize the application
  */
 function initApp() {
-    // Output debug information about DOM element references
-    console.log("DEBUG: Initializing app, checking DOM elements...");
-    
-    // Check start watering button
-    if (elements.startWateringBtn) {
-        console.log("DEBUG: Start watering button found:", elements.startWateringBtn);
-    } else {
-        console.error("DEBUG: Start watering button NOT FOUND!");
-    }
-    
-    // Log all our element references to check for nulls
-    Object.keys(elements).forEach(key => {
-        if (!elements[key]) {
-            console.error(`DEBUG: Element reference missing: ${key}`);
-        }
-    });
-    
     // Set up event listeners
     setupEventListeners();
-
-    // Add direct onclick handler as a backup method
-    if (elements.startWateringBtn) {
-        console.log("DEBUG: Adding direct onclick handler to Start button");
-        elements.startWateringBtn.onclick = function() {
-            console.log("DEBUG: Start button clicked via onclick property");
-            const duration = elements.wateringDurationInput.value;
-            startWatering(duration);
-            return false; // Prevent default
-        };
-    }
 
     // Load settings
     loadSettings();
@@ -161,12 +133,7 @@ function setupEventListeners() {
 
     // Watering controls
     elements.startWateringBtn.addEventListener('click', () => {
-        console.log('DEBUG: Start Watering button clicked');
-        
-        // Temporarily bypass confirmation modal for testing
-        console.log('DEBUG: Bypassing confirmation modal for testing');
         const duration = elements.wateringDurationInput.value;
-        console.log(`DEBUG: Starting watering directly with duration=${duration}`);
         startWatering(duration);
         
         /* Original code with confirmation modal:
@@ -260,7 +227,6 @@ function startAutoRefresh() {
  */
 async function fetchSensorData() {
     try {
-        console.log('Fetching sensor data from API...');
         const response = await fetch(`${API_CONFIG.ENDPOINT}/sensors`);
 
         if (!response.ok) {
@@ -268,8 +234,6 @@ async function fetchSensorData() {
         }
 
         const data = await response.json();
-        console.log('Received sensor data:', data);
-
         updateSensorDisplay(data);
         appState.lastUpdate = new Date();
 
@@ -288,67 +252,41 @@ async function fetchSensorData() {
  * @param {Object} data - Sensor data from the API
  */
 function updateSensorDisplay(data) {
-    console.log('Updating sensor display with:', data);
-
     // Update environmental sensor readings
     if (data.environmental) {
-        console.log('Environmental data:', data.environmental);
         if (data.environmental.success) {
-            console.log('Setting environmental values in DOM elements');
-
             if (elements.envTemperature) {
                 const valueElement = elements.envTemperature.querySelector('.reading-value');
                 if (valueElement) {
                     valueElement.textContent = data.environmental.temperature.toFixed(1);
-                    console.log('Updated temperature to:', data.environmental.temperature.toFixed(1));
-                } else {
-                    console.warn('Temperature value element not found!');
                 }
-            } else {
-                console.warn('envTemperature element not found!');
             }
 
             if (elements.envHumidity) {
                 const valueElement = elements.envHumidity.querySelector('.reading-value');
                 if (valueElement) {
                     valueElement.textContent = data.environmental.humidity.toFixed(1);
-                    console.log('Updated humidity to:', data.environmental.humidity.toFixed(1));
-                } else {
-                    console.warn('Humidity value element not found!');
                 }
-            } else {
-                console.warn('envHumidity element not found!');
             }
 
             if (elements.envPressure) {
                 const valueElement = elements.envPressure.querySelector('.reading-value');
                 if (valueElement) {
                     valueElement.textContent = data.environmental.pressure.toFixed(1);
-                    console.log('Updated pressure to:', data.environmental.pressure.toFixed(1));
-                } else {
-                    console.warn('Pressure value element not found!');
                 }
-            } else {
-                console.warn('envPressure element not found!');
             }
         } else {
             console.warn('Environmental sensor read failed:', data.environmental.error);
         }
-    } else {
-        console.warn('No environmental data in response!');
     }
 
     // Update soil sensor readings
     if (data.soil) {
-        console.log('Soil data:', data.soil);
         if (data.soil.success) {
-            console.log('Setting soil values in DOM elements');
-
             if (elements.soilMoisture) {
                 const valueElement = elements.soilMoisture.querySelector('.reading-value');
                 if (valueElement) {
                     valueElement.textContent = data.soil.moisture.toFixed(1);
-                    console.log('Updated soil moisture to:', data.soil.moisture.toFixed(1));
                 }
             }
 
@@ -356,7 +294,6 @@ function updateSensorDisplay(data) {
                 const valueElement = elements.soilTemperature.querySelector('.reading-value');
                 if (valueElement) {
                     valueElement.textContent = data.soil.temperature.toFixed(1);
-                    console.log('Updated soil temperature to:', data.soil.temperature.toFixed(1));
                 }
             }
 
@@ -364,7 +301,6 @@ function updateSensorDisplay(data) {
                 const valueElement = elements.soilPh.querySelector('.reading-value');
                 if (valueElement) {
                     valueElement.textContent = data.soil.ph.toFixed(1);
-                    console.log('Updated soil pH to:', data.soil.ph.toFixed(1));
                 }
             }
 
@@ -372,7 +308,6 @@ function updateSensorDisplay(data) {
                 const valueElement = elements.soilEc.querySelector('.reading-value');
                 if (valueElement) {
                     valueElement.textContent = data.soil.ec.toFixed(1);
-                    console.log('Updated soil EC to:', data.soil.ec.toFixed(1));
                 }
             }
 
@@ -390,8 +325,6 @@ function updateSensorDisplay(data) {
         } else {
             console.warn('Soil sensor read failed:', data.soil.error);
         }
-    } else {
-        console.warn('No soil data in response!');
     }
 
     // Update connection status
@@ -421,11 +354,6 @@ async function fetchSystemStatus() {
  * @param {Object} data - System status data from the API
  */
 function updateSystemStatus(data) {
-    // Debug log for watering status
-    console.log("Updating system status with data:", data);
-    console.log("Pump running:", data.pumpRunning);
-    console.log("Remaining time:", data.remainingTime);
-    
     // Update watering status
     appState.isWatering = data.pumpRunning;
     updateWateringStatus(data.pumpRunning, data.remainingTime);
@@ -1022,10 +950,6 @@ function removeNotification(notification) {
  */
 async function startWatering(duration) {
     try {
-        // Add more detailed logging for debugging
-        console.log(`MANUAL DEBUG: Starting watering with duration=${duration}`);
-        console.log(`MANUAL DEBUG: API endpoint=${API_CONFIG.ENDPOINT}/control/water/start`);
-        
         const response = await fetch(`${API_CONFIG.ENDPOINT}/control/water/start`, {
             method: 'POST',
             headers: {
@@ -1033,15 +957,12 @@ async function startWatering(duration) {
             },
             body: JSON.stringify({ duration: parseInt(duration) || 20 })
         });
-
-        console.log(`MANUAL DEBUG: Response status=${response.status}`);
         
         if (!response.ok) {
             throw new Error(`HTTP error ${response.status}`);
         }
 
         const data = await response.json();
-        console.log(`MANUAL DEBUG: Response data=`, data);
         
         if (data.success) {
             showNotification('Watering Started', `Watering started for ${duration} seconds.`, 'success');
@@ -1049,13 +970,12 @@ async function startWatering(duration) {
             updateWateringStatus(true);
             
             // Immediately fetch system status to get remaining time
-            console.log("MANUAL DEBUG: Immediately fetching status after watering start...");
             await fetchSystemStatus();
         } else {
             throw new Error(data.message || 'Unknown error');
         }
     } catch (error) {
-        console.error('MANUAL DEBUG: Error caught:', error);
+        console.error('Error starting watering:', error);
         showNotification('Watering Error', `Failed to start watering: ${error.message}`, 'error');
     }
 }
