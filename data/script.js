@@ -641,20 +641,38 @@ async function saveSettings() {
         return;
     }
 
+    // Debug info - Log what we're about to send
+    console.log('Sending settings to server:', settings);
+    console.log('Using endpoint:', `${API_CONFIG.ENDPOINT}/config`);
+
     try {
+        // Try with form data first (which is known to work in other endpoints)
+        const formData = new URLSearchParams();
+        formData.append('moistureThresholdLow', settings.moistureThresholdLow);
+        formData.append('moistureThresholdHigh', settings.moistureThresholdHigh);
+        formData.append('wateringDuration', settings.wateringDuration);
+        formData.append('minWateringInterval', settings.minWateringInterval);
+
+        console.log('Sending as URL-encoded form data');
+        
         const response = await fetch(`${API_CONFIG.ENDPOINT}/config`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/x-www-form-urlencoded'
             },
-            body: JSON.stringify(settings)
+            body: formData
         });
+
+        // Debug info - Log response details
+        console.log('Response status:', response.status);
 
         if (!response.ok) {
             throw new Error(`HTTP error ${response.status}`);
         }
 
         const data = await response.json();
+        console.log('Response data:', data);
+        
         if (data.success) {
             appState.settings = settings;
             showNotification('Settings Saved', 'System settings have been updated.', 'success');
@@ -950,12 +968,21 @@ function removeNotification(notification) {
  */
 async function startWatering(duration) {
     try {
+        // Convert duration to integer or use default
+        const durationVal = parseInt(duration) || 20;
+        
+        // Create form data instead of JSON to avoid server-side crash
+        const formData = new URLSearchParams();
+        formData.append('duration', durationVal);
+        
+        console.log(`Starting watering for ${durationVal} seconds using form data`);
+        
         const response = await fetch(`${API_CONFIG.ENDPOINT}/control/water/start`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/x-www-form-urlencoded'
             },
-            body: JSON.stringify({ duration: parseInt(duration) || 20 })
+            body: formData
         });
         
         if (!response.ok) {
@@ -965,7 +992,7 @@ async function startWatering(duration) {
         const data = await response.json();
         
         if (data.success) {
-            showNotification('Watering Started', `Watering started for ${duration} seconds.`, 'success');
+            showNotification('Watering Started', `Watering started for ${durationVal} seconds.`, 'success');
             // Update UI immediately for better responsiveness
             updateWateringStatus(true);
             

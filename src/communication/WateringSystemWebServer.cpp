@@ -150,24 +150,35 @@ void WateringSystemWebServer::setupEndpoints()
     
     // Add compatible endpoints for the control operations with /api prefix
     server.on("/api/control/water/start", HTTP_POST, [this](AsyncWebServerRequest *request) {
-        Serial.println("API endpoint /api/control/water/start called");
+        String contentType = request->contentType();
+        Serial.println("API endpoint /api/control/water/start called with Content-Type: " + contentType);
         
-        // Extract duration parameter if present in form data
-        int duration = 20; // Default duration to 20 seconds
+        // Default duration to 20 seconds
+        int duration = 20;
+        bool durationFound = false;
+        
+        // Check if this is a JSON request
+        if (contentType.equals("application/json")) {
+            // We need to handle this specially since the body is already consumed
+            // We'll just log a message and rely on the JSON handler to process it
+            Serial.println("Detected JSON request, expecting AsyncCallbackJsonWebHandler to handle it");
+            // Return early since we expect the JSON handler to process this
+            return;
+        }
+        
+        // For form-data or plain POST requests, check for duration parameter
         if (request->hasParam("duration", true)) {
             duration = request->getParam("duration", true)->value().toInt();
-            Serial.printf("Duration parameter from form data: %d seconds\n", duration);
+            durationFound = true;
+            Serial.printf("Found duration parameter in form data: %d seconds\n", duration);
         }
         
-        // Check for content-type to see if it's a JSON request
-        bool isJson = false;
-        if (request->contentType() == "application/json") {
-            isJson = true;
+        // If no duration was found and it's not JSON, use the default
+        if (!durationFound) {
+            Serial.printf("No duration parameter found, using default: %d seconds\n", duration);
         }
         
-        // If it's JSON but we didn't find duration in form params, look for JSON body
-        // This needs to be handled through AsyncCallbackJsonWebHandler instead
-        
+        // Process the request with the determined duration
         bool success = controller->manualWatering(duration);
         String message = success ? "Watering started" : "Failed to start watering";
         Serial.printf("Starting watering for %d seconds, result: %s\n", duration, success ? "success" : "failed");
@@ -184,22 +195,17 @@ void WateringSystemWebServer::setupEndpoints()
     server.on("/control/water/start", HTTP_POST, [this](AsyncWebServerRequest *request) {
         Serial.println("Endpoint /control/water/start called");
         
-        // Extract duration parameter if present in form data
+        // Extract duration parameter from form data (default to 20 seconds if not found)
         int duration = 20; // Default duration to 20 seconds
+        
         if (request->hasParam("duration", true)) {
             duration = request->getParam("duration", true)->value().toInt();
-            Serial.printf("Duration parameter from form data: %d seconds\n", duration);
+            Serial.printf("Found duration parameter in form data: %d seconds\n", duration);
+        } else {
+            Serial.println("No duration parameter found, using default: 20 seconds");
         }
         
-        // Check for content-type to see if it's a JSON request
-        bool isJson = false;
-        if (request->contentType() == "application/json") {
-            isJson = true;
-        }
-        
-        // If it's JSON but we didn't find duration in form params, look for JSON body
-        // This needs to be handled through AsyncCallbackJsonWebHandler instead
-        
+        // Process the request with the determined duration
         bool success = controller->manualWatering(duration);
         String message = success ? "Watering started" : "Failed to start watering";
         Serial.printf("Starting watering for %d seconds, result: %s\n", duration, success ? "success" : "failed");
@@ -211,76 +217,6 @@ void WateringSystemWebServer::setupEndpoints()
                         duration);
         request->send(response);
     });
-    
-    // Create JSON handlers for the water start endpoints
-    AsyncCallbackJsonWebHandler* waterStartHandler = new AsyncCallbackJsonWebHandler(
-        "/api/control/water/start", 
-        [this](AsyncWebServerRequest *request, JsonVariant &json) {
-            Serial.println("DEBUG-WATERING: JSON API endpoint /api/control/water/start called with JSON data");
-            
-            // Default value
-            int duration = 20; // Default to 20 seconds
-            
-            if (json.is<JsonObject>()) {
-                JsonObject jsonObj = json.as<JsonObject>();
-                
-                if (jsonObj.containsKey("duration")) {
-                    duration = jsonObj["duration"].as<int>();
-                    Serial.printf("DEBUG-WATERING: JSON duration parameter: %d seconds\n", duration);
-                }
-            }
-            
-            Serial.println("DEBUG-WATERING: About to call controller->manualWatering()");
-            bool success = controller->manualWatering(duration);
-            String message = success ? "Watering started" : "Failed to start watering";
-            Serial.printf("DEBUG-WATERING: Starting watering from JSON handler for %d seconds, result: %s\n", 
-                         duration, success ? "success" : "failed");
-            
-            AsyncResponseStream *response = request->beginResponseStream("application/json");
-            response->printf("{\"success\":%s,\"message\":\"%s\",\"duration\":%d}", 
-                            success ? "true" : "false", 
-                            message.c_str(),
-                            duration);
-            Serial.println("DEBUG-WATERING: Sending response to client");
-            request->send(response);
-        }
-    );
-    server.addHandler(waterStartHandler);
-    
-    // Add handler for the endpoint without /api prefix
-    AsyncCallbackJsonWebHandler* waterStartHandlerNoPrefix = new AsyncCallbackJsonWebHandler(
-        "/control/water/start", 
-        [this](AsyncWebServerRequest *request, JsonVariant &json) {
-            Serial.println("DEBUG-WATERING: JSON endpoint /control/water/start called with JSON data");
-            
-            // Default value
-            int duration = 20; // Default to 20 seconds
-            
-            if (json.is<JsonObject>()) {
-                JsonObject jsonObj = json.as<JsonObject>();
-                
-                if (jsonObj.containsKey("duration")) {
-                    duration = jsonObj["duration"].as<int>();
-                    Serial.printf("DEBUG-WATERING: JSON duration parameter: %d seconds\n", duration);
-                }
-            }
-            
-            Serial.println("DEBUG-WATERING: About to call controller->manualWatering()");
-            bool success = controller->manualWatering(duration);
-            String message = success ? "Watering started" : "Failed to start watering";
-            Serial.printf("DEBUG-WATERING: Starting watering from JSON handler for %d seconds, result: %s\n", 
-                         duration, success ? "success" : "failed");
-            
-            AsyncResponseStream *response = request->beginResponseStream("application/json");
-            response->printf("{\"success\":%s,\"message\":\"%s\",\"duration\":%d}", 
-                            success ? "true" : "false", 
-                            message.c_str(),
-                            duration);
-            Serial.println("DEBUG-WATERING: Sending response to client");
-            request->send(response);
-        }
-    );
-    server.addHandler(waterStartHandlerNoPrefix);
     
     server.on("/api/control/water/stop", HTTP_POST, [this](AsyncWebServerRequest *request) {
         bool success = controller->stopWatering();
@@ -354,6 +290,28 @@ void WateringSystemWebServer::setupEndpoints()
         String response = handleConfigRequest(request);
         request->send(200, "application/json", response);
     });
+    
+    // Add JSON handlers for the config endpoints
+    AsyncCallbackJsonWebHandler* configHandler = new AsyncCallbackJsonWebHandler(
+        "/api/config", 
+        [this](AsyncWebServerRequest *request, JsonVariant &json) {
+            Serial.println("JSON API endpoint /api/config called with JSON data");
+            String response = handleConfigJsonRequest(json);
+            request->send(200, "application/json", response);
+        }
+    );
+    server.addHandler(configHandler);
+    
+    // Add handler for the endpoint without /api prefix
+    AsyncCallbackJsonWebHandler* configHandlerNoPrefix = new AsyncCallbackJsonWebHandler(
+        "/config", 
+        [this](AsyncWebServerRequest *request, JsonVariant &json) {
+            Serial.println("JSON endpoint /config called with JSON data");
+            String response = handleConfigJsonRequest(json);
+            request->send(200, "application/json", response);
+        }
+    );
+    server.addHandler(configHandlerNoPrefix);
     
     server.on("/api/history", HTTP_GET, [this](AsyncWebServerRequest *request) {
         String response = handleHistoricalDataRequest(request);
@@ -753,6 +711,56 @@ String WateringSystemWebServer::handleConfigRequest(AsyncWebServerRequest* reque
         long value = request->getParam("minWateringInterval", true)->value().toInt();
         controller->setMinWateringInterval(value);
         configChanged = true;
+    }
+    
+    if (configChanged) {
+        success = true;
+        message = "Configuration updated";
+    }
+    
+    doc["success"] = success;
+    doc["message"] = message;
+    
+    String response;
+    serializeJson(doc, response);
+    return response;
+}
+
+String WateringSystemWebServer::handleConfigJsonRequest(JsonVariant &json)
+{
+    DynamicJsonDocument doc(256);
+    bool success = false;
+    String message = "No changes made";
+    
+    // Process configuration parameters
+    bool configChanged = false;
+    
+    if (json.is<JsonObject>()) {
+        JsonObject jsonObj = json.as<JsonObject>();
+        
+        if (jsonObj.containsKey("moistureThresholdLow")) {
+            float value = jsonObj["moistureThresholdLow"].as<float>();
+            controller->setMoistureThresholdLow(value);
+            configChanged = true;
+        }
+        
+        if (jsonObj.containsKey("moistureThresholdHigh")) {
+            float value = jsonObj["moistureThresholdHigh"].as<float>();
+            controller->setMoistureThresholdHigh(value);
+            configChanged = true;
+        }
+        
+        if (jsonObj.containsKey("wateringDuration")) {
+            int value = jsonObj["wateringDuration"].as<int>();
+            controller->setWateringDuration(value);
+            configChanged = true;
+        }
+        
+        if (jsonObj.containsKey("minWateringInterval")) {
+            long value = jsonObj["minWateringInterval"].as<long>();
+            controller->setMinWateringInterval(value);
+            configChanged = true;
+        }
     }
     
     if (configChanged) {
