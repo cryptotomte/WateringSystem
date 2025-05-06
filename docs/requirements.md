@@ -90,12 +90,17 @@ The WateringSystem operates as a standalone device that can be placed near plant
 - The system shall implement Modbus RTU protocol for soil sensor communication
 - The system shall use LittleFS for storing configuration and web files
 - The system shall implement a lightweight web server for the user interface
+- The system shall use ESPAsyncWebServer for handling HTTP requests asynchronously
+- The system shall use form-data for critical control operations (e.g., watering control) to ensure reliable processing
+- The system shall use JSON responses for status updates and configuration data
 
 ### 3.4 Communication Interfaces
 - The system shall connect to local Wi-Fi networks
 - The system shall serve web content via HTTP
 - The system shall implement basic authentication for administrative functions
 - The system shall provide the option for secure communications via HTTPS
+- The system shall handle asynchronous web requests without blocking other system operations
+- The system shall implement appropriate error handling for web communication failures
 
 ### 3.5 Software Development Requirements
 - The system shall be developed using C++ with strict adherence to modern C++ standards
@@ -238,6 +243,8 @@ The system shall include interfaces such as:
 - Unit testing shall be implemented using appropriate C++ testing frameworks
 - Static code analysis tools shall be used to ensure code quality
 - Continuous integration shall be implemented to automate testing
+- ESPAsyncWebServer shall be used for handling HTTP requests with proper error handling
+- ArduinoJson shall be used for generating JSON responses (but not for receiving critical control inputs)
 
 ### 9.5 Coding Standards
 - The code shall follow consistent naming conventions:
