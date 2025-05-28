@@ -1,11 +1,26 @@
-/* styles.css - Minimal custom styles complementing Tailwind CSS */
+/* styles.css - Custom styles complementing Tailwind CSS */
 
-/* Define custom properties here if needed, although Tailwind handles most styling */
-/* Example:
+/* Define custom properties for light mode (can be overridden by Tailwind dark mode config) */
 :root {
-    --brand-green: #2e7d32;
+    --brand-accent-light: #3b82f6;
+    /* blue-500 */
+    --brand-accent-hover-light: #2563eb;
+    /* blue-600 */
+    --text-light-primary: #1f2937;
+    /* gray-800 */
+    --text-light-secondary: #4b5563;
+    /* gray-600 */
+    --text-light-muted: #9ca3af;
+    /* gray-400 */
+    --bg-light-primary: #ffffff;
+    /* white */
+    --bg-light-secondary: #f3f4f6;
+    /* gray-100 */
+    --border-light-primary: #e5e7eb;
+    /* gray-200 */
+    --border-light-secondary: #d1d5db;
+    /* gray-300 */
 }
-*/
 
 /* Custom style for the reservoir level bar fill animation/transition */
 #water-level-indicator {
@@ -16,7 +31,12 @@
 .notification {
     transition: opacity 0.3s ease-out, transform 0.3s ease-out;
     max-width: 350px;
-    /* Adjust max width as needed */
+    /* Base notification styles - will be adapted for dark mode in JS or via Tailwind dark: classes */
+    /* Example for light mode (can be overridden) */
+    background-color: var(--bg-light-primary);
+    color: var(--text-light-primary);
+    border: 1px solid var(--border-light-primary);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
 }
 
 .notification.fade-out {
@@ -24,17 +44,39 @@
     transform: translateX(100%);
 }
 
-/* Add any other specific styles that are difficult or verbose to achieve with only Tailwind utility classes */
+/* Dark mode specific notification styles (can be applied by JS based on <html> class) */
+.dark .notification {
+    background-color: #374151;
+    /* gray-700 */
+    color: #e5e7eb;
+    /* gray-200 */
+    border-color: #4b5563;
+    /* gray-600 */
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -1px rgba(0, 0, 0, 0.12);
+    /* Darker shadow */
+}
 
-/* Keyframes for pulse animation (if not defined inline in HTML) */
-/* @keyframes pulse {
-    0% { opacity: 1; }
-    50% { opacity: 0.5; }
-    100% { opacity: 1; }
-} */
+.dark .notification.success {
+    border-left: 4px solid theme('colors.status-connected-dark');
+}
 
-/* Style for disabled buttons (Tailwind's disabled:opacity-50 is used in HTML) */
-/* button:disabled {
-    cursor: not-allowed;
-    /* Tailwind handles opacity, but you could add more styles here if needed */
-/* } */
+.dark .notification.error {
+    border-left: 4px solid theme('colors.status-disconnected-dark');
+}
+
+.dark .notification.info {
+    border-left: 4px solid theme('colors.status-active-dark');
+}
+
+/* Chart.js dark mode tooltip and legend styling (applied via JS options) */
+/* This is just a placeholder for where you might put CSS if not handled by JS */
+/* For example:
+.chartjs-tooltip-dark {
+    background: rgba(31, 41, 55, 0.9); // bg-slate-800 with opacity
+    color: #e5e7eb; // text-slate-200
+    border: 1px solid #4b5563; // border-slate-600
+}
+.chartjs-legend-dark span {
+    color: #cbd5e1; // text-slate-300
+}
+*/

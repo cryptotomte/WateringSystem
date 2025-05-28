@@ -135,7 +135,7 @@ function setupEventListeners() {
     elements.startWateringBtn.addEventListener('click', () => {
         const duration = elements.wateringDurationInput.value;
         startWatering(duration);
-        
+
         /* Original code with confirmation modal:
         showConfirmation(
             'Are you sure you want to start watering?',
@@ -402,22 +402,24 @@ function updateSystemStatus(data) {
 function updateConnectionStatus(connected) {
     const statusDot = elements.connectionStatus.querySelector('.status-dot');
     const statusText = elements.connectionStatus.querySelector('.status-text');
+    const isDarkMode = document.documentElement.classList.contains('dark');
 
+    // Tailwind classes for status dots are already handled by .dark prefix in HTML/CSS
+    // We just need to ensure text color is appropriate if not covered by a general rule.
     if (connected) {
-        // Use Tailwind classes or the custom classes defined in <style> or styles.css
         statusDot.classList.remove('status-disconnected');
         statusDot.classList.add('status-connected');
         statusText.textContent = 'Connected';
-        statusText.classList.remove('text-red-600'); // Example if using Tailwind colors directly
-        statusText.classList.add('text-gray-600');
+        // Text color for status is now text-slate-400 in dark mode (from HTML)
+        // and text-gray-600 in light mode (from HTML).
+        // No specific JS change needed here if HTML is correctly styled.
     } else {
         statusDot.classList.remove('status-connected');
         statusDot.classList.add('status-disconnected');
         statusText.textContent = 'Disconnected';
-        statusText.classList.remove('text-gray-600');
-        statusText.classList.add('text-red-600'); // Example if using Tailwind colors directly
+        // As above, HTML should handle text color.
     }
-    appState.connected = connected; // Update state
+    appState.connected = connected;
 }
 
 /**
@@ -428,142 +430,140 @@ function updateConnectionStatus(connected) {
 function updateWateringStatus(isWatering, remainingTime) {
     const statusDot = elements.wateringStatus.querySelector('.status-dot');
     const statusText = elements.wateringStatus.querySelector('.status-text');
+    const isDarkMode = document.documentElement.classList.contains('dark');
+    const activeColor = isDarkMode ? tailwind.theme.extend.colors['status-active-dark'] || '#60A5FA' : '#3182ce'; // blue-400 / blue-600
 
     if (isWatering) {
         statusDot.classList.remove('status-inactive');
-        statusDot.classList.add('status-active');
-        
-        // Clear any existing client-side countdown timer
+        statusDot.classList.add('status-active'); // This class should be styled by .dark in CSS
+
         if (appState.clientCountdownTimer) {
             clearInterval(appState.clientCountdownTimer);
             appState.clientCountdownTimer = null;
         }
-        
-        // Initialize client-side countdown if we have a remaining time
+
         if (remainingTime !== undefined && remainingTime > 0) {
-            console.log(`Starting client countdown timer with ${remainingTime} seconds`);
-            
-            // Store the end time based on remaining seconds
             appState.countdownEndTime = Date.now() + (remainingTime * 1000);
-            
-            // Update status text immediately
-            statusText.innerHTML = `Watering Active <span class="font-medium text-blue-600">(${remainingTime}s remaining)</span>`;
-            
-            // Start a client-side countdown that updates every second
+            const textColorClass = isDarkMode ? 'text-blue-400' : 'text-blue-600'; // Adjusted for dark mode
+            statusText.innerHTML = `Watering Active <span class="font-medium ${textColorClass}">(${remainingTime}s remaining)</span>`;
+
             appState.clientCountdownTimer = setInterval(() => {
                 const now = Date.now();
                 const remaining = Math.max(0, Math.ceil((appState.countdownEndTime - now) / 1000));
-                
                 if (remaining > 0) {
-                    statusText.innerHTML = `Watering Active <span class="font-medium text-blue-600">(${remaining}s remaining)</span>`;
+                    statusText.innerHTML = `Watering Active <span class="font-medium ${textColorClass}">(${remaining}s remaining)</span>`;
                 } else {
-                    // If countdown reached zero, fetch status to confirm
                     clearInterval(appState.clientCountdownTimer);
                     appState.clientCountdownTimer = null;
                     fetchSystemStatus();
                 }
             }, 1000);
-            
-            // Also ensure we have a server refresh timer for countdown
+
             if (!appState.countdownServerTimer) {
                 appState.countdownServerTimer = setInterval(() => {
                     fetchSystemStatus();
-                }, 5000); // Update from server every 5 seconds as a fallback
+                }, 5000);
             }
         } else {
             statusText.textContent = 'Watering Active';
         }
-        
         elements.startWateringBtn.disabled = true;
         elements.stopWateringBtn.disabled = false;
     } else {
         statusDot.classList.remove('status-active');
-        statusDot.classList.add('status-inactive');
+        statusDot.classList.add('status-inactive'); // This class should be styled by .dark in CSS
         statusText.textContent = 'Watering Inactive';
         elements.startWateringBtn.disabled = false;
         elements.stopWateringBtn.disabled = true;
-        
-        // Clear any existing timer
+
         if (appState.clientCountdownTimer) {
             clearInterval(appState.clientCountdownTimer);
             appState.clientCountdownTimer = null;
         }
-        
         if (appState.countdownServerTimer) {
             clearInterval(appState.countdownServerTimer);
             appState.countdownServerTimer = null;
         }
     }
-    
     appState.isWatering = isWatering;
 }
 
 /**
- * Update the reservoir status display (Tailwind Version)
+ * Update the reservoir status display (Tailwind Version adapted for Dark Mode)
  * @param {Object} reservoirData - Reservoir status data from the API
  */
 function updateReservoirStatus(reservoirData) {
-    // Update toggle state visually (Tailwind handles the input's appearance)
     elements.reservoirToggle.checked = reservoirData.enabled;
     elements.reservoirStatus.textContent = reservoirData.enabled ? 'Enabled' : 'Disabled';
 
-    // Update buttons and input states based on reservoir status
     elements.startReservoirPumpBtn.disabled = !reservoirData.enabled || reservoirData.pumpRunning || reservoirData.highLevelDetected;
     elements.stopReservoirPumpBtn.disabled = !reservoirData.enabled || !reservoirData.pumpRunning;
     elements.reservoirDurationInput.disabled = !reservoirData.enabled;
 
-    // Update water level indicator bar width and color
     let levelPercentage = 0;
     let levelText = 'Unknown';
-    let barColorClass = 'bg-gray-400'; // Default color
+    let barColorClass;
+    const isDarkMode = document.documentElement.classList.contains('dark');
+
+    // Use Tailwind color names directly, assuming they are defined in the HTML's tailwind.config
+    // or fall back to reasonable defaults if needed.
+    const blueColor = isDarkMode ? (tailwind.theme.extend.colors['status-active-dark'] || 'bg-blue-400') : 'bg-blue-600';
+    const yellowColor = isDarkMode ? (tailwind.theme.extend.colors['status-warning-dark'] || 'bg-amber-400') : 'bg-yellow-500';
+    const redColor = isDarkMode ? (tailwind.theme.extend.colors['status-disconnected-dark'] || 'bg-red-400') : 'bg-red-600';
+    const grayColor = isDarkMode ? (tailwind.theme.extend.colors['status-inactive-dark'] || 'bg-gray-500') : 'bg-gray-400';
+    const brandAccent = tailwind.theme.extend.colors['brand-accent'] || 'bg-blue-500'; // Default to a blue if not found
 
     if (reservoirData.highLevelDetected) {
         levelPercentage = 100;
         levelText = 'Full';
-        barColorClass = 'bg-blue-600'; // Tailwind blue
+        barColorClass = brandAccent; // Use brand accent for full
     } else if (reservoirData.lowLevelDetected) {
-        // Assuming 'lowLevelDetected' means it's *not* critically low, maybe medium?
-        // Adjust logic based on actual sensor meaning. Let's assume 50% for medium.
-        levelPercentage = 50;
+        levelPercentage = 50; // Assuming low means not empty, but needs attention
         levelText = 'Medium';
-        barColorClass = 'bg-yellow-500'; // Tailwind yellow for medium/warning
-    } else {
-        // Assuming if neither high nor low is detected, it's critically low or empty
-        levelPercentage = 10; // Show a small amount for 'low'
+        barColorClass = yellowColor;
+    } else { // Neither high nor low detected, assume critically low or empty
+        levelPercentage = 10;
         levelText = 'Low';
-        barColorClass = 'bg-red-600'; // Tailwind red for low/alert
+        barColorClass = redColor;
     }
 
-    // Apply width style
+    // If reservoir is disabled, show a neutral/empty state for the bar
+    if (!reservoirData.enabled) {
+        levelPercentage = 0;
+        levelText = 'Disabled';
+        barColorClass = grayColor;
+    }
+
+
     elements.waterLevelIndicator.style.width = `${levelPercentage}%`;
-    // Remove old color classes and add the new one
-    elements.waterLevelIndicator.classList.remove('bg-gray-400', 'bg-blue-600', 'bg-yellow-500', 'bg-red-600');
-    elements.waterLevelIndicator.classList.add(barColorClass);
+    // Remove all potential bg color classes and add the new one.
+    // It's safer to list all possible ones used here or manage this with a single class if possible.
+    const colorClassesToRemove = ['bg-blue-600', 'bg-yellow-500', 'bg-red-600', 'bg-gray-400', 'bg-blue-400', 'bg-amber-400', 'bg-red-400', 'bg-gray-500', brandAccent.replace('border-', 'bg-').replace('text-', 'bg-')];
+    elements.waterLevelIndicator.classList.remove(...colorClassesToRemove.filter(c => c.startsWith('bg-')));
+    elements.waterLevelIndicator.classList.add(barColorClass.startsWith('bg-') ? barColorClass : `bg-[${barColorClass}]`);
+
 
     elements.waterLevelText.textContent = levelText;
 
-    // Update reservoir pump status indicator dot and text
     const pumpStatusDot = elements.reservoirPumpStatus.querySelector('.status-dot');
     const pumpStatusText = elements.reservoirPumpStatus.querySelector('.status-text');
 
-    // Remove previous status classes
     pumpStatusDot.classList.remove('status-inactive', 'status-active', 'status-running', 'status-warning');
 
     if (reservoirData.pumpRunning) {
-        pumpStatusDot.classList.add('status-running'); // Use pulsing animation class
+        pumpStatusDot.classList.add('status-running');
         pumpStatusText.textContent = 'Pump Running';
     } else if (reservoirData.enabled) {
-        // Check level for warnings when pump is not running but feature is enabled
-        if (levelPercentage <= 10) { // If level is low
-            pumpStatusDot.classList.add('status-warning'); // Warning color
+        if (levelPercentage <= 10 && levelText === 'Low') { // Check if level is critically low
+            pumpStatusDot.classList.add('status-warning');
             pumpStatusText.textContent = 'Pump Ready (Level Low)';
         } else {
-            pumpStatusDot.classList.add('status-active'); // Ready color (e.g., blue)
+            pumpStatusDot.classList.add('status-active');
             pumpStatusText.textContent = 'Pump Ready';
         }
     } else {
-        pumpStatusDot.classList.add('status-inactive'); // Inactive color (e.g., gray)
-        pumpStatusText.textContent = 'Pump Inactive';
+        pumpStatusDot.classList.add('status-inactive');
+        pumpStatusText.textContent = 'Pump Inactive (Disabled)';
     }
 }
 
@@ -654,7 +654,7 @@ async function saveSettings() {
         formData.append('minWateringInterval', settings.minWateringInterval);
 
         console.log('Sending as URL-encoded form data');
-        
+
         const response = await fetch(`${API_CONFIG.ENDPOINT}/config`, {
             method: 'POST',
             headers: {
@@ -672,7 +672,7 @@ async function saveSettings() {
 
         const data = await response.json();
         console.log('Response data:', data);
-        
+
         if (data.success) {
             appState.settings = settings;
             showNotification('Settings Saved', 'System settings have been updated.', 'success');
@@ -690,6 +690,18 @@ async function saveSettings() {
  */
 function initChart() {
     const ctx = elements.dataChart.getContext('2d');
+    const isDarkMode = document.documentElement.classList.contains('dark');
+
+    // Define colors based on dark mode
+    const gridColor = isDarkMode ? 'rgba(100, 116, 139, 0.2)' : 'rgba(203, 213, 225, 0.5)'; // slate-600/slate-300 with opacity
+    const textColor = isDarkMode ? '#cbd5e1' : '#4b5563'; // slate-300/slate-600
+    const legendColor = isDarkMode ? '#e2e8f0' : '#334155'; // slate-200/slate-700
+    const tooltipBgColor = isDarkMode ? 'rgba(30, 41, 59, 0.9)' : 'rgba(255, 255, 255, 0.9)'; // slate-800/white
+    const tooltipTitleColor = isDarkMode ? '#f1f5f9' : '#1e293b'; // slate-100/slate-900
+    const tooltipBodyColor = isDarkMode ? '#cbd5e1' : '#374151'; // slate-300/slate-700
+    const datasetBorderColor = tailwind.theme.colors['brand-accent'] || '#3b82f6'; // Use brand-accent from Tailwind config
+    const datasetBackgroundColor = tailwind.theme.colors['brand-accent'] ? `${tailwind.theme.colors['brand-accent']}33` : 'rgba(59, 130, 246, 0.2)'; // brand-accent with ~20% opacity
+
     appState.chart = new Chart(ctx, {
         type: 'line',
         data: {
@@ -697,11 +709,15 @@ function initChart() {
             datasets: [{
                 label: 'Sensor Reading',
                 data: [],
-                borderColor: '#2e7d32',
-                backgroundColor: 'rgba(46, 125, 50, 0.1)',
+                borderColor: datasetBorderColor,
+                backgroundColor: datasetBackgroundColor,
                 borderWidth: 2,
                 tension: 0.2,
-                fill: true
+                fill: true,
+                pointBackgroundColor: datasetBorderColor,
+                pointBorderColor: isDarkMode ? '#0f172a' : '#ffffff', // slate-900 or white for point borders
+                pointHoverBackgroundColor: isDarkMode ? '#0f172a' : '#ffffff',
+                pointHoverBorderColor: datasetBorderColor,
             }]
         },
         options: {
@@ -718,25 +734,57 @@ function initChart() {
                     },
                     title: {
                         display: true,
-                        text: 'Time'
+                        text: 'Time',
+                        color: textColor
+                    },
+                    ticks: {
+                        color: textColor,
+                        maxRotation: 0,
+                        autoSkipPadding: 20,
+                    },
+                    grid: {
+                        color: gridColor,
+                        borderColor: gridColor // Ensure border color also matches
                     }
                 },
                 y: {
-                    beginAtZero: false,
+                    beginAtZero: false, // Keep this dynamic based on data
                     title: {
                         display: true,
-                        text: 'Value'
+                        text: 'Value',
+                        color: textColor
+                    },
+                    ticks: {
+                        color: textColor
+                    },
+                    grid: {
+                        color: gridColor,
+                        borderColor: gridColor // Ensure border color also matches
                     }
                 }
             },
             plugins: {
                 legend: {
                     display: true,
-                    position: 'top'
+                    position: 'top',
+                    labels: {
+                        color: legendColor,
+                        usePointStyle: true,
+                        boxWidth: 8
+                    }
                 },
                 tooltip: {
                     mode: 'index',
-                    intersect: false
+                    intersect: false,
+                    backgroundColor: tooltipBgColor,
+                    titleColor: tooltipTitleColor,
+                    bodyColor: tooltipBodyColor,
+                    borderColor: gridColor,
+                    borderWidth: 1,
+                    padding: 10,
+                    cornerRadius: 4,
+                    displayColors: true, // Show color box in tooltip
+                    boxPadding: 3
                 }
             }
         }
@@ -814,6 +862,8 @@ function updateChart(data, label) {
     if (!appState.chart || !data || !data.timestamps || !data.values) {
         return;
     }
+    const isDarkMode = document.documentElement.classList.contains('dark');
+    const textColor = isDarkMode ? '#cbd5e1' : '#4b5563'; // slate-300/slate-600
 
     // Set units based on reading type
     let unit = '';
@@ -855,6 +905,14 @@ function updateChart(data, label) {
     appState.chart.options.scales.x.time.displayFormats[timeUnit] = format;
     appState.chart.options.scales.y.title.text = `${label} (${unit})`;
 
+    // Update colors if mode changed (though initChart should handle initial setup)
+    appState.chart.options.scales.x.title.color = textColor;
+    appState.chart.options.scales.x.ticks.color = textColor;
+    appState.chart.options.scales.y.title.color = textColor;
+    appState.chart.options.scales.y.ticks.color = textColor;
+    appState.chart.options.plugins.legend.labels.color = isDarkMode ? '#e2e8f0' : '#334155';
+
+
     // Update chart
     appState.chart.update();
 }
@@ -893,38 +951,62 @@ function hideConfirmation() {
 }
 
 /**
- * Show a notification (Tailwind Version)
+ * Show a notification (Tailwind Version adapted for Dark Mode)
  * @param {string} title - Notification title
  * @param {string} message - Notification message
  * @param {string} type - Notification type: 'success', 'error', 'warning', 'info'
  */
 function showNotification(title, message, type = 'info') {
     const notification = document.createElement('div');
-    // Base classes using Tailwind
-    notification.className = 'p-4 rounded-md shadow-lg bg-white border-l-4 max-w-sm w-full';
+    const isDarkMode = document.documentElement.classList.contains('dark');
 
-    // Type-specific border color using Tailwind
-    let borderColorClass = 'border-blue-500'; // Default to info
-    if (type === 'success') borderColorClass = 'border-green-500';
-    else if (type === 'error') borderColorClass = 'border-red-500';
-    else if (type === 'warning') borderColorClass = 'border-yellow-500';
-    notification.classList.add(borderColorClass);
+    // Base classes using Tailwind, adapted for dark mode
+    let baseClasses = 'p-4 rounded-md shadow-lg border-l-4 max-w-sm w-full';
+    let titleColorClass = isDarkMode ? 'text-slate-100' : 'text-gray-900';
+    let messageColorClass = isDarkMode ? 'text-slate-300' : 'text-gray-500';
+    let bgColorClass = isDarkMode ? 'bg-slate-700' : 'bg-white';
+    let closeButtonHoverColor = isDarkMode ? 'text-slate-200' : 'text-gray-500';
+    let closeButtonColor = isDarkMode ? 'text-slate-400' : 'text-gray-400';
+    let closeButtonBg = isDarkMode ? 'bg-slate-700' : 'bg-white'; // Match notification bg
+    let closeButtonFocusRing = isDarkMode ? 'focus:ring-offset-slate-700 focus:ring-brand-accent' : 'focus:ring-offset-white focus:ring-indigo-500';
+
+
+    notification.className = `${baseClasses} ${bgColorClass}`;
+
+    // Type-specific border color using Tailwind custom properties or direct values
+    let borderColorClass;
+    switch (type) {
+        case 'success':
+            borderColorClass = isDarkMode ? 'border-status-connected-dark' : 'border-green-500'; // Use theme('colors.status-connected-dark') if available
+            // For JS, direct hex is safer if theme() isn't processed.
+            borderColorClass = isDarkMode ? `border-[${tailwind.theme.extend.colors['status-connected-dark'] || '#10B981'}]` : 'border-green-500';
+            break;
+        case 'error':
+            borderColorClass = isDarkMode ? `border-[${tailwind.theme.extend.colors['status-disconnected-dark'] || '#F87171'}]` : 'border-red-500';
+            break;
+        case 'warning':
+            borderColorClass = isDarkMode ? `border-[${tailwind.theme.extend.colors['status-warning-dark'] || '#FBBF24'}]` : 'border-yellow-500';
+            break;
+        case 'info':
+        default:
+            borderColorClass = isDarkMode ? `border-[${tailwind.theme.extend.colors['status-active-dark'] || '#60A5FA'}]` : 'border-blue-500';
+            break;
+    }
+    notification.classList.add(borderColorClass.replace('border-[', 'border-').replace(']', '')); // Clean up if using bracket notation for arbitrary values
 
     notification.innerHTML = `
         <div class="flex">
             <div class="flex-shrink-0">
-                <!-- Optional Icon based on type -->
-                <!-- <svg>...</svg> -->
+                <!-- Optional Icon can be added here, styled for dark mode -->
             </div>
             <div class="ml-3">
-                <p class="text-sm font-medium text-gray-900">${title}</p>
-                <p class="mt-1 text-sm text-gray-500">${message}</p>
+                <p class="text-sm font-medium ${titleColorClass}">${title}</p>
+                <p class="mt-1 text-sm ${messageColorClass}">${message}</p>
             </div>
             <div class="ml-auto pl-3">
                 <div class="-mx-1.5 -my-1.5">
-                    <button type="button" class="notification-close inline-flex bg-white rounded-md p-1.5 text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                    <button type="button" class="notification-close inline-flex ${closeButtonBg} rounded-md p-1.5 ${closeButtonColor} hover:${closeButtonHoverColor} focus:outline-none focus:ring-2 focus:ring-offset-2 ${closeButtonFocusRing}">
                         <span class="sr-only">Dismiss</span>
-                        <!-- Heroicon name: solid/x -->
                         <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                             <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
                         </svg>
@@ -970,13 +1052,13 @@ async function startWatering(duration) {
     try {
         // Convert duration to integer or use default
         const durationVal = parseInt(duration) || 20;
-        
+
         // Create form data instead of JSON to avoid server-side crash
         const formData = new URLSearchParams();
         formData.append('duration', durationVal);
-        
+
         console.log(`Starting watering for ${durationVal} seconds using form data`);
-        
+
         const response = await fetch(`${API_CONFIG.ENDPOINT}/control/water/start`, {
             method: 'POST',
             headers: {
@@ -984,18 +1066,18 @@ async function startWatering(duration) {
             },
             body: formData
         });
-        
+
         if (!response.ok) {
             throw new Error(`HTTP error ${response.status}`);
         }
 
         const data = await response.json();
-        
+
         if (data.success) {
             showNotification('Watering Started', `Watering started for ${durationVal} seconds.`, 'success');
             // Update UI immediately for better responsiveness
             updateWateringStatus(true);
-            
+
             // Immediately fetch system status to get remaining time
             await fetchSystemStatus();
         } else {
