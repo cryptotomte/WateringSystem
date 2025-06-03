@@ -546,6 +546,10 @@ bool initFileSystem() {
   
   if (!LittleFS.begin(true)) { // Use format_if_failed=true to handle corruption
     Serial.println("Failed to mount LittleFS file system!");
+    Serial.println("This could be due to:");
+    Serial.println("1. Corrupted file system");
+    Serial.println("2. Hardware failure");
+    Serial.println("3. Incompatible partition table");
     return false;
   }
   
@@ -554,8 +558,14 @@ bool initFileSystem() {
   // Print out file system info
   size_t totalBytes = LittleFS.totalBytes();
   size_t usedBytes = LittleFS.usedBytes();
-  Serial.printf("LittleFS: %u bytes total, %u bytes used (%0.1f%%)\n", 
-                totalBytes, usedBytes, (usedBytes * 100.0) / totalBytes);
+  size_t freeBytes = totalBytes - usedBytes;
+  Serial.printf("LittleFS: %u bytes total, %u bytes used, %u bytes free (%0.1f%% used)\n", 
+                totalBytes, usedBytes, freeBytes, (usedBytes * 100.0) / totalBytes);
+  
+  // Warn if filesystem is very full
+  if (freeBytes < 10240) { // Less than 10KB free
+    Serial.println("WARNING: LittleFS is very full! Consider cleaning up files or using a larger partition.");
+  }
   
   // Debug: list files
   Serial.println("Files in LittleFS root:");

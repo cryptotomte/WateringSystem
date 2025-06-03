@@ -62,11 +62,32 @@ bool LittleFSStorage::ensureDataDirectory()
 {
     Serial.printf("Ensuring data directory exists: %s\n", dataFolder.c_str());
     
+    // Check available space first
+    size_t totalBytes = LittleFS.totalBytes();
+    size_t usedBytes = LittleFS.usedBytes();
+    size_t freeBytes = totalBytes - usedBytes;
+    
+    Serial.printf("LittleFS: %u bytes total, %u bytes used, %u bytes free (%0.1f%% used)\n", 
+                  totalBytes, usedBytes, freeBytes, (usedBytes * 100.0) / totalBytes);
+    
     if (!LittleFS.exists(dataFolder)) {
         Serial.println("Data directory does not exist, creating it now");
+        
+        // Check if we have enough space (at least 1KB for directory structure)
+        if (freeBytes < 1024) {
+            Serial.printf("Not enough free space to create data directory! Only %u bytes available\n", freeBytes);
+            Serial.println("Consider using a larger partition table or cleaning up files");
+            return false;
+        }
+        
         // Create the data directory if it doesn't exist
         if (!LittleFS.mkdir(dataFolder)) {
             Serial.println("Failed to create data directory!");
+            // List possible reasons
+            Serial.println("Possible causes:");
+            Serial.println("1. File system is full");
+            Serial.println("2. File system is corrupted");
+            Serial.println("3. Path contains invalid characters");
             return false;
         }
         Serial.println("Data directory created successfully");
