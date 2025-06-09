@@ -99,6 +99,17 @@ cd WateringSystem
 pip install platformio
 ```
 
+### Windows PowerShell Commands
+On Windows systems, PlatformIO may not be in PATH. Use these commands:
+
+```powershell
+# Build project
+& "C:\Users\crypt\.platformio\penv\Scripts\pio.exe" run --environment wateringsystem
+
+# Upload to device  
+& "C:\Users\crypt\.platformio\penv\Scripts\pio.exe" run --target upload --environment wateringsystem
+```
+
 3. Build and upload the firmware:
 ```bash
 platformio run --target upload

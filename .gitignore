@@ -43,6 +43,3 @@ _autosave*
 
 # GitHub Copilot
 .github/copilot-instructions.md
-
-# Local documentation (not for repo)
-docs/platformio-commands.md
