@@ -43,3 +43,18 @@ _autosave*
 
 # GitHub Copilot
 .github/copilot-instructions.md
+
+# Auto-generated files
+*.gz
+**/PowerDomain*
+docs/*completion-report*
+docs/*migration-guide*
+docs/*validation*
+docs/system-*
+docs/power-*
+docs/pcb-*
+docs/MIKROE-*
+docs/gpio-*
+docs/git-commit-*
+docs/final-*
+docs/bill-of-materials*
