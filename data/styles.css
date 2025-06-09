@@ -1,5 +1,68 @@
 /* styles.css - Custom styles complementing Tailwind CSS */
 
+/* Status dot styling for connection and activity indicators */
+.status-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 6px;
+    transition: background-color 0.3s ease;
+}
+
+/* Connection status colors */
+.status-connected {
+    background-color: #10B981; /* emerald-500 - green for connected */
+}
+
+.status-disconnected {
+    background-color: #F87171; /* red-400 - red for disconnected */
+}
+
+/* Activity status colors */
+.status-active {
+    background-color: #60A5FA; /* blue-400 - blue for active */
+}
+
+.status-inactive {
+    background-color: #6B7280; /* gray-500 - gray for inactive */
+}
+
+/* Warning status */
+.status-warning {
+    background-color: #FBBF24; /* amber-400 - yellow for warning */
+}
+
+/* Running status */
+.status-running {
+    background-color: #34D399; /* emerald-400 - light green for running */
+}
+
+/* Dark mode status colors (using CSS custom properties defined in Tailwind config) */
+.dark .status-connected {
+    background-color: var(--status-connected-dark, #10B981);
+}
+
+.dark .status-disconnected {
+    background-color: var(--status-disconnected-dark, #F87171);
+}
+
+.dark .status-active {
+    background-color: var(--status-active-dark, #60A5FA);
+}
+
+.dark .status-inactive {
+    background-color: var(--status-inactive-dark, #6B7280);
+}
+
+.dark .status-warning {
+    background-color: var(--status-warning-dark, #FBBF24);
+}
+
+.dark .status-running {
+    background-color: var(--status-running-dark, #34D399);
+}
+
 /* Define custom properties for light mode (can be overridden by Tailwind dark mode config) */
 :root {
     --brand-accent-light: #3b82f6;

@@ -24,101 +24,139 @@ const appState = {
         moistureThresholdHigh: 60,
         wateringDuration: 20,
         minWateringInterval: 6
-    },
-    reservoir: {
+    },    reservoir: {
         enabled: false,
+        autoLevelControlEnabled: false,
         pumpRunning: false,
         lowLevelDetected: false,
         highLevelDetected: false
     }
 };
 
-// DOM elements
-const elements = {
-    // Status indicators
-    connectionStatus: document.getElementById('connection-status'),
-    wateringStatus: document.getElementById('watering-status'),
+// DOM elements - will be populated when DOM is ready
+let elements = {}
 
-    // Sensor readings
-    envTemperature: document.getElementById('env-temperature'),
-    envHumidity: document.getElementById('env-humidity'),
-    envPressure: document.getElementById('env-pressure'),
-    soilMoisture: document.getElementById('soil-moisture'),
-    soilTemperature: document.getElementById('soil-temperature'),
-    soilPh: document.getElementById('soil-ph'),
-    soilEc: document.getElementById('soil-ec'),
-    soilNpk: document.getElementById('soil-npk'),
-    lastUpdateTime: document.getElementById('last-update-time'),
-
-    // Control buttons
-    refreshDataBtn: document.getElementById('refresh-data'),
-    startWateringBtn: document.getElementById('start-watering'),
-    stopWateringBtn: document.getElementById('stop-watering'),
-    wateringDurationInput: document.getElementById('watering-duration-input'),
-    autoWateringToggle: document.getElementById('auto-watering-toggle'),
-    autoWateringStatus: document.getElementById('auto-watering-status'),
-
-    // Reservoir control
-    reservoirToggle: document.getElementById('reservoir-toggle'),
-    reservoirStatus: document.getElementById('reservoir-status'),
-    waterLevelIndicator: document.getElementById('water-level-indicator'),
-    waterLevelText: document.getElementById('water-level-text'),
-    reservoirPumpStatus: document.getElementById('reservoir-pump-status'),
-    startReservoirPumpBtn: document.getElementById('start-reservoir-pump'),
-    stopReservoirPumpBtn: document.getElementById('stop-reservoir-pump'),
-    reservoirDurationInput: document.getElementById('reservoir-duration-input'),
-
-    // Settings form
-    settingsForm: document.getElementById('settings-form'),
-    moistureThresholdLow: document.getElementById('moisture-threshold-low'),
-    moistureThresholdHigh: document.getElementById('moisture-threshold-high'),
-    wateringDurationSetting: document.getElementById('watering-duration-setting'),
-    minWateringInterval: document.getElementById('min-watering-interval'),
-
-    // Chart controls
-    chartSensor: document.getElementById('chart-sensor'),
-    chartReading: document.getElementById('chart-reading'),
-    chartTimeRange: document.getElementById('chart-time-range'),
-    dataChart: document.getElementById('data-chart'),
-
-    // System info
-    systemIp: document.getElementById('system-ip'),
-    storageUsage: document.getElementById('storage-usage'),
-
-    // Modal
-    confirmationModal: document.getElementById('confirmation-modal'),
-    modalMessage: document.getElementById('modal-message'),
-    modalConfirm: document.getElementById('modal-confirm'),
-    modalCancel: document.getElementById('modal-cancel'),
-    closeModal: document.querySelector('.close-modal'),
-
-    // Notifications
-    notificationContainer: document.getElementById('notification-container')
-};
+/**
+ * Populate DOM element references
+ */
+function populateElements() {
+    console.log('Populating DOM element references...');
+    
+    elements = {
+        // Status displays
+        connectionStatus: document.getElementById('connection-status'),
+        wateringStatus: document.getElementById('watering-status'),
+        lastUpdateTime: document.getElementById('last-update-time'),
+        
+        // Environmental readings
+        envTemperature: document.getElementById('env-temperature'),
+        envHumidity: document.getElementById('env-humidity'),
+        envPressure: document.getElementById('env-pressure'),
+        
+        // Soil readings
+        soilMoisture: document.getElementById('soil-moisture'),
+        soilTemperature: document.getElementById('soil-temperature'),
+        soilPh: document.getElementById('soil-ph'),
+        soilEc: document.getElementById('soil-ec'),
+        soilNpk: document.getElementById('soil-npk'),
+        
+        // Control buttons and inputs
+        refreshDataBtn: document.getElementById('refresh-data'),
+        wateringDurationInput: document.getElementById('watering-duration-input'),
+        startWateringBtn: document.getElementById('start-watering'),
+        stopWateringBtn: document.getElementById('stop-watering'),
+        
+        // Auto watering
+        autoWateringStatus: document.getElementById('auto-watering-status'),
+        autoWateringToggle: document.getElementById('auto-watering-toggle'),
+          // Reservoir controls
+        reservoirStatus: document.getElementById('reservoir-status'),
+        reservoirToggle: document.getElementById('reservoir-toggle'),
+        reservoirAutoLevelStatus: document.getElementById('reservoir-auto-level-status'),
+        reservoirAutoLevelToggle: document.getElementById('reservoir-auto-level-toggle'),
+        waterLevelText: document.getElementById('water-level-text'),
+        waterLevelIndicator: document.getElementById('water-level-indicator'),
+        reservoirPumpStatus: document.getElementById('reservoir-pump-status'),
+        reservoirDurationInput: document.getElementById('reservoir-duration-input'),
+        startReservoirPumpBtn: document.getElementById('start-reservoir-pump'),
+        stopReservoirPumpBtn: document.getElementById('stop-reservoir-pump'),
+        
+        // Chart controls
+        chartSensor: document.getElementById('chart-sensor'),
+        chartReading: document.getElementById('chart-reading'),
+        chartTimeRange: document.getElementById('chart-time-range'),
+        dataChart: document.getElementById('data-chart'),
+        
+        // Settings
+        settingsForm: document.getElementById('settings-form'),
+        moistureThresholdLow: document.getElementById('moisture-threshold-low'),
+        moistureThresholdHigh: document.getElementById('moisture-threshold-high'),
+        wateringDurationSetting: document.getElementById('watering-duration-setting'),
+        minWateringInterval: document.getElementById('min-watering-interval'),
+        
+        // System info
+        systemIp: document.getElementById('system-ip'),
+        storageUsage: document.getElementById('storage-usage'),
+        
+        // Modals and notifications
+        notificationContainer: document.getElementById('notification-container'),
+        confirmationModal: document.getElementById('confirmation-modal'),
+        modalMessage: document.getElementById('modal-message'),
+        modalCancel: document.getElementById('modal-cancel'),
+        modalConfirm: document.getElementById('modal-confirm'),
+        closeModal: document.getElementById('modal-cancel') // Using cancel button as close
+    };
+    
+    // Log any missing elements
+    const missingElements = [];
+    for (const [key, element] of Object.entries(elements)) {
+        if (!element) {
+            missingElements.push(key);
+        }
+    }
+    
+    if (missingElements.length > 0) {
+        console.warn('Missing DOM elements:', missingElements);
+    } else {
+        console.log('All DOM elements found successfully');
+    }
+}
 
 /**
  * Initialize the application
  */
 function initApp() {
+    console.log('initApp() called');
+    
+    // Populate DOM element references first
+    populateElements();
+    console.log('DOM elements populated');
+    
     // Set up event listeners
     setupEventListeners();
+    console.log('Event listeners set up');
 
     // Load settings
     loadSettings();
+    console.log('Settings loaded');
 
     // Initialize chart
     initChart();
+    console.log('Chart initialized');
 
     // Fetch initial data
+    console.log('Starting initial data fetch...');
     fetchSensorData();
     fetchSystemStatus();
     fetchHistoricalData();
 
     // Start auto-refresh
     startAutoRefresh();
+    console.log('Auto-refresh started');
 
     // Show welcome notification
     showNotification('Welcome to WateringSystem', 'The system is ready to monitor and control your plants.', 'info');
+    console.log('initApp() completed');
 }
 
 /**
@@ -154,11 +192,13 @@ function setupEventListeners() {
     // Auto watering toggle
     elements.autoWateringToggle.addEventListener('change', (e) => {
         setAutoWatering(e.target.checked);
-    });
-
-    // Reservoir controls
+    });    // Reservoir controls
     elements.reservoirToggle.addEventListener('change', (e) => {
         setReservoirPumpEnabled(e.target.checked);
+    });
+
+    elements.reservoirAutoLevelToggle.addEventListener('change', (e) => {
+        setReservoirAutoLevelControl(e.target.checked);
     });
 
     elements.startReservoirPumpBtn.addEventListener('click', () => {
@@ -226,7 +266,9 @@ function startAutoRefresh() {
  * Fetch current sensor data from the API
  */
 async function fetchSensorData() {
+    console.log('fetchSensorData() called');
     try {
+        console.log('Fetching from:', `${API_CONFIG.ENDPOINT}/sensors`);
         const response = await fetch(`${API_CONFIG.ENDPOINT}/sensors`);
 
         if (!response.ok) {
@@ -234,6 +276,7 @@ async function fetchSensorData() {
         }
 
         const data = await response.json();
+        console.log('Sensor data received:', data);
         updateSensorDisplay(data);
         appState.lastUpdate = new Date();
 
@@ -241,6 +284,7 @@ async function fetchSensorData() {
         if (elements.lastUpdateTime) {
             elements.lastUpdateTime.textContent = appState.lastUpdate.toLocaleTimeString();
         }
+        console.log('fetchSensorData() completed successfully');
     } catch (error) {
         console.error('Error fetching sensor data:', error);
         updateConnectionStatus(false);
@@ -335,17 +379,21 @@ function updateSensorDisplay(data) {
  * Fetch system status from the API
  */
 async function fetchSystemStatus() {
+    console.log('fetchSystemStatus() called');
     try {
+        console.log('Fetching from:', `${API_CONFIG.ENDPOINT}/status`);
         const response = await fetch(`${API_CONFIG.ENDPOINT}/status`);
         if (!response.ok) {
             throw new Error(`HTTP error ${response.status}`);
-        }
-
-        const data = await response.json();
+        }        const data = await response.json();        console.log('System status received:', data);
         updateSystemStatus(data);
         
-        // Update connection status when status fetch succeeds
-        updateConnectionStatus(true);
+        // Update connection status based on actual WiFi connection from server data
+        const wifiConnected = data.network && data.network.connected;
+        console.log('DEBUG: Network data:', data.network);
+        console.log('DEBUG: WiFi connected:', wifiConnected);
+        updateConnectionStatus(wifiConnected);
+        console.log('fetchSystemStatus() completed successfully');
     } catch (error) {
         console.error('Error fetching system status:', error);
         updateConnectionStatus(false);
@@ -365,11 +413,10 @@ function updateSystemStatus(data) {
     // Update auto watering status
     appState.autoWateringEnabled = data.wateringEnabled;
     elements.autoWateringToggle.checked = data.wateringEnabled;
-    elements.autoWateringStatus.textContent = data.wateringEnabled ? 'Enabled' : 'Disabled';
-
-    // Update reservoir status if available
+    elements.autoWateringStatus.textContent = data.wateringEnabled ? 'Enabled' : 'Disabled';    // Update reservoir status if available
     if (data.reservoir) {
         appState.reservoir.enabled = data.reservoir.enabled;
+        appState.reservoir.autoLevelControlEnabled = data.reservoir.autoLevelControlEnabled || false;
         appState.reservoir.pumpRunning = data.reservoir.pumpRunning;
         appState.reservoir.lowLevelDetected = data.reservoir.lowLevelDetected;
         appState.reservoir.highLevelDetected = data.reservoir.highLevelDetected;
@@ -404,9 +451,13 @@ function updateSystemStatus(data) {
  * @param {boolean} connected - Whether the system is connected
  */
 function updateConnectionStatus(connected) {
+    console.log('updateConnectionStatus() called with:', connected);
     const statusDot = elements.connectionStatus.querySelector('.status-dot');
     const statusText = elements.connectionStatus.querySelector('.status-text');
     const isDarkMode = document.documentElement.classList.contains('dark');
+
+    console.log('Status dot element:', statusDot);
+    console.log('Status text element:', statusText);
 
     // Tailwind classes for status dots are already handled by .dark prefix in HTML/CSS
     // We just need to ensure text color is appropriate if not covered by a general rule.
@@ -414,6 +465,7 @@ function updateConnectionStatus(connected) {
         statusDot.classList.remove('status-disconnected');
         statusDot.classList.add('status-connected');
         statusText.textContent = 'Connected';
+        console.log('Set status to connected');
         // Text color for status is now text-slate-400 in dark mode (from HTML)
         // and text-gray-600 in light mode (from HTML).
         // No specific JS change needed here if HTML is correctly styled.
@@ -421,9 +473,11 @@ function updateConnectionStatus(connected) {
         statusDot.classList.remove('status-connected');
         statusDot.classList.add('status-disconnected');
         statusText.textContent = 'Disconnected';
+        console.log('Set status to disconnected');
         // As above, HTML should handle text color.
     }
     appState.connected = connected;
+    console.log('appState.connected set to:', appState.connected);
 }
 
 /**
@@ -435,7 +489,6 @@ function updateWateringStatus(isWatering, remainingTime) {
     const statusDot = elements.wateringStatus.querySelector('.status-dot');
     const statusText = elements.wateringStatus.querySelector('.status-text');
     const isDarkMode = document.documentElement.classList.contains('dark');
-    const activeColor = isDarkMode ? tailwind.theme.extend.colors['status-active-dark'] || '#60A5FA' : '#3182ce'; // blue-400 / blue-600
 
     if (isWatering) {
         statusDot.classList.remove('status-inactive');
@@ -500,6 +553,11 @@ function updateReservoirStatus(reservoirData) {
     elements.reservoirToggle.checked = reservoirData.enabled;
     elements.reservoirStatus.textContent = reservoirData.enabled ? 'Enabled' : 'Disabled';
 
+    // Update automatic level control toggle
+    elements.reservoirAutoLevelToggle.checked = reservoirData.autoLevelControlEnabled || false;
+    elements.reservoirAutoLevelStatus.textContent = reservoirData.autoLevelControlEnabled ? 'Enabled' : 'Disabled';
+    elements.reservoirAutoLevelToggle.disabled = !reservoirData.enabled;
+
     elements.startReservoirPumpBtn.disabled = !reservoirData.enabled || reservoirData.pumpRunning || reservoirData.highLevelDetected;
     elements.stopReservoirPumpBtn.disabled = !reservoirData.enabled || !reservoirData.pumpRunning;
     elements.reservoirDurationInput.disabled = !reservoirData.enabled;
@@ -507,15 +565,12 @@ function updateReservoirStatus(reservoirData) {
     let levelPercentage = 0;
     let levelText = 'Unknown';
     let barColorClass;
-    const isDarkMode = document.documentElement.classList.contains('dark');
-
-    // Use Tailwind color names directly, assuming they are defined in the HTML's tailwind.config
-    // or fall back to reasonable defaults if needed.
-    const blueColor = isDarkMode ? (tailwind.theme.extend.colors['status-active-dark'] || 'bg-blue-400') : 'bg-blue-600';
-    const yellowColor = isDarkMode ? (tailwind.theme.extend.colors['status-warning-dark'] || 'bg-amber-400') : 'bg-yellow-500';
-    const redColor = isDarkMode ? (tailwind.theme.extend.colors['status-disconnected-dark'] || 'bg-red-400') : 'bg-red-600';
-    const grayColor = isDarkMode ? (tailwind.theme.extend.colors['status-inactive-dark'] || 'bg-gray-500') : 'bg-gray-400';
-    const brandAccent = tailwind.theme.extend.colors['brand-accent'] || 'bg-blue-500'; // Default to a blue if not found
+    const isDarkMode = document.documentElement.classList.contains('dark');    // Define color classes for different states
+    const blueColor = isDarkMode ? 'bg-blue-400' : 'bg-blue-600';
+    const yellowColor = isDarkMode ? 'bg-amber-400' : 'bg-yellow-500';
+    const redColor = isDarkMode ? 'bg-red-400' : 'bg-red-600';
+    const grayColor = isDarkMode ? 'bg-gray-500' : 'bg-gray-400';
+    const brandAccent = 'bg-blue-500'; // Brand accent color
 
     if (reservoirData.highLevelDetected) {
         levelPercentage = 100;
@@ -535,16 +590,13 @@ function updateReservoirStatus(reservoirData) {
     if (!reservoirData.enabled) {
         levelPercentage = 0;
         levelText = 'Disabled';
-        barColorClass = grayColor;
-    }
-
+        barColorClass = grayColor;    }
 
     elements.waterLevelIndicator.style.width = `${levelPercentage}%`;
-    // Remove all potential bg color classes and add the new one.
-    // It's safer to list all possible ones used here or manage this with a single class if possible.
-    const colorClassesToRemove = ['bg-blue-600', 'bg-yellow-500', 'bg-red-600', 'bg-gray-400', 'bg-blue-400', 'bg-amber-400', 'bg-red-400', 'bg-gray-500', brandAccent.replace('border-', 'bg-').replace('text-', 'bg-')];
-    elements.waterLevelIndicator.classList.remove(...colorClassesToRemove.filter(c => c.startsWith('bg-')));
-    elements.waterLevelIndicator.classList.add(barColorClass.startsWith('bg-') ? barColorClass : `bg-[${barColorClass}]`);
+    // Remove all potential background color classes and add the new one
+    const colorClassesToRemove = ['bg-blue-600', 'bg-yellow-500', 'bg-red-600', 'bg-gray-400', 'bg-blue-400', 'bg-amber-400', 'bg-red-400', 'bg-gray-500', 'bg-blue-500'];
+    elements.waterLevelIndicator.classList.remove(...colorClassesToRemove);
+    elements.waterLevelIndicator.classList.add(barColorClass);
 
 
     elements.waterLevelText.textContent = levelText;
@@ -577,12 +629,15 @@ function updateReservoirStatus(reservoirData) {
  */
 async function setAutoWatering(enabled) {
     try {
+        const formData = new URLSearchParams();
+        formData.append('enabled', enabled.toString());
+        
         const response = await fetch(`${API_CONFIG.ENDPOINT}/control/auto`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/x-www-form-urlencoded'
             },
-            body: JSON.stringify({ enabled })
+            body: formData
         });
 
         if (!response.ok) {
@@ -703,8 +758,8 @@ function initChart() {
     const tooltipBgColor = isDarkMode ? 'rgba(30, 41, 59, 0.9)' : 'rgba(255, 255, 255, 0.9)'; // slate-800/white
     const tooltipTitleColor = isDarkMode ? '#f1f5f9' : '#1e293b'; // slate-100/slate-900
     const tooltipBodyColor = isDarkMode ? '#cbd5e1' : '#374151'; // slate-300/slate-700
-    const datasetBorderColor = tailwind.theme.colors['brand-accent'] || '#3b82f6'; // Use brand-accent from Tailwind config
-    const datasetBackgroundColor = tailwind.theme.colors['brand-accent'] ? `${tailwind.theme.colors['brand-accent']}33` : 'rgba(59, 130, 246, 0.2)'; // brand-accent with ~20% opacity
+    const datasetBorderColor = '#3b82f6'; // blue-500
+    const datasetBackgroundColor = 'rgba(59, 130, 246, 0.2)'; // blue-500 with 20% opacity
 
     appState.chart = new Chart(ctx, {
         type: 'line',
@@ -975,28 +1030,24 @@ function showNotification(title, message, type = 'info') {
     let closeButtonFocusRing = isDarkMode ? 'focus:ring-offset-slate-700 focus:ring-brand-accent' : 'focus:ring-offset-white focus:ring-indigo-500';
 
 
-    notification.className = `${baseClasses} ${bgColorClass}`;
-
-    // Type-specific border color using Tailwind custom properties or direct values
+    notification.className = `${baseClasses} ${bgColorClass}`;    // Type-specific border color using standard Tailwind classes
     let borderColorClass;
     switch (type) {
         case 'success':
-            borderColorClass = isDarkMode ? 'border-status-connected-dark' : 'border-green-500'; // Use theme('colors.status-connected-dark') if available
-            // For JS, direct hex is safer if theme() isn't processed.
-            borderColorClass = isDarkMode ? `border-[${tailwind.theme.extend.colors['status-connected-dark'] || '#10B981'}]` : 'border-green-500';
+            borderColorClass = isDarkMode ? 'border-green-400' : 'border-green-500';
             break;
         case 'error':
-            borderColorClass = isDarkMode ? `border-[${tailwind.theme.extend.colors['status-disconnected-dark'] || '#F87171'}]` : 'border-red-500';
+            borderColorClass = isDarkMode ? 'border-red-400' : 'border-red-500';
             break;
         case 'warning':
-            borderColorClass = isDarkMode ? `border-[${tailwind.theme.extend.colors['status-warning-dark'] || '#FBBF24'}]` : 'border-yellow-500';
+            borderColorClass = isDarkMode ? 'border-yellow-400' : 'border-yellow-500';
             break;
         case 'info':
         default:
-            borderColorClass = isDarkMode ? `border-[${tailwind.theme.extend.colors['status-active-dark'] || '#60A5FA'}]` : 'border-blue-500';
+            borderColorClass = isDarkMode ? 'border-blue-400' : 'border-blue-500';
             break;
     }
-    notification.classList.add(borderColorClass.replace('border-[', 'border-').replace(']', '')); // Clean up if using bracket notation for arbitrary values
+    notification.classList.add(borderColorClass);
 
     notification.innerHTML = `
         <div class="flex">
@@ -1125,12 +1176,16 @@ async function stopWatering() {
  */
 async function setReservoirPumpEnabled(enabled) {
     try {
+        // Use form data instead of JSON for better compatibility
+        const formData = new URLSearchParams();
+        formData.append('command', enabled ? 'enable' : 'disable');
+
         const response = await fetch(`${API_CONFIG.ENDPOINT}/reservoir`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/x-www-form-urlencoded'
             },
-            body: JSON.stringify({ command: enabled ? 'enable' : 'disable' })
+            body: formData
         });
 
         if (!response.ok) {
@@ -1168,15 +1223,17 @@ async function setReservoirPumpEnabled(enabled) {
  */
 async function startReservoirFilling(duration) {
     try {
+        // Use form data instead of JSON for better compatibility
+        const formData = new URLSearchParams();
+        formData.append('command', 'start');
+        formData.append('duration', parseInt(duration) || 0);
+
         const response = await fetch(`${API_CONFIG.ENDPOINT}/reservoir`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/x-www-form-urlencoded'
             },
-            body: JSON.stringify({
-                command: 'start',
-                duration: parseInt(duration) || 0
-            })
+            body: formData
         });
 
         if (!response.ok) {
@@ -1213,12 +1270,15 @@ async function startReservoirFilling(duration) {
  */
 async function stopReservoirPump() {
     try {
+        const formData = new URLSearchParams();
+        formData.append('command', 'stop');
+        
         const response = await fetch(`${API_CONFIG.ENDPOINT}/reservoir`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/x-www-form-urlencoded'
             },
-            body: JSON.stringify({ command: 'stop' })
+            body: formData
         });
 
         if (!response.ok) {
@@ -1246,5 +1306,55 @@ async function stopReservoirPump() {
     }
 }
 
+/**
+ * Enable or disable automatic reservoir level control via API
+ * @param {boolean} enabled - Whether automatic level control should be enabled
+ */
+async function setReservoirAutoLevelControl(enabled) {
+    try {
+        // Use form data for better compatibility
+        const formData = new URLSearchParams();
+        formData.append('command', enabled ? 'enable-auto-level' : 'disable-auto-level');
+
+        const response = await fetch(`${API_CONFIG.ENDPOINT}/reservoir`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: formData
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (data.success) {
+            appState.reservoir.autoLevelControlEnabled = enabled;
+            showNotification('Auto Level Control', `Automatic level control has been ${enabled ? 'enabled' : 'disabled'}.`, 'info');
+
+            // Update UI immediately for better responsiveness
+            updateReservoirStatus({
+                ...appState.reservoir,
+                autoLevelControlEnabled: enabled
+            });
+
+            // Fetch full status to ensure everything is in sync
+            fetchSystemStatus();
+        } else {
+            throw new Error(data.message || 'Unknown error');
+        }
+    } catch (error) {
+        console.error('Error setting automatic level control:', error);
+        showNotification('Reservoir Error', `Failed to ${enabled ? 'enable' : 'disable'} automatic level control: ${error.message}`, 'error');
+
+        // Revert UI to previous state
+        elements.reservoirAutoLevelToggle.checked = appState.reservoir.autoLevelControlEnabled;
+    }
+}
+
 // Initialize the application when the DOM is fully loaded
-document.addEventListener('DOMContentLoaded', initApp);
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM loaded, initializing app...');
+    initApp();
+});

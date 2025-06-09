@@ -14,9 +14,6 @@
 #include <WiFi.h>
 #include <time.h>
 
-// Use AsyncJson after ArduinoJson
-#include <AsyncJson.h>
-
 // Other includes can be added here as needed
 
 WateringSystemWebServer::WateringSystemWebServer(WateringController* controller, 
@@ -35,13 +32,14 @@ WateringSystemWebServer::WateringSystemWebServer(WateringController* controller,
     , server(port)
     , initialized(false)
     , lastError(0)
-    , isInApMode(false)
-    , wifiConfigCallback(nullptr)
+    , isInApMode(false)    , wifiConfigCallback(nullptr)
     , reservoirPumpEnableCallback(nullptr)
     , reservoirPumpStatusCallback(nullptr)
     , reservoirPumpManualFillCallback(nullptr)
     , reservoirPumpStopCallback(nullptr)
     , reservoirPumpEnabledCheckCallback(nullptr)
+    , reservoirAutoLevelControlEnableCallback(nullptr)
+    , reservoirAutoLevelControlEnabledCheckCallback(nullptr)
 {
 }
 
@@ -92,14 +90,8 @@ void WateringSystemWebServer::setupEndpoints()
             file = root.openNextFile();
         }
     }
-    
-    // *** CRITICAL FIX: Register API endpoints FIRST before static file serving
+      // *** CRITICAL FIX: Register API endpoints FIRST before static file serving
     // This prevents static file handler from intercepting API routes like /sensors
-    
-    // Handle the "/api" route root
-    server.on("/api", HTTP_GET, [](AsyncWebServerRequest *request) {
-        request->send(200, "application/json", "{\"message\":\"API root. Available endpoints: /api/sensors, /api/status, etc.\"}");
-    });
     
     // API endpoints - match both endpoints from client code for compatibility
     server.on("/api/sensor-data", HTTP_GET, [this](AsyncWebServerRequest *request) {
@@ -132,33 +124,21 @@ void WateringSystemWebServer::setupEndpoints()
         String response = handleStatusRequest(request);
         request->send(200, "application/json", response);
     });
-    
-    // Add compatible endpoints for the control operations with /api prefix
+      // Add compatible endpoints for the control operations with /api prefix
     server.on("/api/control/water/start", HTTP_POST, [this](AsyncWebServerRequest *request) {
-        String contentType = request->contentType();
-        Serial.println("API endpoint /api/control/water/start called with Content-Type: " + contentType);
+        Serial.println("API endpoint /api/control/water/start called");
         
         // Default duration to 20 seconds
         int duration = 20;
         bool durationFound = false;
         
-        // Check if this is a JSON request
-        if (contentType.equals("application/json")) {
-            // We need to handle this specially since the body is already consumed
-            // We'll just log a message and rely on the JSON handler to process it
-            Serial.println("Detected JSON request, expecting AsyncCallbackJsonWebHandler to handle it");
-            // Return early since we expect the JSON handler to process this
-            return;
-        }
-        
-        // For form-data or plain POST requests, check for duration parameter
+        // Check for duration parameter in form data
         if (request->hasParam("duration", true)) {
             duration = request->getParam("duration", true)->value().toInt();
             durationFound = true;
             Serial.printf("Found duration parameter in form data: %d seconds\n", duration);
         }
-        
-        // If no duration was found and it's not JSON, use the default
+          // If no duration was found, use the default
         if (!durationFound) {
             Serial.printf("No duration parameter found, using default: %d seconds\n", duration);
         }
@@ -221,28 +201,7 @@ void WateringSystemWebServer::setupEndpoints()
         response->printf("{\"success\":%s,\"message\":\"%s\"}", success ? "true" : "false", message.c_str());
         request->send(response);
     });
-    
-    // Create JSON handlers for the auto watering endpoint
-    AsyncCallbackJsonWebHandler* autoWateringHandler = new AsyncCallbackJsonWebHandler(
-        "/api/control/auto", 
-        [this](AsyncWebServerRequest *request, JsonVariant &json) {
-            Serial.println("JSON API endpoint /api/control/auto called");
-            handleAutoWateringJsonRequest(request, json);
-        }
-    );
-    server.addHandler(autoWateringHandler);
-    
-    // Add handler for the endpoint without /api prefix
-    AsyncCallbackJsonWebHandler* autoWateringHandlerNoPrefix = new AsyncCallbackJsonWebHandler(
-        "/control/auto", 
-        [this](AsyncWebServerRequest *request, JsonVariant &json) {
-            Serial.println("JSON endpoint /control/auto called");
-            handleAutoWateringJsonRequest(request, json);
-        }
-    );
-    server.addHandler(autoWateringHandlerNoPrefix);
-    
-    // Add fallback handlers for form-based requests (for backward compatibility)
+      // Add fallback handlers for form-based requests (now the primary method)
     server.on("/api/control/auto", HTTP_POST, [this](AsyncWebServerRequest *request) {
         Serial.println("Form-based API endpoint /api/control/auto called");
         handleAutoWateringFormRequest(request);
@@ -264,8 +223,7 @@ void WateringSystemWebServer::setupEndpoints()
         String response = handleControlRequest(request);
         request->send(200, "application/json", response);
     });
-    
-    server.on("/api/config", HTTP_POST, [this](AsyncWebServerRequest *request) {
+      server.on("/api/config", HTTP_POST, [this](AsyncWebServerRequest *request) {
         String response = handleConfigRequest(request);
         request->send(200, "application/json", response);
     });
@@ -275,28 +233,6 @@ void WateringSystemWebServer::setupEndpoints()
         String response = handleConfigRequest(request);
         request->send(200, "application/json", response);
     });
-    
-    // Add JSON handlers for the config endpoints
-    AsyncCallbackJsonWebHandler* configHandler = new AsyncCallbackJsonWebHandler(
-        "/api/config", 
-        [this](AsyncWebServerRequest *request, JsonVariant &json) {
-            Serial.println("JSON API endpoint /api/config called with JSON data");
-            String response = handleConfigJsonRequest(json);
-            request->send(200, "application/json", response);
-        }
-    );
-    server.addHandler(configHandler);
-    
-    // Add handler for the endpoint without /api prefix
-    AsyncCallbackJsonWebHandler* configHandlerNoPrefix = new AsyncCallbackJsonWebHandler(
-        "/config", 
-        [this](AsyncWebServerRequest *request, JsonVariant &json) {
-            Serial.println("JSON endpoint /config called with JSON data");
-            String response = handleConfigJsonRequest(json);
-            request->send(200, "application/json", response);
-        }
-    );
-    server.addHandler(configHandlerNoPrefix);
     
     server.on("/api/history", HTTP_GET, [this](AsyncWebServerRequest *request) {
         String response = handleHistoricalDataRequest(request);
@@ -313,9 +249,7 @@ void WateringSystemWebServer::setupEndpoints()
     server.on("/api/historical-data", HTTP_GET, [this](AsyncWebServerRequest *request) {
         String response = handleHistoricalDataRequest(request);
         request->send(200, "application/json", response);
-    });
-    
-    // Reservoir pump control endpoint
+    });      // Reservoir pump control endpoint
     server.on("/api/reservoir", HTTP_POST, [this](AsyncWebServerRequest *request) {
         String response = handleReservoirPumpRequest(request);
         request->send(200, "application/json", response);
@@ -379,49 +313,6 @@ void WateringSystemWebServer::setupEndpoints()
     server.serveStatic("/script.js", LittleFS, "/script.js").setCacheControl("max-age=3600");
     server.serveStatic("/styles.css", LittleFS, "/styles.css").setCacheControl("max-age=3600");
     server.serveStatic("/favicon.ico", LittleFS, "/favicon.ico").setCacheControl("max-age=86400");
-}
-
-/**
- * Handle auto watering request with JSON data
- */
-void WateringSystemWebServer::handleAutoWateringJsonRequest(AsyncWebServerRequest *request, JsonVariant &json)
-{
-    // Default value (only used if no valid parameter is found)
-    bool enable = false;
-    bool paramFound = false;
-    
-    if (json.is<JsonObject>()) {
-        JsonObject jsonObj = json.as<JsonObject>();
-        
-        if (jsonObj.containsKey("enabled")) {
-            enable = jsonObj["enabled"].as<bool>();
-            paramFound = true;
-            Serial.print("Auto watering JSON parameter 'enabled' received: ");
-            Serial.println(enable ? "true" : "false");
-        }
-    }
-    
-    // Only proceed if we found a parameter, otherwise log an error
-    if (paramFound) {
-        // Log the action being taken
-        Serial.print("Setting auto watering to: ");
-        Serial.println(enable ? "Enabled" : "Disabled");
-        
-        controller->enableWatering(enable);
-        String message = enable ? "Automatic watering enabled" : "Automatic watering disabled";
-        
-        AsyncResponseStream *response = request->beginResponseStream("application/json");
-        response->printf("{\"success\":true,\"message\":\"%s\",\"enabled\":%s}", 
-                         message.c_str(), 
-                         enable ? "true" : "false");
-        request->send(response);
-    } else {
-        Serial.println("No valid auto watering parameter found in JSON");
-        
-        AsyncResponseStream *response = request->beginResponseStream("application/json");
-        response->printf("{\"success\":false,\"message\":\"No valid parameter found in JSON request\"}");
-        request->send(response);
-    }
 }
 
 /**
@@ -584,8 +475,7 @@ String WateringSystemWebServer::handleStatusRequest(AsyncWebServerRequest* reque
         
         JsonObject reservoir = doc.createNestedObject("reservoir");
         reservoir["enabled"] = reservoirPumpEnabledCheckCallback();
-        
-        if (reservoirPumpStatusCallback(&isLow, &isHigh, &isRunning)) {
+          if (reservoirPumpStatusCallback(&isLow, &isHigh, &isRunning)) {
             reservoir["lowLevelDetected"] = isLow;
             reservoir["highLevelDetected"] = isHigh;
             reservoir["pumpRunning"] = isRunning;
@@ -593,6 +483,13 @@ String WateringSystemWebServer::handleStatusRequest(AsyncWebServerRequest* reque
             if (isRunning && reservoirPump) {
                 reservoir["runTime"] = reservoirPump->getRunTime();
             }
+        }
+        
+        // Add automatic level control status if callback is available
+        if (reservoirAutoLevelControlEnabledCheckCallback) {
+            reservoir["autoLevelControlEnabled"] = reservoirAutoLevelControlEnabledCheckCallback();
+        } else {
+            reservoir["autoLevelControlEnabled"] = false;
         }
     }
     
@@ -722,58 +619,7 @@ String WateringSystemWebServer::handleConfigRequest(AsyncWebServerRequest* reque
     doc["success"] = success;
     doc["message"] = message;
     
-    String response;
-    serializeJson(doc, response);
-    return response;
-}
-
-String WateringSystemWebServer::handleConfigJsonRequest(JsonVariant &json)
-{
-    DynamicJsonDocument doc(256);
-    bool success = false;
-    String message = "No changes made";
-    
-    // Process configuration parameters
-    bool configChanged = false;
-    
-    if (json.is<JsonObject>()) {
-        JsonObject jsonObj = json.as<JsonObject>();
-        
-        if (jsonObj.containsKey("moistureThresholdLow")) {
-            float value = jsonObj["moistureThresholdLow"].as<float>();
-            controller->setMoistureThresholdLow(value);
-            configChanged = true;
-        }
-        
-        if (jsonObj.containsKey("moistureThresholdHigh")) {
-            float value = jsonObj["moistureThresholdHigh"].as<float>();
-            controller->setMoistureThresholdHigh(value);
-            configChanged = true;
-        }
-        
-        if (jsonObj.containsKey("wateringDuration")) {
-            int value = jsonObj["wateringDuration"].as<int>();
-            controller->setWateringDuration(value);
-            configChanged = true;
-        }
-        
-        if (jsonObj.containsKey("minWateringInterval")) {
-            long value = jsonObj["minWateringInterval"].as<long>();
-            controller->setMinWateringInterval(value);
-            configChanged = true;
-        }
-    }
-    
-    if (configChanged) {
-        success = true;
-        message = "Configuration updated";
-    }
-    
-    doc["success"] = success;
-    doc["message"] = message;
-    
-    String response;
-    serializeJson(doc, response);
+    String response;    serializeJson(doc, response);
     return response;
 }
 
@@ -989,6 +835,27 @@ String WateringSystemWebServer::handleReservoirPumpRequest(AsyncWebServerRequest
                 message = "Reservoir pump stopped";
             } else {
                 message = "Stop callback not set";
+            }        }
+        else if (command == "enable-auto-level") {
+            // Enable automatic level control
+            if (reservoirAutoLevelControlEnableCallback && isReservoirEnabled) {
+                reservoirAutoLevelControlEnableCallback(true);
+                success = true;
+                message = "Automatic level control enabled";
+            } else if (!isReservoirEnabled) {
+                message = "Cannot enable automatic level control: reservoir feature is disabled";
+            } else {
+                message = "Automatic level control callback not set";
+            }
+        }
+        else if (command == "disable-auto-level") {
+            // Disable automatic level control
+            if (reservoirAutoLevelControlEnableCallback) {
+                reservoirAutoLevelControlEnableCallback(false);
+                success = true;
+                message = "Automatic level control disabled";
+            } else {
+                message = "Automatic level control callback not set";
             }
         }
         else if (command == "status") {
@@ -999,13 +866,20 @@ String WateringSystemWebServer::handleReservoirPumpRequest(AsyncWebServerRequest
                 bool isRunning = false;
                 
                 success = reservoirPumpStatusCallback(&isLow, &isHigh, &isRunning);
-                
-                if (success) {
+                  if (success) {
                     JsonObject status = doc.createNestedObject("status");
                     status["enabled"] = isReservoirEnabled;
                     status["lowLevelDetected"] = isLow;
                     status["highLevelDetected"] = isHigh;
                     status["pumpRunning"] = isRunning;
+                    
+                    // Add automatic level control status if callback is available
+                    if (reservoirAutoLevelControlEnabledCheckCallback) {
+                        status["autoLevelControlEnabled"] = reservoirAutoLevelControlEnabledCheckCallback();
+                    } else {
+                        status["autoLevelControlEnabled"] = false;
+                    }
+                    
                     message = "Status retrieved successfully";
                 } else {
                     message = "Failed to get reservoir status";
@@ -1018,8 +892,7 @@ String WateringSystemWebServer::handleReservoirPumpRequest(AsyncWebServerRequest
     
     doc["success"] = success;
     doc["message"] = message;
-    
-    String response;
+      String response;
     serializeJson(doc, response);
     return response;
 }
@@ -1095,4 +968,14 @@ void WateringSystemWebServer::setReservoirPumpStopCallback(ReservoirPumpStopCall
 void WateringSystemWebServer::setReservoirPumpEnabledCheckCallback(ReservoirPumpEnabledCheckCallback callback)
 {
     reservoirPumpEnabledCheckCallback = callback;
+}
+
+void WateringSystemWebServer::setReservoirAutoLevelControlEnableCallback(ReservoirAutoLevelControlEnableCallback callback)
+{
+    reservoirAutoLevelControlEnableCallback = callback;
+}
+
+void WateringSystemWebServer::setReservoirAutoLevelControlEnabledCheckCallback(ReservoirAutoLevelControlEnabledCheckCallback callback)
+{
+    reservoirAutoLevelControlEnabledCheckCallback = callback;
 }

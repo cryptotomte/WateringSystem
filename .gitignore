@@ -49,6 +49,9 @@ _autosave*
 **/PowerDomain*
 docs/*completion-report*
 docs/*migration-guide*
+
+# WiFi credentials (for development only - never commit real credentials)
+data/wifi_config.json
 docs/*validation*
 docs/system-*
 docs/power-*

@@ -69,6 +69,7 @@ bool apMode = false;
 
 // Reservoir system state
 bool reservoirPumpEnabled = false;   // Is reservoir pump feature enabled
+bool reservoirAutoLevelControl = false; // Is automatic level control enabled
 bool reservoirLowLevel = false;      // Is water level low in reservoir
 bool reservoirHighLevel = false;     // Is water level high in reservoir
 bool reservoirPumpRunning = false;   // Is reservoir pump currently running
@@ -499,11 +500,11 @@ void handleReservoirPump() {
   reservoirLowLevel = digitalRead(PIN_RESERVOIR_LOW_LEVEL) == LOW;
   reservoirHighLevel = digitalRead(PIN_RESERVOIR_HIGH_LEVEL) == LOW;
   
-  // If pump is running, check if it should be stopped
+  // Always check safety conditions for running pump
   if (reservoirPumpRunning) {
     bool shouldStop = false;
     
-    // Stop if high level is reached
+    // Stop if high level is reached (applies to both manual and automatic)
     if (reservoirHighLevel) {
       shouldStop = true;
       Serial.println("Reservoir pump stopped (high water level reached)");
@@ -520,13 +521,28 @@ void handleReservoirPump() {
       reservoirPumpRunning = false;
     }
   }
-  // If pump is not running, check if it should be started
-  else if (reservoirLowLevel && !reservoirHighLevel) {
-    // Start pump if level is low and not already high
-    reservoirPump.start();
-    reservoirPumpRunning = true;
-    reservoirPumpStartTime = millis();
-    Serial.println("Reservoir pump started (low water level detected)");
+  
+  // Automatic level control logic (only if enabled)
+  if (reservoirAutoLevelControl && !reservoirPumpRunning) {
+    // Check sensor states for automatic control
+    if (reservoirLowLevel && reservoirHighLevel) {
+      // Both sensors active = full reservoir, ensure pump is stopped
+      Serial.println("Reservoir auto-control: Both sensors active (full reservoir)");
+      // Pump should already be stopped by safety check above
+    }
+    else if (reservoirLowLevel && !reservoirHighLevel) {
+      // Low active, high inactive = sufficient water, keep pump off
+      Serial.println("Reservoir auto-control: Sufficient water level, pump off");
+    }
+    else if (!reservoirLowLevel && !reservoirHighLevel) {
+      // Both sensors inactive = low water, start pump
+      reservoirPump.start();
+      reservoirPumpRunning = true;
+      reservoirPumpStartTime = millis();
+      Serial.println("Reservoir pump started (automatic level control - low water detected)");
+    }
+    // Note: !reservoirLowLevel && reservoirHighLevel is an invalid state
+    // (high sensor active but low sensor inactive shouldn't happen physically)
   }
 }
 
@@ -591,6 +607,23 @@ void enableReservoirPump(bool enabled) {
   }
   
   Serial.printf("Reservoir pump feature %s\n", enabled ? "enabled" : "disabled");
+}
+
+/**
+ * @brief Enable or disable automatic level control
+ * @param enabled true to enable, false to disable
+ */
+void enableReservoirAutoLevelControl(bool enabled) {
+  reservoirAutoLevelControl = enabled;
+  Serial.printf("Reservoir automatic level control %s\n", enabled ? "enabled" : "disabled");
+}
+
+/**
+ * @brief Check if automatic level control is enabled
+ * @return true if enabled, false otherwise
+ */
+bool isReservoirAutoLevelControlEnabled() {
+  return reservoirAutoLevelControl;
 }
 
 /**
@@ -728,13 +761,14 @@ void setup() {
   // Initialize web server
   if (webServer.initialize()) {
     Serial.println("Web server initialized successfully");
-    
-    // Register reservoir pump callbacks
+      // Register reservoir pump callbacks
     webServer.setReservoirPumpEnableCallback(enableReservoirPump);
     webServer.setReservoirPumpStatusCallback(getReservoirStatus);
     webServer.setReservoirPumpManualFillCallback(startManualReservoirFilling);
     webServer.setReservoirPumpStopCallback(stopReservoirPump);
     webServer.setReservoirPumpEnabledCheckCallback(isReservoirPumpEnabled);
+    webServer.setReservoirAutoLevelControlEnableCallback(enableReservoirAutoLevelControl);
+    webServer.setReservoirAutoLevelControlEnabledCheckCallback(isReservoirAutoLevelControlEnabled);
     
     webServer.start();
   } else {
@@ -795,9 +829,11 @@ void loop() {
   } else {
     // Just a short blink every 3 seconds to show system is running
     digitalWrite(PIN_STATUS_LED, ((millis() % 3000) < 100) ? HIGH : LOW);  }
-  
-  // Monitor and maintain WiFi connection
+    // Monitor and maintain WiFi connection
   monitorWiFiConnection();
+  
+  // Feed watchdog to prevent system restart
+  feedWatchdog();
   
   // Check watchdog
   checkWatchdog();

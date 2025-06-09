@@ -13,6 +13,9 @@
 #include "actuators/IWaterPump.h"
 #include "storage/IDataStorage.h"
 #include <Arduino.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/semphr.h>
 
 /**
  * @brief Main controller for the WateringSystem
@@ -28,14 +31,22 @@ private:
     ISoilSensor* soilSensor;
     IWaterPump* waterPump;
     IDataStorage* dataStorage;
-    
-    // System state
+      // System state
     bool initialized;
     int lastError;
     unsigned long lastSensorReadTime;
     unsigned long lastDataLogTime;
     unsigned long lastWateringTime;
     bool wateringEnabled;
+    
+    // FreeRTOS task management
+    TaskHandle_t sensorTaskHandle;
+    SemaphoreHandle_t sensorDataMutex;
+    bool sensorTaskRunning;
+    
+    // Sensor data shared between tasks
+    volatile bool newSensorDataAvailable;
+    volatile bool sensorReadSuccess;
     
     // Configuration
     unsigned long sensorReadInterval;       // Milliseconds between sensor readings
@@ -60,11 +71,32 @@ private:
      * @return true if watering was initiated, false otherwise
      */
     bool processReadings();
-    
-    /**
+      /**
      * @brief Log sensor data to storage
      */
     void logSensorData();
+    
+    /**
+     * @brief Static wrapper function for FreeRTOS sensor task
+     * @param parameter Pointer to WateringController instance
+     */
+    static void sensorTaskWrapper(void* parameter);
+    
+    /**
+     * @brief Sensor reading task function
+     */
+    void sensorTask();
+    
+    /**
+     * @brief Start the sensor reading task
+     * @return true if task started successfully, false otherwise
+     */
+    bool startSensorTask();
+    
+    /**
+     * @brief Stop the sensor reading task
+     */
+    void stopSensorTask();
 
 public:
     /**

@@ -15,7 +15,6 @@
 #include "storage/IDataStorage.h"
 #include <memory>
 #include <ESPAsyncWebServer.h>
-#include <AsyncJson.h>
 #include <ArduinoJson.h>
 
 // Forward declaration of WiFi config callback type
@@ -27,6 +26,8 @@ typedef bool (*ReservoirPumpStatusCallback)(bool*, bool*, bool*);
 typedef bool (*ReservoirPumpManualFillCallback)(uint16_t);
 typedef void (*ReservoirPumpStopCallback)();
 typedef bool (*ReservoirPumpEnabledCheckCallback)();
+typedef void (*ReservoirAutoLevelControlEnableCallback)(bool);
+typedef bool (*ReservoirAutoLevelControlEnabledCheckCallback)();
 
 /**
  * @brief Web server for monitoring and controlling the watering system
@@ -54,13 +55,14 @@ private:
     
     // WiFi configuration callback
     WiFiConfigSaveCallback wifiConfigCallback;
-    
-    // Reservoir pump callbacks
+      // Reservoir pump callbacks
     ReservoirPumpEnableCallback reservoirPumpEnableCallback;
     ReservoirPumpStatusCallback reservoirPumpStatusCallback;
     ReservoirPumpManualFillCallback reservoirPumpManualFillCallback;
     ReservoirPumpStopCallback reservoirPumpStopCallback;
     ReservoirPumpEnabledCheckCallback reservoirPumpEnabledCheckCallback;
+    ReservoirAutoLevelControlEnableCallback reservoirAutoLevelControlEnableCallback;
+    ReservoirAutoLevelControlEnabledCheckCallback reservoirAutoLevelControlEnabledCheckCallback;
     
     // Default server port
     static const int DEFAULT_PORT = 80;
@@ -102,15 +104,7 @@ private:
      * @brief Handle configuration requests
      * @param request API request
      * @return JSON response with configuration result
-     */
-    String handleConfigRequest(AsyncWebServerRequest* request);
-    
-    /**
-     * @brief Handle configuration requests with JSON data
-     * @param json JSON request data
-     * @return JSON response with configuration result
-     */
-    String handleConfigJsonRequest(JsonVariant &json);
+     */    String handleConfigRequest(AsyncWebServerRequest* request);
     
     /**
      * @brief Handle historical data requests
@@ -133,13 +127,6 @@ private:
      */
     String handleWiFiScanRequest(AsyncWebServerRequest* request);
 
-    /**
-     * @brief Handle auto watering request with JSON data
-     * @param request Web request
-     * @param json JSON data
-     */
-    void handleAutoWateringJsonRequest(AsyncWebServerRequest *request, JsonVariant &json);
-    
     /**
      * @brief Handle auto watering request with form data
      * @param request Web request
@@ -249,10 +236,21 @@ public:
     void setReservoirPumpEnabledCheckCallback(ReservoirPumpEnabledCheckCallback callback);
     
     /**
+     * @brief Set the reservoir automatic level control enable callback
+     * @param callback Function to call when automatic level control is enabled/disabled
+     */
+    void setReservoirAutoLevelControlEnableCallback(ReservoirAutoLevelControlEnableCallback callback);
+    
+    /**
+     * @brief Set the reservoir automatic level control enabled check callback
+     * @param callback Function to call to check if automatic level control is enabled
+     */
+    void setReservoirAutoLevelControlEnabledCheckCallback(ReservoirAutoLevelControlEnabledCheckCallback callback);
+
+    /**
      * @brief Handle reservoir pump API requests
      * @param request API request
-     * @return JSON response with reservoir pump operation result
-     */
+     * @return JSON response with reservoir pump operation result     */
     String handleReservoirPumpRequest(AsyncWebServerRequest* request);
 };
 

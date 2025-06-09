@@ -9,7 +9,9 @@
 #include <ArduinoJson.h>
 
 // Default configuration values
-#define DEFAULT_SENSOR_READ_INTERVAL 60000UL     // 1 minute
+// NOTE: Using FreeRTOS task for non-blocking sensor reading to prevent WiFi stability issues
+// Sensors now read in separate task with proper synchronization using mutex
+#define DEFAULT_SENSOR_READ_INTERVAL 60000UL     // 1 minute (restored to normal frequency with non-blocking implementation)
 #define DEFAULT_DATA_LOG_INTERVAL    300000UL    // 5 minutes
 #define DEFAULT_MIN_WATERING_INTERVAL 21600UL    // 6 hours
 #define DEFAULT_MOISTURE_THRESHOLD_LOW 30.0f     // 30%
@@ -28,6 +30,11 @@ WateringController::WateringController(IEnvironmentalSensor* environmental, ISoi
     , lastDataLogTime(0)
     , lastWateringTime(0)
     , wateringEnabled(true)
+    , sensorTaskHandle(nullptr)
+    , sensorDataMutex(nullptr)
+    , sensorTaskRunning(false)
+    , newSensorDataAvailable(false)
+    , sensorReadSuccess(false)
     , sensorReadInterval(DEFAULT_SENSOR_READ_INTERVAL)
     , dataLogInterval(DEFAULT_DATA_LOG_INTERVAL)
     , minWateringInterval(DEFAULT_MIN_WATERING_INTERVAL)
@@ -35,10 +42,21 @@ WateringController::WateringController(IEnvironmentalSensor* environmental, ISoi
     , moistureThresholdHigh(DEFAULT_MOISTURE_THRESHOLD_HIGH)
     , wateringDuration(DEFAULT_WATERING_DURATION)
 {
+    // Create mutex for sensor data synchronization
+    sensorDataMutex = xSemaphoreCreateMutex();
 }
 
 WateringController::~WateringController()
 {
+    // Stop sensor task if running
+    stopSensorTask();
+    
+    // Delete mutex
+    if (sensorDataMutex != nullptr) {
+        vSemaphoreDelete(sensorDataMutex);
+        sensorDataMutex = nullptr;
+    }
+    
     // We don't own the components, so don't delete them
     // But make sure the pump is off before destroying
     if (waterPump && waterPump->isRunning()) {
@@ -110,11 +128,15 @@ bool WateringController::initialize()
         if (storageSuccess) {
             loadConfiguration();
         }
-        
-        // Set initial timestamps
+          // Set initial timestamps
         lastSensorReadTime = 0; // Force immediate sensor read
         lastDataLogTime = 0;    // Force immediate data log
         lastWateringTime = 0;   // Reset watering timer
+        
+        // Start sensor task if sensors are available
+        if (envSensorSuccess || soilSensorSuccess) {
+            startSensorTask();
+        }
         
         initialized = true;
         lastError = fullSuccess ? 0 : lastError; // Keep last error if not full success
@@ -202,28 +224,28 @@ void WateringController::update()
     // Update water pump to check for timed runs
     waterPump->update();
     
-    // Check if it's time to read sensors
-    unsigned long currentTime = millis();
-    if ((currentTime - lastSensorReadTime) >= sensorReadInterval) {
-        // Read environmental sensor
-        if (envSensor->read()) {
-            // Success, proceed with soil sensor
-            if (soilSensor->read()) {
-                // Both sensors read successfully
+    // Check if new sensor data is available (non-blocking)
+    if (newSensorDataAvailable) {
+        // Take mutex to safely access sensor data
+        if (xSemaphoreTake(sensorDataMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+            if (sensorReadSuccess) {
+                // Process the readings
                 processReadings();
             } else {
-                // Soil sensor read failed
+                // Sensor read failed
                 lastError = 7;
             }
-        } else {
-            // Environmental sensor read failed
-            lastError = 6;
+            
+            // Reset flag
+            newSensorDataAvailable = false;
+            lastSensorReadTime = millis();
+            
+            xSemaphoreGive(sensorDataMutex);
         }
-        
-        lastSensorReadTime = currentTime;
     }
     
     // Check if it's time to log data
+    unsigned long currentTime = millis();
     if ((currentTime - lastDataLogTime) >= dataLogInterval) {
         logSensorData();
         lastDataLogTime = currentTime;
@@ -399,4 +421,113 @@ void WateringController::setMinWateringInterval(unsigned long seconds)
         minWateringInterval = seconds;
         saveConfiguration();
     }
+}
+
+// FreeRTOS sensor task implementation
+
+void WateringController::sensorTaskWrapper(void* parameter)
+{
+    WateringController* controller = static_cast<WateringController*>(parameter);
+    controller->sensorTask();
+}
+
+void WateringController::sensorTask()
+{
+    TickType_t lastWakeTime = xTaskGetTickCount();
+    const TickType_t taskFrequency = pdMS_TO_TICKS(sensorReadInterval);
+    
+    while (sensorTaskRunning) {
+        bool readSuccess = false;
+        
+        // Read environmental sensor
+        bool envSuccess = true;
+        if (envSensor) {
+            envSuccess = envSensor->read();
+            if (!envSuccess) {
+                Serial.println("WateringController - Environmental sensor read failed in task");
+            }
+        }
+        
+        // Read soil sensor
+        bool soilSuccess = true;
+        if (soilSensor) {
+            soilSuccess = soilSensor->read();
+            if (!soilSuccess) {
+                Serial.println("WateringController - Soil sensor read failed in task");
+            }
+        }
+        
+        // Both sensors must succeed (if they exist)
+        readSuccess = envSuccess && soilSuccess;
+        
+        // Update shared data with mutex protection
+        if (xSemaphoreTake(sensorDataMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+            sensorReadSuccess = readSuccess;
+            newSensorDataAvailable = true;
+            xSemaphoreGive(sensorDataMutex);
+        }
+        
+        // Wait for next reading interval
+        vTaskDelayUntil(&lastWakeTime, taskFrequency);
+    }
+    
+    // Task cleanup
+    sensorTaskHandle = nullptr;
+    vTaskDelete(nullptr);
+}
+
+bool WateringController::startSensorTask()
+{
+    if (sensorTaskRunning || sensorTaskHandle != nullptr) {
+        return true; // Already running
+    }
+    
+    if (sensorDataMutex == nullptr) {
+        Serial.println("WateringController - Cannot start sensor task: mutex not created");
+        return false;
+    }
+    
+    sensorTaskRunning = true;
+    
+    BaseType_t result = xTaskCreate(
+        sensorTaskWrapper,          // Task function
+        "SensorTask",              // Task name
+        4096,                      // Stack size
+        this,                      // Task parameter
+        1,                         // Priority (low priority)
+        &sensorTaskHandle          // Task handle
+    );
+    
+    if (result != pdPASS) {
+        Serial.println("WateringController - Failed to create sensor task");
+        sensorTaskRunning = false;
+        return false;
+    }
+    
+    Serial.println("WateringController - Sensor task started successfully");
+    return true;
+}
+
+void WateringController::stopSensorTask()
+{
+    if (!sensorTaskRunning) {
+        return; // Not running
+    }
+    
+    sensorTaskRunning = false;
+    
+    // Wait for task to finish (with timeout)
+    int timeout = 50; // 5 seconds
+    while (sensorTaskHandle != nullptr && timeout > 0) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+        timeout--;
+    }
+    
+    if (sensorTaskHandle != nullptr) {
+        Serial.println("WateringController - Force deleting sensor task");
+        vTaskDelete(sensorTaskHandle);
+        sensorTaskHandle = nullptr;
+    }
+    
+    Serial.println("WateringController - Sensor task stopped");
 }
