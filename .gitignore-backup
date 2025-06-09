@@ -1,0 +1,23 @@
+# IMPORTANT: These files should NOT be restored automatically
+# If you see these files appearing again, they are being restored by:
+# 1. VS Code extensions (GitHub Copilot, AI assistants)
+# 2. OneDrive version sync
+# 3. VS Code workspace cache
+
+# These specific documentation files were auto-generated and removed intentionally:
+docs/release-notes.md
+docs/cleanup-completion-report.md
+docs/testing.md
+docs/user-guide.md
+docs/safety.md
+docs/migration-guide*.md
+docs/completion-report*.md
+docs/system-validation*.md
+docs/power-*.md
+docs/pcb-*.md
+docs/MIKROE-*.md
+docs/gpio-*.md
+docs/git-commit-*.md
+docs/final-*.md
+docs/bill-of-materials*.md
+docs/project-completion*.md
