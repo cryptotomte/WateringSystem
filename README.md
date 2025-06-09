@@ -1,10 +1,14 @@
-# WateringSystem
+# WateringSystem v2.3 (Hardware-Managed LDO Architecture)
 
-![Project Status](https://img.shields.io/badge/status-active-green.svg)
+![Project Status](https://img.shields.io/badge/status-production--ready-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Hardware](https://img.shields.io/badge/hardware-ESP32-blue.svg)
+![Isolation](https://img.shields.io/badge/isolation-5kV-orange.svg)
 
 ## Overview
-The WateringSystem is an ESP32-based automated plant watering controller designed to maintain optimal soil moisture levels for indoor or garden plants. It monitors environmental conditions, controls water delivery, and provides a web-based interface for configuration and monitoring.
+Cost-effective automated plant watering system with **2-domain optical isolation** for practical greenhouse automation. Features ESP32-based control, RS485 Modbus soil sensors, and simplified safety design optimized for enclosed environments.
+
+**🔥 Latest Update v2.2**: Simplified 2-domain architecture with cost-effective FOD817BSD optical isolation - 50% cost reduction while maintaining essential safety features.
 
 ## Table of Contents
 - [Features](#features)
@@ -18,24 +22,58 @@ The WateringSystem is an ESP32-based automated plant watering controller designe
 - [Contributing](#contributing)
 - [License](#license)
 
-## Features
-- **Environmental Monitoring**: Monitors ambient temperature and humidity using BME280 sensor
-- **Soil Condition Monitoring**: Tracks soil moisture, temperature, pH, EC, and NPK using RS485/Modbus soil sensor
-- **Automated Watering**: Controls water pump based on configurable schedules and sensor readings
-- **Web Interface**: Provides a responsive web interface for monitoring and configuration
-- **OTA Updates**: Supports Over-The-Air firmware updates through AsyncElegantOTA
-- **Data Logging**: Records historical environmental and soil data
-- **Modular Design**: Interface-based architecture for easy component replacement and testing
+## 🌟 Key Features
 
-## Hardware Requirements
-- **Microcontroller**: ESP32-WROOM-32E
-- **Environmental Sensor**: BME280 (temperature, humidity, pressure)
-- **Soil Sensor**: RS485/Modbus soil moisture, temperature, humidity, EC, pH, NPK sensor
-- **Communication**: SP3485 RS485 to TTL converter (high-quality alternative to MAX485)
-- **Actuator**: 12V DC water pump with MOSFET control circuit
-- **Power Supply**: 12V DC (2A minimum) with 3.3V regulation for digital components
+### Practical Safety & Isolation
+- **5kV Optical Isolation**: FOD817BSD optocouplers provide adequate protection
+- **2-Domain Architecture**: ESP32 (3.3V) → FIELD Domain (5V, optically isolated)
+- **Cost Effective**: 50% cost reduction vs complex ground isolation
+- **Greenhouse Optimized**: Practical design for enclosed 12V environments
 
-For complete hardware specifications and wiring diagrams, see [Hardware Documentation](docs/hardware.md).
+### Professional Monitoring
+- **Multi-Parameter Soil Analysis**: NPK, pH, EC, moisture, temperature via RS485 Modbus
+- **Environmental Sensing**: BME280 for ambient temperature, humidity, pressure
+- **Real-time Data Logging**: Historical trend analysis and alerts
+- **Remote Web Interface**: Responsive monitoring and configuration portal
+
+### Smart Power Management
+- **Hardware-Only Control**: LDO voltage converters provide always-on power management
+- **Extended Runtime**: >48h operation on 20Ah LiFePO4 battery
+- **Solar Ready**: MC4 connectors for future solar panel integration
+- **Battery Monitoring**: Real-time voltage and capacity tracking
+- **Simplified Design**: No software power control eliminates failure points
+- **Instant Operation**: Always-on design eliminates startup delays
+
+## 🔧 Hardware Architecture
+
+### Hardware-Managed LDO System
+```
+12V LiFePO4 BATTERY ──┬── AMS1117-3.3 LDO ──► ESP32 Control Domain (Always-On)
+                      │                      │ FOD817BSD Optical Signal Isolation (5kV)
+                      │                      └── FIELD Domain (RS485 + Sensors)
+                      │
+                      └── AMS1117-5.0 LDO ──► Field Power Supply (Always-On)
+                               │
+                               └── Common Ground (GND_COMMON)
+```
+
+### Core Components
+| Component | Model | Function | Domain |
+|-----------|-------|----------|---------|
+| Microcontroller | ESP32-WROOM-32E | Main processor + WiFi | 3.3V Always-On |
+| RS485 Interface | **SP3485EN** | Modbus communication | 5V Always-On |
+| Optical Isolation | **FOD817BSD** | 5kV signal optocouplers | Signal Path |
+| Power Regulation | **AMS1117** | LDO voltage regulators | Hardware Control |
+| Environmental | BME280 | Temperature/humidity | 3.3V Control |
+| Soil Sensor | RS485 Modbus | NPK/pH/EC/moisture | 5V Field |
+
+### ⚡ Hardware-Managed Safety Features
+**LDO-based design provides reliable, always-on operation:**
+- **Signal Isolation**: 5kV (FOD817BSD optocouplers for signals only)
+- **Hardware Control**: LDO regulators eliminate software power management
+- **Common Ground**: Simplified design prevents ground loop issues
+- **Always-On**: Eliminates startup delays and power sequencing complexity
+- **Maintenance Free**: No complex power domain monitoring required
 
 ## Software Dependencies
 - **Framework**: Arduino framework for ESP32

@@ -1,5 +1,74 @@
 # Release Notes
 
+## Version 2.3.0 (2025-06-09) - Hardware-Managed LDO Architecture
+
+### Overview
+Complete transition from software-controlled power domains to hardware-managed LDO voltage converters. This major simplification eliminates all software power control in favor of always-on LDO regulators with common ground, providing maximum reliability and operational simplicity.
+
+### New Features
+- **Hardware-Only Power Management**: AMS1117 LDO regulators provide always-on power supplies
+- **Common Ground Design**: Single ground plane (GND_COMMON) eliminates ground loop issues
+- **Always-On Operation**: No startup delays or power sequencing complexity
+- **Optical Signal Isolation**: FOD817BSD optocouplers isolate RS485 signals only (not power)
+- **Simplified Pin Assignment**: Removed 4 GPIO pins previously used for power control
+
+### Hardware Changes
+- **POWER REGULATION**: AMS1117-3.3 and AMS1117-5.0 LDO voltage regulators
+- **ALWAYS-ON DESIGN**: Continuous regulated power to both ESP32 and Field domains
+- **COMMON GROUND**: Shared ground plane (GND_COMMON) simplifies PCB design
+- **REMOVED PINS**: GPIO 4, 19, 23, 15 no longer needed for power control
+- **COST REDUCTION**: Further 110 SEK savings by removing buck converters
+
+### Software Updates
+- **Removed PowerDomainManager**: All power control logic eliminated from software
+- **Simplified main.cpp**: No power domain initialization, safety checks, or monitoring
+- **Updated SP3485ModbusClient**: Removed power control parameters and methods
+- **Hardware-only delays**: LDO stabilization handled by hardware characteristics
+- **Removed deprecated files**: PowerDomainManager.h/.cpp, PowerDomainConfig.h, and GroundIsolationConfig.h physically deleted
+
+### Documentation Updates
+- **Hardware Architecture**: Updated to reflect LDO-managed always-on system
+- **Pin Assignments**: Removed power control pins from specifications
+- **BOM Updates**: AMS1117 LDO regulators replace buck converters (2998 SEK total)
+- **Architecture Diagrams**: Updated for hardware-managed common ground design
+- **Migration Notes**: Clear guidance for transition from software power control
+
+### Cost Analysis Update
+| Component Category | v2.2 Cost | v2.3 Cost | Additional Savings |
+|------------------|-----------|-----------|-------------------|
+| Power Regulation | LM2596 Buck (80 SEK) | AMS1117 LDO (50 SEK) | 30 SEK |
+| Power Control Logic | GPIO + monitoring | None | Complexity reduction |
+| PCB Design | Isolated domains | Common ground | Layout simplification |
+| **Total BOM** | **3108 SEK** | **2998 SEK** | **110 SEK** |
+
+### Breaking Changes
+- **Software**: PowerDomainManager class no longer used (marked deprecated)
+- **Hardware**: Power control GPIO pins eliminated from design
+- **Architecture**: Common ground replaces isolated power domains
+- **Initialization**: Simplified hardware setup without power sequencing
+
+### Migration Benefits
+1. **Reliability**: Hardware-only power management eliminates software failure points
+2. **Simplicity**: Always-on design removes complex startup and monitoring logic
+3. **Cost**: Additional component cost reduction and simplified PCB design
+4. **Maintenance**: No power domain health monitoring or fault recovery required
+5. **Performance**: Instant operation without startup delays or power sequencing
+
+### Technical Advantages
+- **Voltage Regulation**: LDO provides excellent line and load regulation
+- **Noise**: Lower output noise compared to switching regulators
+- **Stability**: No switching frequency interference with sensitive circuits
+- **Thermal**: Built-in thermal protection and current limiting
+- **Ground Integrity**: Common ground eliminates potential ground loop issues
+
+### Future Considerations
+- System ready for immediate operation after power-on
+- Simplified firmware development without power management complexity
+- Easier troubleshooting and maintenance procedures
+- Foundation for additional hardware-managed expansion modules
+
+---
+
 ## Version 2.2.0 (2025-06-09) - Simplified Architecture
 
 ### Overview

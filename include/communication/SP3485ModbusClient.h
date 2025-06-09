@@ -1,30 +1,38 @@
 /**
  * @file SP3485ModbusClient.h
- * @brief Header for SP3485 RS485 based Modbus client
+ * @brief Header for RS485 based Modbus client with optical isolation
  * @author Paul Waserbrot
  * @date 2025-04-15
+ * @updated 2025-06-04 - Added support for MikroElektronika RS485 5 Click with FOD817BSD isolation
  */
 
-#ifndef SP3485_MODBUS_CLIENT_H
-#define SP3485_MODBUS_CLIENT_H
+#ifndef WATERINGSYSTEM_COMMUNICATION_SP3485MODBUSCLIENT_H
+#define WATERINGSYSTEM_COMMUNICATION_SP3485MODBUSCLIENT_H
 
 #include "communication/IModbusClient.h"
+#include "hardware/RS485Config.h"
 #include <HardwareSerial.h>
 
 /**
- * @brief Implementation of Modbus client interface for SP3485 RS485 transceiver
+ * @brief Implementation of Modbus client interface for RS485 with optical isolation
  * 
  * This class provides a concrete implementation of the IModbusClient
  * interface for communicating with Modbus RTU devices over RS485 using
- * the SP3485 transceiver.
+ * direct SP3485EN transceiver with FOD817BSD optocoupler isolation.
+ *
+ * Hardware Configuration (Hardware-Managed Power):
+ * - RS485 Transceiver: SP3485EN (direct connection)
+ * - Isolation: FOD817BSD optocouplers (5kV optical isolation)
+ * - Power Management: Hardware LDO converters (always-on)
+ * - Ground Strategy: Common ground with optical signal isolation
  */
 class SP3485ModbusClient : public IModbusClient {
 private:
     HardwareSerial* serial;
-    int dePin;          // DE/RE pin for direction control
+    int dePin;              // DE/RE pin for direction control (via optocoupler)
     bool initialized;
     int lastError;
-    uint32_t timeout;   // Communication timeout in milliseconds
+    uint32_t timeout;       // Communication timeout in milliseconds
     uint32_t successCount;
     uint32_t errorCount;
 
@@ -37,20 +45,20 @@ private:
     uint16_t calculateCRC(uint8_t* buffer, int length);
     
     /**
-     * @brief Set transceiver to transmit mode
+     * @brief Set transceiver to transmit mode (with optocoupler delay compensation)
      */
     void setTransmitMode();
     
     /**
-     * @brief Set transceiver to receive mode
+     * @brief Set transceiver to receive mode (with optocoupler delay compensation)
      */
     void setReceiveMode();
 
 public:
     /**
-     * @brief Constructor for SP3485ModbusClient
+     * @brief Constructor for SP3485ModbusClient with optical isolation
      * @param serialPort Pointer to HardwareSerial port
-     * @param directionPin GPIO pin connected to DE/RE pins of SP3485
+     * @param directionPin GPIO pin connected to DE/RE optocoupler
      */
     SP3485ModbusClient(HardwareSerial* serialPort, int directionPin);
     
@@ -70,4 +78,4 @@ public:
     void getStatistics(uint32_t* successCount, uint32_t* errorCount) override;
 };
 
-#endif // SP3485_MODBUS_CLIENT_H
+#endif // WATERINGSYSTEM_COMMUNICATION_SP3485MODBUSCLIENT_H

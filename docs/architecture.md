@@ -466,35 +466,35 @@ The architecture is designed to support future extensions:
    - Companion mobile app could be developed
    - Would communicate with system via web API
 
-## Hardware Isolation Architecture
+## Hardware Architecture - LDO-Managed System
 
-The WateringSystem implements a cost-effective isolation strategy optimized for greenhouse automation applications. The system uses optical isolation to separate the ESP32 control circuits from the RS485 sensor network, providing adequate protection for the intended deployment environment.
+The WateringSystem implements a hardware-managed power architecture optimized for greenhouse automation applications. The system uses LDO voltage regulators with common ground and optical signal isolation, providing reliable operation without software power control complexity.
 
-### Isolation Overview
+### Hardware-Managed Power Overview
 
-The system uses a simplified two-domain architecture with optical isolation:
+The system uses an always-on LDO architecture with optical signal isolation:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                 ESP32 Domain (3.3V)                             │
+│                 ESP32 Domain (3.3V LDO)                         │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
 │  │    ESP32    │  │   BME280    │  │  Status     │             │
 │  │  DevKit v1  │  │   Sensor    │  │  LEDs       │             │
 │  └─────────────┘  └─────────────┘  └─────────────┘             │
 │                         │                                       │
-│                         │ I2C (Non-isolated)                   │
+│                         │ I2C (Direct connection)               │
 │                         │                                       │
-│  Reference: Common GND                                          │
+│  Reference: GND_COMMON                                          │
 └───────────────────┬─────────────────────────────────────────────┘
-                    │ Optical Isolation
+                    │ Optical Signal Isolation
                     │ (FOD817BSD x3)
                     │ 5kV VRMS
 ┌───────────────────▼─────────────────────────────────────────────┐
-│                 FIELD Domain (5V)                               │
+│                 FIELD Domain (5V LDO Always-On)                 │
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │                SP3485EN IC                              │   │
 │  │           RS485 Transceiver                             │   │
-│  │          (Direct connection)                            │   │
+│  │          (Always powered)                               │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
@@ -503,53 +503,40 @@ The system uses a simplified two-domain architecture with optical isolation:
 │  │  (RS485)    │  │  (Relays)   │  │  (Digital)  │             │
 │  └─────────────┘  └─────────────┘  └─────────────┘             │
 │                                                                 │
-│  Reference: Common GND                                          │
+│  Reference: GND_COMMON (Shared ground)                         │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Isolation Strategy
+### Hardware Management Strategy
+
+#### LDO Power Management: Always-On Design
+- **Type**: AMS1117 LDO voltage regulators
+- **ESP32 Domain**: 3.3V always-on power supply
+- **Field Domain**: 5V always-on power supply
+- **Ground**: Common ground plane (GND_COMMON)
+- **Control**: Hardware-only, no software power management
 
 #### Optical Signal Isolation: FOD817BSD Optocouplers
 - **Type**: Phototransistor optocouplers
 - **Isolation Voltage**: 5000 VRMS
-- **Purpose**: Signal isolation between ESP32 and FIELD circuits
+- **Purpose**: Signal isolation between domains (signals only, not power)
 - **Signals Isolated**: TX, RX, DE/RE control
 - **Cost**: ~60 SEK total (3 units × 20 SEK)
 
-#### Ground Strategy
-- **Approach**: Single ground plane with optical isolation
-- **Rationale**: Adequate for enclosed greenhouse systems
-- **Protection**: 5kV isolation prevents damage from typical field disturbances
-- **EMC**: Sufficient noise immunity for agricultural environments
+### Hardware Benefits
 
-### Safety Benefits
-
-1. **Signal Protection**: 5kV optical isolation protects ESP32 from field voltage spikes
-2. **Noise Immunity**: Optical isolation blocks electrical noise from sensor circuits
-3. **Cost Effectiveness**: Eliminates need for expensive ground isolation
-4. **Simplicity**: Easier PCB layout and component sourcing
-5. **Reliability**: Fewer components means fewer failure points
+1. **Simplicity**: No software power control eliminates complexity and failure modes
+2. **Reliability**: Always-on design eliminates startup delays and power sequencing issues
+3. **Stability**: LDO regulators provide excellent voltage regulation and low noise
+4. **Cost Effectiveness**: Eliminates need for power control GPIO pins and monitoring circuits
+5. **Common Ground**: Shared ground plane simplifies PCB design and eliminates ground loops
 
 ### Power Supply Architecture
 
 ```
-12V Battery ──┬── LM2596 Buck ──► ESP32 Domain (3.3V)
-              │   (Common GND)   GPIO control for field domains
+12V Battery ──┬── AMS1117-3.3 LDO ──► ESP32 Domain (3.3V Always-On)
+              │   (GND_COMMON)        Control logic, WiFi, BME280
               │
-              └── LM2596 Buck ──► FIELD Domain (5V)
-                  (Common GND)   RS485 + sensors + pumps
+              └── AMS1117-5.0 LDO ──► FIELD Domain (5V Always-On)
+                  (GND_COMMON)        RS485, sensors, pumps
 ```
-
-### Power Domain Control
-
-The PowerDomainManager class provides control of the two power domains:
-
-1. **ESP32 Domain (3.3V)**: Always enabled, controls field domain
-2. **FIELD Domain (5V)**: Enabled via GPIO4, optically isolated communication
-
-**Features:**
-- Field domain power control via GPIO4
-- Status monitoring via GPIO23
-- Fault indication via GPIO15 LED
-- Sequential startup with proper delays
-- Cost-optimized design for greenhouse applications

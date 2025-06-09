@@ -1,16 +1,18 @@
 /**
  * @file SP3485ModbusClient.cpp
- * @brief RS485 interface implementation for Modbus communication
+ * @brief RS485 interface implementation for Modbus communication with optical isolation
  * @author Paul Waserbrot
  * @date 2025-04-15
+ * @updated 2025-06-09 - Simplified for hardware-managed power (LDO-based)
  */
 
 #include "communication/SP3485ModbusClient.h"
+#include "hardware/RS485Config.h"
 #include <Arduino.h>
 
 SP3485ModbusClient::SP3485ModbusClient(HardwareSerial *serialPort, int directionPin)
-    : serial(serialPort), dePin(directionPin), initialized(false), lastError(0), timeout(1000) // Default timeout: 1 second
-      ,
+    : serial(serialPort), dePin(directionPin), 
+      initialized(false), lastError(0), timeout(RS485_DEFAULT_TIMEOUT_MS),
       successCount(0), errorCount(0)
 {
 }
@@ -21,8 +23,7 @@ SP3485ModbusClient::~SP3485ModbusClient()
 }
 
 bool SP3485ModbusClient::initialize()
-{
-    if (initialized)
+{    if (initialized)
     {
         return true;
     }
@@ -33,19 +34,19 @@ bool SP3485ModbusClient::initialize()
         return false;
     }
 
-    // Setup DE/RE pin for direction control
+    // Setup DE/RE pin for direction control (via optocoupler)
     pinMode(dePin, OUTPUT);
     setReceiveMode();
 
-    // REMOVED: serial->begin(9600, SERIAL_8N1);
-    // The HardwareSerial object should be configured (baud rate, pins)
-    // by the calling code (e.g., in main.cpp's setup or initHardware)
-    // before this initialize() method is called.
+    // Hardware-managed power - no software control needed
+    // LDO converters provide always-on power to field domain
+    
+    // Wait for hardware to stabilize
+    delay(RS485_POWER_ON_DELAY_MS);
 
     // Flush any existing data
-    // Check if serial is available before flushing to prevent issues if not yet begun
     if (serial->available())
-    { // Or simply rely on it being begun by caller
+    {
         while (serial->available())
         {
             serial->read();
@@ -60,13 +61,13 @@ bool SP3485ModbusClient::initialize()
 void SP3485ModbusClient::setTransmitMode()
 {
     digitalWrite(dePin, HIGH);
-    delayMicroseconds(50); // Small delay for SP3485 switching
+    delayMicroseconds(RS485_DE_ASSERT_DELAY_US); // Delay for optocoupler response time
 }
 
 void SP3485ModbusClient::setReceiveMode()
 {
     digitalWrite(dePin, LOW);
-    delayMicroseconds(50); // Small delay for SP3485 switching
+    delayMicroseconds(RS485_DE_DEASSERT_DELAY_US); // Delay for optocoupler response time
 }
 
 uint16_t SP3485ModbusClient::calculateCRC(uint8_t *buffer, int length)
