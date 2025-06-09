@@ -465,3 +465,91 @@ The architecture is designed to support future extensions:
 4. **Mobile Application**
    - Companion mobile app could be developed
    - Would communicate with system via web API
+
+## Hardware Isolation Architecture
+
+The WateringSystem implements a cost-effective isolation strategy optimized for greenhouse automation applications. The system uses optical isolation to separate the ESP32 control circuits from the RS485 sensor network, providing adequate protection for the intended deployment environment.
+
+### Isolation Overview
+
+The system uses a simplified two-domain architecture with optical isolation:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                 ESP32 Domain (3.3V)                             │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
+│  │    ESP32    │  │   BME280    │  │  Status     │             │
+│  │  DevKit v1  │  │   Sensor    │  │  LEDs       │             │
+│  └─────────────┘  └─────────────┘  └─────────────┘             │
+│                         │                                       │
+│                         │ I2C (Non-isolated)                   │
+│                         │                                       │
+│  Reference: Common GND                                          │
+└───────────────────┬─────────────────────────────────────────────┘
+                    │ Optical Isolation
+                    │ (FOD817BSD x3)
+                    │ 5kV VRMS
+┌───────────────────▼─────────────────────────────────────────────┐
+│                 FIELD Domain (5V)                               │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │                SP3485EN IC                              │   │
+│  │           RS485 Transceiver                             │   │
+│  │          (Direct connection)                            │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
+│  │    Soil     │  │   Water     │  │  Reservoir  │             │
+│  │   Sensors   │  │   Pumps     │  │   Sensors   │             │
+│  │  (RS485)    │  │  (Relays)   │  │  (Digital)  │             │
+│  └─────────────┘  └─────────────┘  └─────────────┘             │
+│                                                                 │
+│  Reference: Common GND                                          │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Isolation Strategy
+
+#### Optical Signal Isolation: FOD817BSD Optocouplers
+- **Type**: Phototransistor optocouplers
+- **Isolation Voltage**: 5000 VRMS
+- **Purpose**: Signal isolation between ESP32 and FIELD circuits
+- **Signals Isolated**: TX, RX, DE/RE control
+- **Cost**: ~60 SEK total (3 units × 20 SEK)
+
+#### Ground Strategy
+- **Approach**: Single ground plane with optical isolation
+- **Rationale**: Adequate for enclosed greenhouse systems
+- **Protection**: 5kV isolation prevents damage from typical field disturbances
+- **EMC**: Sufficient noise immunity for agricultural environments
+
+### Safety Benefits
+
+1. **Signal Protection**: 5kV optical isolation protects ESP32 from field voltage spikes
+2. **Noise Immunity**: Optical isolation blocks electrical noise from sensor circuits
+3. **Cost Effectiveness**: Eliminates need for expensive ground isolation
+4. **Simplicity**: Easier PCB layout and component sourcing
+5. **Reliability**: Fewer components means fewer failure points
+
+### Power Supply Architecture
+
+```
+12V Battery ──┬── LM2596 Buck ──► ESP32 Domain (3.3V)
+              │   (Common GND)   GPIO control for field domains
+              │
+              └── LM2596 Buck ──► FIELD Domain (5V)
+                  (Common GND)   RS485 + sensors + pumps
+```
+
+### Power Domain Control
+
+The PowerDomainManager class provides control of the two power domains:
+
+1. **ESP32 Domain (3.3V)**: Always enabled, controls field domain
+2. **FIELD Domain (5V)**: Enabled via GPIO4, optically isolated communication
+
+**Features:**
+- Field domain power control via GPIO4
+- Status monitoring via GPIO23
+- Fault indication via GPIO15 LED
+- Sequential startup with proper delays
+- Cost-optimized design for greenhouse applications
