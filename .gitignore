@@ -58,3 +58,10 @@ docs/gpio-*
 docs/git-commit-*
 docs/final-*
 docs/bill-of-materials*
+
+# Specific files that keep getting auto-restored (DO NOT COMMIT THESE)
+docs/release-notes.md
+docs/cleanup-completion-report.md
+docs/testing.md
+docs/user-guide.md
+docs/safety.md
