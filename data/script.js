@@ -343,8 +343,12 @@ async function fetchSystemStatus() {
 
         const data = await response.json();
         updateSystemStatus(data);
+        
+        // Update connection status when status fetch succeeds
+        updateConnectionStatus(true);
     } catch (error) {
         console.error('Error fetching system status:', error);
+        updateConnectionStatus(false);
         showNotification('Status Error', 'Failed to fetch system status.', 'error');
     }
 }

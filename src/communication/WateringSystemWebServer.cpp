@@ -82,15 +82,6 @@ bool WateringSystemWebServer::initialize()
 
 void WateringSystemWebServer::setupEndpoints()
 {
-    // Set up static file serving - Fix path issues
-    if (isInApMode) {
-        // In AP mode, use wifi_setup.html as the default page
-        server.serveStatic("/", LittleFS, "/").setDefaultFile("wifi_setup.html");
-    } else {
-        // Normal operation mode, use index.html
-        server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
-    }
-    
     // Debug - show what files are available in LittleFS
     Serial.println("Setting up web endpoints with the following files in LittleFS:");
     File root = LittleFS.open("/");
@@ -102,17 +93,11 @@ void WateringSystemWebServer::setupEndpoints()
         }
     }
     
-    // Explicitly serve common static files
-    server.serveStatic("/index.html", LittleFS, "/index.html");
-    server.serveStatic("/wifi_setup.html", LittleFS, "/wifi_setup.html");
-    server.serveStatic("/script.js", LittleFS, "/script.js");
-    server.serveStatic("/styles.css", LittleFS, "/styles.css");
-    server.serveStatic("/favicon.ico", LittleFS, "/favicon.ico");
+    // *** CRITICAL FIX: Register API endpoints FIRST before static file serving
+    // This prevents static file handler from intercepting API routes like /sensors
     
-    // *** IMPORTANT FIX: Handle the "/api" route differently, accepting it as a valid route prefix
-    // This fixes the 400 Bad Request issue when clients call /api/sensors
+    // Handle the "/api" route root
     server.on("/api", HTTP_GET, [](AsyncWebServerRequest *request) {
-        // Instead of returning 400, return instructions about available endpoints
         request->send(200, "application/json", "{\"message\":\"API root. Available endpoints: /api/sensors, /api/status, etc.\"}");
     });
     
@@ -364,8 +349,7 @@ void WateringSystemWebServer::setupEndpoints()
         String response = handleWiFiConfigRequest(request);
         request->send(200, "application/json", response);
     });
-    
-    // Handle 404 (Not Found)
+      // Handle 404 (Not Found)
     server.onNotFound([](AsyncWebServerRequest *request) {
         // Log the unhandled request
         Serial.print("Unhandled request: ");
@@ -378,6 +362,23 @@ void WateringSystemWebServer::setupEndpoints()
             request->send(404, "text/plain", "Not found");
         }
     });
+      // *** CRITICAL FIX: Set up static file serving AFTER all API endpoints are registered
+    // This prevents static file handler from intercepting API routes like /sensors
+    if (isInApMode) {
+        // In AP mode, use wifi_setup.html as the default page
+        server.serveStatic("/", LittleFS, "/").setDefaultFile("wifi_setup.html");
+    } else {
+        // Normal operation mode, use index.html
+        server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
+    }
+    
+    // Explicitly serve common static files with compression support
+    // AsyncWebServer automatically serves .gz versions if they exist and client supports gzip
+    server.serveStatic("/index.html", LittleFS, "/index.html").setCacheControl("max-age=3600");
+    server.serveStatic("/wifi_setup.html", LittleFS, "/wifi_setup.html").setCacheControl("max-age=3600");
+    server.serveStatic("/script.js", LittleFS, "/script.js").setCacheControl("max-age=3600");
+    server.serveStatic("/styles.css", LittleFS, "/styles.css").setCacheControl("max-age=3600");
+    server.serveStatic("/favicon.ico", LittleFS, "/favicon.ico").setCacheControl("max-age=86400");
 }
 
 /**

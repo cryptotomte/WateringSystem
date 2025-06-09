@@ -87,8 +87,121 @@ struct WiFiConfig {
 
 WiFiConfig wifiConfig;
 
-// Forward declarations of functions
-bool saveWiFiConfig(const String &ssid, const String &password);
+// WiFi monitoring and stability variables
+unsigned long lastWiFiCheck = 0;
+unsigned long lastWiFiReconnect = 0;
+unsigned long lastWiFiDiagnostic = 0;
+int wifiReconnectAttempts = 0;
+int wifiDisconnectCount = 0;
+bool wifiStable = false;
+const int WIFI_CHECK_INTERVAL = 5000;        // Check WiFi every 5 seconds
+const int WIFI_RECONNECT_INTERVAL = 10000;   // Wait 10 seconds between reconnect attempts
+const int WIFI_DIAGNOSTIC_INTERVAL = 30000;  // Print diagnostics every 30 seconds
+const int MAX_RECONNECT_ATTEMPTS = 5;        // Max attempts before longer delay
+
+// Watchdog variables
+unsigned long lastLoopTime = 0;
+unsigned long loopWatchdogTimeout = 30000;  // 30 seconds watchdog
+bool watchdogEnabled = true;
+
+// Forward declarations
+void monitorWiFiConnection();
+void checkWatchdog();
+void feedWatchdog();
+bool saveWiFiConfig(const String& ssid, const String& password);
+void checkEmergencyWiFiReset();
+
+/**
+ * @brief Print detailed WiFi diagnostics
+ */
+void printWiFiDiagnostics() {
+    if (millis() - lastWiFiDiagnostic < WIFI_DIAGNOSTIC_INTERVAL) {
+        return;
+    }
+    lastWiFiDiagnostic = millis();
+    
+    Serial.println("=== WiFi Diagnostics ===");
+    Serial.printf("Status: %s (%d)\n", 
+        WiFi.status() == WL_CONNECTED ? "Connected" : "Disconnected", 
+        WiFi.status());
+        
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.printf("SSID: %s\n", WiFi.SSID().c_str());
+        Serial.printf("IP: %s\n", WiFi.localIP().toString().c_str());
+        Serial.printf("Gateway: %s\n", WiFi.gatewayIP().toString().c_str());
+        Serial.printf("Subnet: %s\n", WiFi.subnetMask().toString().c_str());
+        Serial.printf("RSSI: %d dBm\n", WiFi.RSSI());
+        Serial.printf("Channel: %d\n", WiFi.channel());
+        Serial.printf("MAC: %s\n", WiFi.macAddress().c_str());
+        
+        // Signal quality assessment
+        int rssi = WiFi.RSSI();
+        String quality;
+        if (rssi > -50) quality = "Excellent";
+        else if (rssi > -60) quality = "Good";
+        else if (rssi > -70) quality = "Fair";
+        else if (rssi > -80) quality = "Poor";
+        else quality = "Very Poor";
+        
+        Serial.printf("Signal Quality: %s\n", quality.c_str());
+        Serial.printf("Uptime: %lu ms\n", millis());
+        
+        // Connection stability stats
+        Serial.printf("Disconnects: %d\n", wifiDisconnectCount);
+        Serial.printf("Reconnect attempts: %d\n", wifiReconnectAttempts);
+        Serial.printf("Stable: %s\n", wifiStable ? "Yes" : "No");
+    }
+    Serial.println("========================");
+}
+
+/**
+ * @brief Enhanced WiFi connection with better error handling
+ */
+bool connectToWiFiEnhanced() {
+    if (wifiConfig.ssid.isEmpty()) {
+        Serial.println("No WiFi configuration available");
+        return false;
+    }
+    
+    Serial.printf("Connecting to WiFi network: %s\n", wifiConfig.ssid.c_str());
+    
+    // Configure WiFi for better stability
+    WiFi.mode(WIFI_STA);
+    WiFi.setAutoReconnect(false);  // Handle reconnection manually
+    WiFi.setSleep(false);          // Disable WiFi sleep mode
+    
+    // Disconnect first to ensure clean state
+    WiFi.disconnect(true);
+    delay(100);
+    
+    // Begin connection
+    WiFi.begin(wifiConfig.ssid.c_str(), wifiConfig.password.c_str());
+    
+    // Wait for connection with timeout
+    unsigned long startAttemptTime = millis();
+    while (WiFi.status() != WL_CONNECTED && 
+           millis() - startAttemptTime < WIFI_TIMEOUT) {
+        Serial.print(".");
+        digitalWrite(PIN_STATUS_LED, !digitalRead(PIN_STATUS_LED));  // Toggle LED
+        delay(500);
+    }
+    
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("\nFailed to connect to WiFi");
+        wifiReconnectAttempts++;
+        return false;
+    }
+    
+    Serial.println("\nWiFi connected successfully");
+    Serial.printf("IP address: %s\n", WiFi.localIP().toString().c_str());
+    Serial.printf("Signal strength: %d dBm\n", WiFi.RSSI());
+    
+    wifiReconnectAttempts = 0;  // Reset counter on successful connection
+    wifiStable = true;
+    apMode = false;
+    
+    return true;
+}
 
 /**
  * @brief Initialize system hardware
@@ -225,39 +338,11 @@ void startAccessPointMode() {
 }
 
 /**
- * @brief Connect to WiFi network using saved configuration
+ * @brief Connect to WiFi network using saved configuration (legacy wrapper)
  * @return true if connected successfully, false otherwise
  */
 bool connectToWiFi() {
-  if (wifiConfig.ssid.isEmpty()) {
-    Serial.println("No WiFi configuration available");
-    return false;
-  }
-  
-  Serial.printf("Connecting to WiFi network: %s\n", wifiConfig.ssid.c_str());
-  
-  // Set WiFi mode and begin connection
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(wifiConfig.ssid.c_str(), wifiConfig.password.c_str());
-  
-  // Wait for connection with timeout
-  unsigned long startAttemptTime = millis();
-  while (WiFi.status() != WL_CONNECTED && 
-         millis() - startAttemptTime < WIFI_TIMEOUT) {
-    Serial.print(".");
-    digitalWrite(PIN_STATUS_LED, !digitalRead(PIN_STATUS_LED));  // Toggle LED
-    delay(500);
-  }
-  
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("\nFailed to connect to WiFi");
-    return false;
-  }
-  
-  Serial.println("\nWiFi connected");
-  Serial.printf("IP address: %s\n", WiFi.localIP().toString().c_str());
-  apMode = false;
-  return true;
+  return connectToWiFiEnhanced();
 }
 
 /**
@@ -601,6 +686,9 @@ void setup() {
   // Initialize the hardware
   initHardware();
   
+  // Check for emergency WiFi reset (config button held during startup)
+  checkEmergencyWiFiReset();
+  
   // Initialize file system and data storage
   if (!initFileSystem()) {
     Serial.println("Error initializing file system");
@@ -706,18 +794,127 @@ void loop() {
     digitalWrite(PIN_STATUS_LED, ((millis() / 500) % 2) ? HIGH : LOW);
   } else {
     // Just a short blink every 3 seconds to show system is running
-    digitalWrite(PIN_STATUS_LED, ((millis() % 3000) < 100) ? HIGH : LOW);
-  }
+    digitalWrite(PIN_STATUS_LED, ((millis() % 3000) < 100) ? HIGH : LOW);  }
   
-  // Reconnect WiFi if needed and not in AP mode
-  if (!apMode && WiFi.status() != WL_CONNECTED) {
-    static unsigned long lastReconnectAttempt = 0;
-    if (millis() - lastReconnectAttempt > 30000) {  // Try every 30 seconds
-      lastReconnectAttempt = millis();
-      connectToWiFi();
-    }
-  }
+  // Monitor and maintain WiFi connection
+  monitorWiFiConnection();
+  
+  // Check watchdog
+  checkWatchdog();
   
   // Allow other tasks to run
   yield();
+}
+
+/**
+ * @brief Reset WiFi settings and restart in AP mode
+ */
+void resetWiFiSettings() {
+    Serial.println("Resetting WiFi settings and restarting in AP mode...");
+    
+    // Stop current connections
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    
+    // Remove WiFi config file
+    if (LittleFS.exists(CONFIG_FILE_PATH)) {
+        LittleFS.remove(CONFIG_FILE_PATH);
+        Serial.println("WiFi configuration file removed");
+    }
+    
+    // Create default configuration
+    saveWiFiConfig(DEFAULT_SSID, "");
+    
+    Serial.println("System will restart in AP mode for reconfiguration");
+    delay(2000);
+    ESP.restart();
+}
+
+/**
+ * @brief Emergency WiFi recovery - force AP mode if button held during startup
+ */
+void checkEmergencyWiFiReset() {
+    // Check if config button is held down during startup
+    int configButtonHoldTime = 0;
+    while (digitalRead(PIN_BUTTON_CONFIG) == LOW && configButtonHoldTime < 50) {
+        delay(100);
+        configButtonHoldTime++;
+        digitalWrite(PIN_STATUS_LED, configButtonHoldTime % 2);  // Blink LED
+    }
+    
+    if (configButtonHoldTime >= 50) {  // Button held for 5+ seconds
+        Serial.println("Emergency WiFi reset triggered!");
+        resetWiFiSettings();
+    }
+}
+
+/**
+ * @brief Simple software watchdog to prevent system hangs
+ */
+void feedWatchdog() {
+    lastLoopTime = millis();
+}
+
+/**
+ * @brief Check if system is hanging and restart if needed
+ */
+void checkWatchdog() {
+    if (!watchdogEnabled) return;
+    
+    if (millis() - lastLoopTime > loopWatchdogTimeout) {
+        Serial.println("WATCHDOG: System appears to be hanging - restarting...");
+        delay(1000);
+        ESP.restart();
+    }
+}
+
+/**
+ * @brief Monitor and maintain WiFi connection
+ */
+void monitorWiFiConnection() {
+    if (apMode) return;  // Skip monitoring in AP mode
+    
+    if (millis() - lastWiFiCheck < WIFI_CHECK_INTERVAL) {
+        return;
+    }
+    lastWiFiCheck = millis();
+    
+    // Print diagnostics periodically
+    printWiFiDiagnostics();
+    
+    // Check connection status
+    if (WiFi.status() != WL_CONNECTED) {
+        if (wifiStable) {
+            Serial.println("WiFi connection lost!");
+            wifiDisconnectCount++;
+            wifiStable = false;
+        }
+        
+        // Attempt reconnection with exponential backoff
+        if (millis() - lastWiFiReconnect > WIFI_RECONNECT_INTERVAL) {
+            lastWiFiReconnect = millis();
+            
+            Serial.printf("Attempting WiFi reconnection (%d/%d)...\n", 
+                         wifiReconnectAttempts + 1, MAX_RECONNECT_ATTEMPTS);
+            
+            if (connectToWiFiEnhanced()) {
+                Serial.println("WiFi reconnected successfully");
+            } else if (wifiReconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+                Serial.println("Max reconnect attempts reached, waiting longer...");
+                lastWiFiReconnect = millis() + 60000;  // Wait 1 minute before trying again
+                wifiReconnectAttempts = 0;  // Reset counter
+            }
+        }
+    } else {
+        // Connection is good, check signal quality
+        int rssi = WiFi.RSSI();
+        if (rssi < -80 && wifiStable) {
+            Serial.printf("WARNING: Weak WiFi signal (%d dBm)\n", rssi);
+        }
+        
+        if (!wifiStable) {
+            Serial.println("WiFi connection restored and stable");
+            wifiStable = true;
+        }
+    }
 }
