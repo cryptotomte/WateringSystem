@@ -6,8 +6,9 @@
 // Configuration
 const API_CONFIG = {
     ENDPOINT: '',  // Changed from '/api' to empty string
-    REFRESH_INTERVAL: 30000, // 30 seconds
-    CHART_REFRESH_INTERVAL: 300000, // 5 minutes
+    REFRESH_INTERVAL: 5000, // 5 seconds - fast sensor updates
+    STATUS_REFRESH_INTERVAL: 15000, // 15 seconds - system status updates  
+    CHART_REFRESH_INTERVAL: 120000, // 2 minutes - chart updates
 };
 
 // Global state
@@ -17,6 +18,7 @@ const appState = {
     isWatering: false,
     lastUpdate: null,
     refreshTimer: null,
+    statusRefreshTimer: null,
     chartRefreshTimer: null,
     chart: null,
     settings: {
@@ -247,15 +249,22 @@ function startAutoRefresh() {
         clearInterval(appState.refreshTimer);
     }
 
+    if (appState.statusRefreshTimer) {
+        clearInterval(appState.statusRefreshTimer);
+    }
+
     if (appState.chartRefreshTimer) {
         clearInterval(appState.chartRefreshTimer);
     }
 
-    // Set new timers
+    // Set new timers with different intervals
     appState.refreshTimer = setInterval(() => {
         fetchSensorData();
-        fetchSystemStatus();
     }, API_CONFIG.REFRESH_INTERVAL);
+
+    appState.statusRefreshTimer = setInterval(() => {
+        fetchSystemStatus();
+    }, API_CONFIG.STATUS_REFRESH_INTERVAL);
 
     appState.chartRefreshTimer = setInterval(() => {
         fetchHistoricalData();

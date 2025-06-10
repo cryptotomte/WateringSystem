@@ -30,13 +30,13 @@ private:
     IEnvironmentalSensor* envSensor;
     ISoilSensor* soilSensor;
     IWaterPump* waterPump;
-    IDataStorage* dataStorage;
-      // System state
+    IDataStorage* dataStorage;    // System state
     bool initialized;
     int lastError;
     unsigned long lastSensorReadTime;
     unsigned long lastDataLogTime;
     unsigned long lastWateringTime;
+    unsigned long lastValidSensorTime;  // Track when we last got valid sensor data
     bool wateringEnabled;
     
     // FreeRTOS task management

@@ -58,24 +58,17 @@ const char* WaterPump::getName() const
 
 bool WaterPump::start()
 {
-    Serial.println("WaterPump::start - Attempting to start pump");
-    
     if (!initialized) {
-        Serial.println("WaterPump::start - Pump not initialized, attempting to initialize");
         if (!initialize()) {
-            Serial.println("WaterPump::start - Pump initialization failed");
             return false;
         }
-        Serial.println("WaterPump::start - Pump initialization successful");
     }
     
-    Serial.printf("WaterPump::start - Setting pin %d HIGH\n", controlPin);
     digitalWrite(controlPin, HIGH);
     running = true;
     startTime = millis();
     runDuration = 0; // Indefinite run
     
-    Serial.println("WaterPump::start - Pump started successfully");
     return true;
 }
 
@@ -94,20 +87,15 @@ bool WaterPump::stop()
 
 bool WaterPump::runFor(unsigned int seconds)
 {
-    Serial.printf("WaterPump::runFor - Attempting to run pump for %d seconds\n", seconds);
-    
     if (seconds == 0) {
-        Serial.println("WaterPump::runFor - Duration is 0, stopping pump");
         return stop();
     }
     
     if (!start()) {
-        Serial.println("WaterPump::runFor - Failed to start pump");
         return false;
     }
     
     runDuration = seconds;
-    Serial.printf("WaterPump::runFor - Pump set to run for %d seconds\n", seconds);
     return true;
 }
 
@@ -134,20 +122,10 @@ unsigned int WaterPump::getRunDuration() const
 
 void WaterPump::checkTimedRun()
 {
-    if (running && runDuration > 0) {
-        unsigned long elapsedMillis = millis() - startTime;
-        unsigned int elapsedSeconds = elapsedMillis / 1000;
-        
-        // Debug timestamp when close to completion
-        if (elapsedSeconds >= (runDuration - 2) && elapsedSeconds <= runDuration) {
-            Serial.printf("WaterPump::checkTimedRun - Pump '%s' running for %u seconds of %u duration (elapsed ms: %lu)\n", 
-                      name, elapsedSeconds, runDuration, elapsedMillis);
-        }
+    if (running && runDuration > 0) {        unsigned long elapsedMillis = millis() - startTime;
         
         // Check if we've reached the run duration
         if (elapsedMillis >= (runDuration * 1000)) {
-            Serial.printf("WaterPump::checkTimedRun - Pump '%s' reached run duration of %u seconds, stopping\n", 
-                      name, runDuration);
             stop();
         }
     }

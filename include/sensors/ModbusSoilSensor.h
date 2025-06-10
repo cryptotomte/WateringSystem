@@ -54,16 +54,19 @@ private:
     };
     
     std::map<std::string, ValidRange> validRanges;
+      // Register map for sensor readings (corrected according to NPK manual PDF)
+    static const uint16_t REG_HUMIDITY = 0x0000;      // 0.1% RH (was moisture)
+    static const uint16_t REG_TEMPERATURE = 0x0001;   // 0.1°C  
+    static const uint16_t REG_EC = 0x0002;            // Conductivity (1) (was pH)
+    static const uint16_t REG_PH = 0x0003;            // pH (0.1) (was EC)
+    static const uint16_t REG_NITROGEN = 0x0004;      // 1 mg/kg
+    static const uint16_t REG_PHOSPHORUS = 0x0005;    // 1 mg/kg  
+    static const uint16_t REG_POTASSIUM = 0x0006;     // 1 mg/kg
+    static const uint16_t REG_SALINITY = 0x0007;      // 1 mg/L (was humidity)
+    static const uint16_t REG_TDS = 0x0008;           // 1 mg/L (new)
     
-    // Register map for sensor readings
-    static const uint16_t REG_MOISTURE = 0x0000;
-    static const uint16_t REG_TEMPERATURE = 0x0001;
-    static const uint16_t REG_PH = 0x0002;
-    static const uint16_t REG_EC = 0x0003;
-    static const uint16_t REG_NITROGEN = 0x0004;
-    static const uint16_t REG_PHOSPHORUS = 0x0005;
-    static const uint16_t REG_POTASSIUM = 0x0006;
-    static const uint16_t REG_HUMIDITY = 0x0007;
+    // Legacy compatibility - moisture is same as humidity for this sensor
+    static const uint16_t REG_MOISTURE = REG_HUMIDITY;
     
     // Register map for calibration
     static const uint16_t REG_MOISTURE_CALIB = 0x0100;

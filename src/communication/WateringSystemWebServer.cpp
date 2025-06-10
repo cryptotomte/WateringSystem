@@ -366,50 +366,27 @@ void WateringSystemWebServer::handleAutoWateringFormRequest(AsyncWebServerReques
 
 String WateringSystemWebServer::handleSensorDataRequest(AsyncWebServerRequest* request)
 {
-    // Add debug log
-    Serial.println("handleSensorDataRequest called");
-
-    // Read latest sensor data
-    bool envSuccess = envSensor->read();
-    
-    Serial.print("Environment sensor read result: ");
-    Serial.println(envSuccess ? "Success" : "Failed");
-    
-    if (envSuccess) {
-        Serial.printf("  Temp: %.1f°C, Humidity: %.1f%%, Pressure: %.1f hPa\n", 
-            envSensor->getTemperature(), 
-            envSensor->getHumidity(), 
-            envSensor->getPressure());
-    } else {
-        Serial.printf("  Error code: %d\n", envSensor->getLastError());
-    }
-    
-    bool soilSuccess = soilSensor->read();
-    
-    Serial.print("Soil sensor read result: ");
-    Serial.println(soilSuccess ? "Success" : "Failed");
-    
-    if (!soilSuccess) {
-        Serial.printf("  Error code: %d\n", soilSensor->getLastError());
-    }
+    // Use cached sensor data - sensors are read by FreeRTOS task every 5 seconds
+    // No direct sensor reading here to avoid conflicts with async operations
     
     // Create JSON response
     DynamicJsonDocument doc(1024);
     
-    // Environmental sensor data
+    // Environmental sensor data - use cached values
     JsonObject env = doc.createNestedObject("environmental");
-    env["success"] = envSuccess;
+    bool envSuccess = envSensor->isAvailable(); // Check if sensor is available, don't read
     
     if (envSuccess) {
         env["temperature"] = envSensor->getTemperature();
         env["humidity"] = envSensor->getHumidity();
         env["pressure"] = envSensor->getPressure();
     } else {
-        env["error"] = envSensor->getLastError();
-    }
+        env["error"] = envSensor->getLastError();    }
     
-    // Soil sensor data
+    // Soil sensor data - use cached values
     JsonObject soil = doc.createNestedObject("soil");
+    bool soilSuccess = soilSensor->isAvailable(); // Check if sensor is available, don't read
+    env["success"] = envSuccess;
     soil["success"] = soilSuccess;
     
     if (soilSuccess) {
@@ -433,13 +410,8 @@ String WateringSystemWebServer::handleSensorDataRequest(AsyncWebServerRequest* r
     
     // Add timestamp
     doc["timestamp"] = time(nullptr);
-    
-    String response;
+      String response;
     serializeJson(doc, response);
-    
-    // Debug: print the response
-    Serial.println("Sensor data response:");
-    Serial.println(response);
     
     return response;
 }

@@ -11,9 +11,9 @@
 // Default configuration values
 // NOTE: Using FreeRTOS task for non-blocking sensor reading to prevent WiFi stability issues
 // Sensors now read in separate task with proper synchronization using mutex
-#define DEFAULT_SENSOR_READ_INTERVAL 60000UL     // 1 minute (restored to normal frequency with non-blocking implementation)
+#define DEFAULT_SENSOR_READ_INTERVAL 5000UL      // 5 seconds (faster response for automatic watering)
 #define DEFAULT_DATA_LOG_INTERVAL    300000UL    // 5 minutes
-#define DEFAULT_MIN_WATERING_INTERVAL 21600UL    // 6 hours
+#define DEFAULT_MIN_WATERING_INTERVAL 300UL      // 5 minutes (reduced from 6 hours for testing)
 #define DEFAULT_MOISTURE_THRESHOLD_LOW 30.0f     // 30%
 #define DEFAULT_MOISTURE_THRESHOLD_HIGH 55.0f    // 55%
 #define DEFAULT_WATERING_DURATION 20             // 20 seconds
@@ -109,16 +109,17 @@ bool WateringController::initialize()
             fullSuccess = false;
             Serial.println("WateringController - Environmental sensor initialization failed");
         }
-    }
-    
-    bool soilSensorSuccess = false;
+    }    bool soilSensorSuccess = false;
     if (soilSensor) {
+        Serial.printf("DEBUG-CONTROLLER: Attempting soil sensor initialization at %lu ms\n", millis());
         if (soilSensor->initialize()) {
             soilSensorSuccess = true;
+            Serial.printf("DEBUG-CONTROLLER: Soil sensor initialization SUCCESS at %lu ms\n", millis());
         } else {
             lastError = 4; // Soil sensor initialization failed
             fullSuccess = false;
-            Serial.println("WateringController - Soil sensor initialization failed");
+            Serial.printf("DEBUG-CONTROLLER: Soil sensor initialization FAILED at %lu ms (error: %d)\n", 
+                         millis(), soilSensor->getLastError());
         }
     }
     
@@ -127,15 +128,16 @@ bool WateringController::initialize()
         // Load configuration from storage if available
         if (storageSuccess) {
             loadConfiguration();
-        }
-          // Set initial timestamps
+        }        // Set initial timestamps
         lastSensorReadTime = 0; // Force immediate sensor read
         lastDataLogTime = 0;    // Force immediate data log
         lastWateringTime = 0;   // Reset watering timer
-        
-        // Start sensor task if sensors are available
-        if (envSensorSuccess || soilSensorSuccess) {
+        lastValidSensorTime = 0; // No valid sensor data yet
+          // Start sensor task if we have at least some sensors (even if soil sensor fails)
+        // This allows the system to continue operating and potentially recover
+        if (envSensorSuccess || soilSensorSuccess || soilSensor) {
             startSensorTask();
+            Serial.println("WateringController - Sensor task started (will attempt soil sensor recovery)");
         }
         
         initialized = true;
@@ -222,17 +224,21 @@ void WateringController::update()
     }
     
     // Update water pump to check for timed runs
-    waterPump->update();
-    
-    // Check if new sensor data is available (non-blocking)
+    waterPump->update();    // Check if new sensor data is available (non-blocking)
     if (newSensorDataAvailable) {
         // Take mutex to safely access sensor data
         if (xSemaphoreTake(sensorDataMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-            if (sensorReadSuccess) {
-                // Process the readings
+            // SAFETY: Always check sensor availability
+            if (soilSensor && soilSensor->isAvailable()) {
                 processReadings();
             } else {
-                // Sensor read failed
+                // CRITICAL SAFETY: Sensor failed - STOP PUMP IMMEDIATELY!
+                if (waterPump && waterPump->isRunning()) {
+                    Serial.println("SAFETY: Sensor failed - EMERGENCY PUMP STOP!");
+                    waterPump->stop();
+                }
+                // Mark sensor data as invalid
+                lastValidSensorTime = 0;
                 lastError = 7;
             }
             
@@ -242,10 +248,21 @@ void WateringController::update()
             
             xSemaphoreGive(sensorDataMutex);
         }
+    }    // REMOVED: Extra sensor reading during watering - FreeRTOS task handles all sensor reading
+    // The sensor task reads every 5 seconds and processReadings() is called from update() 
+    // when newSensorDataAvailable flag is set, providing fast enough response for watering control
+    
+    // ADDITIONAL SAFETY CHECK: Periodic verification that pump doesn't run without fresh sensor data
+    unsigned long currentTime = millis();
+    if (waterPump && waterPump->isRunning()) {
+        // If pump is running but we haven't had valid sensor data recently, EMERGENCY STOP
+        if (lastValidSensorTime == 0 || (currentTime - lastValidSensorTime) > 30000UL) {
+            Serial.println("SAFETY: Pump running without recent sensor data - EMERGENCY STOP!");
+            waterPump->stop();
+        }
     }
     
     // Check if it's time to log data
-    unsigned long currentTime = millis();
     if ((currentTime - lastDataLogTime) >= dataLogInterval) {
         logSensorData();
         lastDataLogTime = currentTime;
@@ -254,13 +271,40 @@ void WateringController::update()
 
 bool WateringController::processReadings()
 {
+    // SAFETY CHECK: Ensure we have recent sensor data
+    unsigned long currentTime = millis();
+    if (lastValidSensorTime > 0 && (currentTime - lastValidSensorTime) > 30000UL) {
+        // No valid sensor data for 30 seconds - EMERGENCY STOP!
+        if (waterPump && waterPump->isRunning()) {
+            Serial.println("SAFETY: Sensor data too old - EMERGENCY PUMP STOP!");
+            waterPump->stop();
+        }
+        return false;
+    }
+    
+    // Mark that we have fresh sensor data
+    lastValidSensorTime = currentTime;
+    
     // Get the current soil moisture
     float moisture = soilSensor->getMoisture();
     
-    // Check if we need to water (and enough time has passed since last watering)
+    // SAFETY CHECK: Validate moisture reading
+    if (moisture < 0.0f || moisture > 100.0f) {
+        Serial.printf("SAFETY: Invalid moisture reading %.1f%% - cannot proceed with automatic watering\n", moisture);
+        // Stop pump if running on invalid data
+        if (waterPump && waterPump->isRunning()) {
+            Serial.println("SAFETY: Invalid sensor data - EMERGENCY PUMP STOP!");
+            waterPump->stop();
+        }
+        return false;
+    }
+    
+    // Check if we need to water (NO minimum interval - if it's dry, water immediately!)
     if (wateringEnabled && !waterPump->isRunning() && 
-        (moisture <= moistureThresholdLow) && 
-        ((millis() - lastWateringTime) >= (minWateringInterval * 1000UL))) {
+        (moisture <= moistureThresholdLow)) {
+        
+        Serial.printf("AUTO-WATERING: Starting - Moisture %.1f%% <= %.1f%% (threshold)\n", 
+                     moisture, moistureThresholdLow);
         
         // Start watering for the configured duration
         waterPump->runFor(wateringDuration);
@@ -269,7 +313,16 @@ bool WateringController::processReadings()
     } 
     // Check if we need to stop watering (if moisture exceeds high threshold)
     else if (waterPump->isRunning() && (moisture >= moistureThresholdHigh)) {
+        Serial.printf("AUTO-WATERING: Stopping early - Moisture %.1f%% >= %.1f%% (high threshold)\n", 
+                     moisture, moistureThresholdHigh);
         waterPump->stop();
+        return false;
+    }
+    
+    // Log status during watering for debugging
+    if (waterPump->isRunning()) {
+        Serial.printf("AUTO-WATERING: Active - Moisture %.1f%%, Target %.1f%%, Runtime %us\n", 
+                     moisture, moistureThresholdHigh, waterPump->getRunTime());
     }
     
     return false;
@@ -326,19 +379,13 @@ bool WateringController::isWateringEnabled() const
 
 bool WateringController::manualWatering(unsigned int duration)
 {
-    Serial.println("DEBUG-CONTROLLER: WateringController::manualWatering called");
-    
     if (!initialized) {
-        Serial.println("DEBUG-CONTROLLER: WateringController not initialized, trying to initialize");
         if (!initialize()) {
-            Serial.printf("DEBUG-CONTROLLER: Initialization failed with error: %d\n", lastError);
             return false;
         }
-        Serial.println("DEBUG-CONTROLLER: Initialization successful");
     }
     
     if (!waterPump) {
-        Serial.println("DEBUG-CONTROLLER: Water pump is null");
         lastError = 10; // Invalid water pump
         return false;
     }
@@ -346,18 +393,13 @@ bool WateringController::manualWatering(unsigned int duration)
     bool result = false;
     
     if (duration > 0) {
-        Serial.printf("DEBUG-CONTROLLER: Starting pump for %d seconds\n", duration);
         result = waterPump->runFor(duration);
     } else {
-        Serial.println("DEBUG-CONTROLLER: Starting pump indefinitely");
         result = waterPump->start();
     }
     
     if (result) {
-        Serial.println("DEBUG-CONTROLLER: Pump started successfully");
         lastWateringTime = millis();
-    } else {
-        Serial.printf("DEBUG-CONTROLLER: Failed to start pump, error: %d\n", waterPump->getLastError());
     }
     
     return result;
@@ -446,24 +488,30 @@ void WateringController::sensorTask()
             if (!envSuccess) {
                 Serial.println("WateringController - Environmental sensor read failed in task");
             }
-        }
-        
-        // Read soil sensor
+        }        // Read soil sensor
         bool soilSuccess = true;
         if (soilSensor) {
             soilSuccess = soilSensor->read();
             if (!soilSuccess) {
                 Serial.println("WateringController - Soil sensor read failed in task");
+            } else {
+                // Show moisture level and watering status for debugging
+                float moisture = soilSensor->getMoisture();
+                bool pumpRunning = waterPump && waterPump->isRunning();
+                Serial.printf("SENSOR-TASK: Moisture %.1f%% (threshold: %.1f%%) %s\n", 
+                             moisture, moistureThresholdLow, 
+                             pumpRunning ? "[PUMP RUNNING]" : "[PUMP STOPPED]");
             }
         }
-        
-        // Both sensors must succeed (if they exist)
+          // Both sensors must succeed (if they exist), but allow partial success
+        // If at least one sensor works, we can continue with system operation
         readSuccess = envSuccess && soilSuccess;
+        bool systemUsable = envSuccess || soilSuccess; // At least one sensor working
         
         // Update shared data with mutex protection
         if (xSemaphoreTake(sensorDataMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             sensorReadSuccess = readSuccess;
-            newSensorDataAvailable = true;
+            newSensorDataAvailable = true; // Always signal new data attempt
             xSemaphoreGive(sensorDataMutex);
         }
         

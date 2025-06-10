@@ -61,13 +61,13 @@ bool SP3485ModbusClient::initialize()
 void SP3485ModbusClient::setTransmitMode()
 {
     digitalWrite(dePin, HIGH);
-    delayMicroseconds(RS485_DE_ASSERT_DELAY_US); // Delay for optocoupler response time
+    delayMicroseconds(200); // Increased delay for reliable switching
 }
 
 void SP3485ModbusClient::setReceiveMode()
 {
     digitalWrite(dePin, LOW);
-    delayMicroseconds(RS485_DE_DEASSERT_DELAY_US); // Delay for optocoupler response time
+    delayMicroseconds(200); // Increased delay for reliable switching
 }
 
 uint16_t SP3485ModbusClient::calculateCRC(uint8_t *buffer, int length)
@@ -127,9 +127,7 @@ bool SP3485ModbusClient::readHoldingRegisters(uint8_t deviceAddress, uint16_t st
     // Calculate CRC
     uint16_t crc = calculateCRC(request, 6);
     request[6] = crc & 0xFF; // Low byte of CRC
-    request[7] = crc >> 8;   // High byte of CRC
-
-    // Clear receive buffer
+    request[7] = crc >> 8;   // High byte of CRC    // Clear receive buffer
     while (serial->available())
     {
         serial->read();
@@ -137,13 +135,13 @@ bool SP3485ModbusClient::readHoldingRegisters(uint8_t deviceAddress, uint16_t st
 
     // Switch to transmit mode and send request
     setTransmitMode();
+    delayMicroseconds(500); // Extra delay for mode switching
     serial->write(request, 8);
     serial->flush(); // Wait for transmission to complete
 
-    // Switch to receive mode
-    setReceiveMode();
-
-    // Calculate expected response length
+    // Critical timing: delay before switching to receive mode
+    delay(1); // 1ms delay to ensure sensor starts responding
+    setReceiveMode();    // Calculate expected response length
     // Response: [address(1)] + [function(1)] + [byte count(1)] + [data(2*count)] + [CRC(2)]
     uint8_t expectedLength = 5 + (count * 2);
     uint8_t response[256]; // Buffer must be large enough for maximum possible response
@@ -151,23 +149,54 @@ bool SP3485ModbusClient::readHoldingRegisters(uint8_t deviceAddress, uint16_t st
     // Wait for response with timeout
     unsigned long startTime = millis();
     int bytesRead = 0;
+    uint8_t rawResponse[256]; // Raw buffer to handle timing issues
 
-    while ((bytesRead < expectedLength) && ((millis() - startTime) < timeout))
+    while ((bytesRead < (expectedLength + 2)) && ((millis() - startTime) < timeout))
     {
         if (serial->available())
         {
-            response[bytesRead] = serial->read();
+            rawResponse[bytesRead] = serial->read();
             bytesRead++;
         }
         yield(); // Give time for other tasks
+    }    // SMART PARSING - Handle byte offset due to timing issues (proven working in test)
+    // Look for the correct start pattern: device address + function code (0x03)
+    int correctOffset = -1;
+    
+    for (int i = 0; i < min(3, bytesRead - 1); i++)
+    {
+        if (rawResponse[i] == deviceAddress && rawResponse[i + 1] == 0x03)
+        {
+            correctOffset = i;
+            break;
+        }
     }
-
-    // Check if we got complete response
-    if (bytesRead != expectedLength)
+    
+    if (correctOffset < 0)
+    {
+        lastError = 4; // Wrong device address / corrupted response
+        errorCount++;
+        return false;
+    }
+    
+    // Adjust byte count and copy corrected response
+    bytesRead -= correctOffset;
+    for (int i = 0; i < bytesRead; i++)
+    {
+        response[i] = rawResponse[i + correctOffset];
+    }    // Check if we got complete response (allow for timing offset corrections)
+    if (bytesRead < expectedLength)
     {
         lastError = 3; // Incomplete response
         errorCount++;
         return false;
+    }
+    
+    // If we got more bytes than expected, it might be due to timing issues
+    // but as long as we have the minimum required bytes after offset correction, continue
+    if (bytesRead > expectedLength)
+    {
+        // Continue processing - we have enough data
     }
 
     // Verify device address in response

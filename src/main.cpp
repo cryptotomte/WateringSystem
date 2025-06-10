@@ -11,6 +11,8 @@
 #include <Wire.h>
 #include <ArduinoJson.h>
 #include <LittleFS.h>
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
 
 // Include our components
 #include "WateringController.h"
@@ -97,7 +99,7 @@ int wifiDisconnectCount = 0;
 bool wifiStable = false;
 const int WIFI_CHECK_INTERVAL = 5000;        // Check WiFi every 5 seconds
 const int WIFI_RECONNECT_INTERVAL = 10000;   // Wait 10 seconds between reconnect attempts
-const int WIFI_DIAGNOSTIC_INTERVAL = 30000;  // Print diagnostics every 30 seconds
+const int WIFI_DIAGNOSTIC_INTERVAL = 10000;  // Print diagnostics every 10 seconds (TESTING: was 30000)
 const int MAX_RECONNECT_ATTEMPTS = 5;        // Max attempts before longer delay
 
 // Watchdog variables
@@ -111,10 +113,12 @@ void checkWatchdog();
 void feedWatchdog();
 bool saveWiFiConfig(const String& ssid, const String& password);
 void checkEmergencyWiFiReset();
+void handleSerialCommands();
 
-/**
- * @brief Print detailed WiFi diagnostics
- */
+// Forward declarations for essential functions
+void handleSerialCommands();
+void printWiFiDiagnostics();
+void printSystemInfo();
 void printWiFiDiagnostics() {
     if (millis() - lastWiFiDiagnostic < WIFI_DIAGNOSTIC_INTERVAL) {
         return;
@@ -122,6 +126,7 @@ void printWiFiDiagnostics() {
     lastWiFiDiagnostic = millis();
     
     Serial.println("=== WiFi Diagnostics ===");
+    Serial.printf("DEBUG: WiFi diagnostics triggered at %lu ms\n", millis());
     Serial.printf("Status: %s (%d)\n", 
         WiFi.status() == WL_CONNECTED ? "Connected" : "Disconnected", 
         WiFi.status());
@@ -150,9 +155,9 @@ void printWiFiDiagnostics() {
         // Connection stability stats
         Serial.printf("Disconnects: %d\n", wifiDisconnectCount);
         Serial.printf("Reconnect attempts: %d\n", wifiReconnectAttempts);
-        Serial.printf("Stable: %s\n", wifiStable ? "Yes" : "No");
-    }
+        Serial.printf("Stable: %s\n", wifiStable ? "Yes" : "No");    }
     Serial.println("========================");
+    Serial.printf("DEBUG: WiFi diagnostics completed at %lu ms\n", millis());
 }
 
 /**
@@ -716,6 +721,11 @@ bool initFileSystem() {
  * @brief Arduino setup function
  */
 void setup() {
+  // CRITICAL FIX: Disable brownout detector to prevent random resets during WiFi activity
+  // This is necessary because brownout detection is too sensitive for WiFi power spikes
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // Disable brownout detector
+  Serial.println("DEBUG: Brownout detector disabled to prevent WiFi-related resets");
+  
   // Initialize the hardware
   initHardware();
   
@@ -806,6 +816,8 @@ void loop() {
     delay(500);  // Allow cleanup to complete
     ESP.restart();
   }
+    // Handle Serial commands for debugging
+  handleSerialCommands();
   
   // Update the controller
   controller.update();
@@ -953,4 +965,40 @@ void monitorWiFiConnection() {
             wifiStable = true;
         }
     }
+}
+
+/**
+ * @brief Handle Serial commands for testing and debugging
+ */
+void handleSerialCommands() {
+  if (Serial.available()) {
+    String command = Serial.readStringUntil('\n');
+    command.trim();
+    command.toLowerCase();
+      Serial.printf("Received command: '%s'\n", command.c_str());
+      if (command == "soil" || command == "sensor") {
+      Serial.println("Testing soil sensor...");
+      if (soilSensor.read()) {
+        Serial.printf("Moisture: %.1f%%, Temperature: %.1f°C, pH: %.1f\n", 
+                      soilSensor.getMoisture(), soilSensor.getTemperature(), soilSensor.getPH());
+        Serial.printf("EC: %.0f µS/cm, NPK(N/P/K): %.0f/%.0f/%.0f mg/kg\n", 
+                      soilSensor.getEC(), soilSensor.getNitrogen(), 
+                      soilSensor.getPhosphorus(), soilSensor.getPotassium());
+      } else {
+        Serial.printf("Sensor read failed (Error: %d)\n", soilSensor.getLastError());
+      }
+    }
+    else if (command == "help") {
+      Serial.println("\nAvailable commands:");
+      Serial.println("  rs485test - Run comprehensive RS485 diagnostic tests");
+      Serial.println("  test      - Same as rs485test");
+      Serial.println("  soil      - Test main application soil sensor read");
+      Serial.println("  sensor    - Same as soil");
+      Serial.println("  help      - Show this help message");
+    }
+    else if (command.length() > 0) {
+      Serial.printf("Unknown command: '%s'\n", command.c_str());
+      Serial.println("Type 'help' for available commands");
+    }
+  }
 }
