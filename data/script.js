@@ -7,7 +7,7 @@
 const API_CONFIG = {
     ENDPOINT: '',  // Changed from '/api' to empty string
     REFRESH_INTERVAL: 5000, // 5 seconds - fast sensor updates
-    STATUS_REFRESH_INTERVAL: 15000, // 15 seconds - system status updates  
+    STATUS_REFRESH_INTERVAL: 5000, // 5 seconds - system status updates (same as sensors for water level responsiveness)
     CHART_REFRESH_INTERVAL: 120000, // 2 minutes - chart updates
 };
 
