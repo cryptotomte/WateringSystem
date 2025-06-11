@@ -485,10 +485,9 @@ The system uses an always-on LDO architecture with optical signal isolation:
 │                         │ I2C (Direct connection)               │
 │                         │                                       │
 │  Reference: GND_COMMON                                          │
-└───────────────────┬─────────────────────────────────────────────┘
-                    │ Optical Signal Isolation
-                    │ (FOD817BSD x3)
-                    │ 5kV VRMS
+└───────────────────┬─────────────────────────────────────────────┘                    │ Level Shifting
+                    │ (TXS0108E)
+                    │ 3.3V ↔ 5V
 ┌───────────────────▼─────────────────────────────────────────────┐
 │                 FIELD Domain (5V LDO Always-On)                 │
 │  ┌─────────────────────────────────────────────────────────┐   │
@@ -516,9 +515,9 @@ The system uses an always-on LDO architecture with optical signal isolation:
 - **Ground**: Common ground plane (GND_COMMON)
 - **Control**: Hardware-only, no software power management
 
-#### Optical Signal Isolation: FOD817BSD Optocouplers
-- **Type**: Phototransistor optocouplers
-- **Isolation Voltage**: 5000 VRMS
+#### TXS0108E Level Shifter: Fast Voltage Translation
+- **Type**: 8-bit bidirectional voltage translator
+- **Data Rate**: Up to 110 Mbps capability
 - **Purpose**: Signal isolation between domains (signals only, not power)
 - **Signals Isolated**: TX, RX, DE/RE control
 - **Cost**: ~60 SEK total (3 units × 20 SEK)

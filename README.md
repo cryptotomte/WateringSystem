@@ -8,7 +8,7 @@
 ## Overview
 Cost-effective automated plant watering system with **2-domain optical isolation** for practical greenhouse automation. Features ESP32-based control, RS485 Modbus soil sensors, and simplified safety design optimized for enclosed environments.
 
-**🔥 Latest Update v2.2**: Simplified 2-domain architecture with cost-effective FOD817BSD optical isolation - 50% cost reduction while maintaining essential safety features.
+**🔥 Latest Update v2.3**: Upgraded to TXS0108E bidirectional level shifter for faster RS485 communication - 1800x faster signal propagation while maintaining cost-effectiveness and reliability.
 
 ## Table of Contents
 - [Features](#features)
@@ -25,15 +25,15 @@ Cost-effective automated plant watering system with **2-domain optical isolation
 ## 🌟 Key Features
 
 ### Practical Safety & Isolation
-- **5kV Optical Isolation**: FOD817BSD optocouplers provide adequate protection
-- **2-Domain Architecture**: ESP32 (3.3V) → FIELD Domain (5V, optically isolated)
-- **Cost Effective**: 50% cost reduction vs complex ground isolation
+- **Fast Level Shifting**: TXS0108E provides rapid voltage translation (110 Mbps)
+- **2-Domain Architecture**: ESP32 (3.3V) → FIELD Domain (5V, level shifted)
+- **Cost Effective**: Ultra-low cost design with high performance
 - **Greenhouse Optimized**: Practical design for enclosed 12V environments
 
 ### Professional Monitoring
 - **Multi-Parameter Soil Analysis**: NPK, pH, EC, moisture, temperature via RS485 Modbus
 - **Environmental Sensing**: BME280 for ambient temperature, humidity, pressure
-- **Real-time Data Logging**: Historical trend analysis and alerts
+- **Real-time Monitoring**: Web interface with live sensor data
 - **Remote Web Interface**: Responsive monitoring and configuration portal
 
 ### Smart Power Management
@@ -49,7 +49,7 @@ Cost-effective automated plant watering system with **2-domain optical isolation
 ### Hardware-Managed LDO System
 ```
 12V LiFePO4 BATTERY ──┬── AMS1117-3.3 LDO ──► ESP32 Control Domain (Always-On)
-                      │                      │ FOD817BSD Optical Signal Isolation (5kV)
+                      │                      │ TXS0108E Level Shifter (3.3V↔5V)
                       │                      └── FIELD Domain (RS485 + Sensors)
                       │
                       └── AMS1117-5.0 LDO ──► Field Power Supply (Always-On)
@@ -62,14 +62,14 @@ Cost-effective automated plant watering system with **2-domain optical isolation
 |-----------|-------|----------|---------|
 | Microcontroller | ESP32-WROOM-32E | Main processor + WiFi | 3.3V Always-On |
 | RS485 Interface | **SP3485EN** | Modbus communication | 5V Always-On |
-| Optical Isolation | **FOD817BSD** | 5kV signal optocouplers | Signal Path |
+| Level Shifter | **TXS0108E** | 3.3V↔5V voltage translation | Signal Path |
 | Power Regulation | **AMS1117** | LDO voltage regulators | Hardware Control |
 | Environmental | BME280 | Temperature/humidity | 3.3V Control |
 | Soil Sensor | RS485 Modbus | NPK/pH/EC/moisture | 5V Field |
 
 ### ⚡ Hardware-Managed Safety Features
 **LDO-based design provides reliable, always-on operation:**
-- **Signal Isolation**: 5kV (FOD817BSD optocouplers for signals only)
+- **Fast Level Shifting**: TXS0108E (110 Mbps capability with 10ns propagation)
 - **Hardware Control**: LDO regulators eliminate software power management
 - **Common Ground**: Simplified design prevents ground loop issues
 - **Always-On**: Eliminates startup delays and power sequencing complexity

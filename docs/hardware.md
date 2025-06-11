@@ -79,18 +79,18 @@ This document provides complete hardware specifications for the hardware-managed
 | Interface | mikroBUS™ connector |
 | Dimensions | 25.4 x 28.58 mm |
 
-**FOD817BSD Optocouplers (Optical Isolation)**
+**TXS0108E Level Shifter (Voltage Translation)**
 
 | Specification | Value |
 |---------------|-------|
-| Type | Phototransistor optocoupler |
-| Isolation Voltage | 5000 VRMS |
-| CTR (Current Transfer Ratio) | 130-260% (typical) |
-| Forward Voltage | 1.2V (typical) |
-| Response Time | 18μs typical |
-| Package | 4-pin DIP/SMD |
-| Operating Temperature | -55°C to +110°C |
-| Quantity | 3 pieces (TX, RX, DE/RE) |
+| Type | 8-bit bidirectional voltage translator |
+| Input Voltage (A-side) | 1.2V to 3.6V (ESP32: 3.3V) |
+| Input Voltage (B-side) | 1.65V to 5.5V (RS485: 5.0V) |
+| Data Rate | Up to 110 Mbps |
+| Propagation Delay | 10ns typical |
+| Package | 20-pin TSSOP |
+| Operating Temperature | -40°C to +85°C |
+| Channels Used | 3 (TX, RX, DE/RE) |
 
 ### 5. Water Pumps - 12V DC
 
@@ -130,25 +130,29 @@ This document provides complete hardware specifications for the hardware-managed
 - Thermal protection and current limiting
 - Stable output voltage regulation
 
-## Pin Assignments - Hardware-Managed LDO Architecture
+## Pin Assignments - Hardware-Managed LDO Architecture with TXS0108E
 
 | GPIO | Connected To | Description |
 |------|--------------|-------------|
 | GPIO 21 | I2C SDA | BME280 Data Line |
 | GPIO 22 | I2C SCL | BME280 Clock Line |
-| GPIO 16 | TX2 | RS485 TX (via FOD817BSD optocoupler) |
-| GPIO 17 | RX2 | RS485 RX (via FOD817BSD optocoupler) |
-| GPIO 25 | DE/RE | RS485 Direction Control (via FOD817BSD) |
-| GPIO 26 | Plant Pump Control | Main Water Pump MOSFET Gate |
-| GPIO 27 | Reservoir Pump Control | Reservoir Filling Pump MOSFET Gate |
-| GPIO 32 | Reservoir Low Level | Water Reservoir Low Level Sensor |
-| GPIO 33 | Reservoir High Level | Water Reservoir High Level Sensor |
+| GPIO 16 | TX2 | RS485 TX (via TXS0108E A1) |
+| GPIO 17 | RX2 | RS485 RX (via TXS0108E A2) |
+| GPIO 25 | DE/RE | RS485 Direction Control (via TXS0108E A3) |
+| GPIO 26 | TXS0108E OE | Level Shifter Output Enable |
+| GPIO 27 | Plant Pump Control | Main Water Pump MOSFET Gate |
+| GPIO 32 | Reservoir Pump Control | Reservoir Filling Pump MOSFET Gate |
+| GPIO 33 | Reservoir Low Level | Water Reservoir Low Level Sensor |
+| GPIO 34 | Reservoir High Level | Water Reservoir High Level Sensor |
 | GPIO 2 | Status LED | System Status Indicator |
 | GPIO 5 | Button 1 | Manual Mode Button |
 | GPIO 18 | Button 2 | Configuration Button |
 
-**Removed Pins (No Longer Used):**
-- GPIO 4 (FIELD_PWR) - Power now hardware-managed by LDO
+**Changes from FOD817BSD to TXS0108E:**
+- GPIO 26 now controls TXS0108E Output Enable (was Main Pump)
+- Main Pump moved to GPIO 27 (was Reservoir Pump)
+- Reservoir Pump moved to GPIO 32 (was Low Level Sensor)
+- Reservoir sensors moved to GPIO 33/34
 - GPIO 19 (SENSOR_PWR) - Sensors always powered via LDO
 - GPIO 23 (ISO_MONITOR) - Hardware isolation monitoring removed
 - GPIO 15 (ISO_FAULT_LED) - Software fault detection removed
@@ -176,7 +180,7 @@ This document provides complete hardware specifications for the hardware-managed
 - **Always-On Design:** Both LDO converters provide continuous regulated power
 - **No Software Control:** Power domains managed entirely by hardware
 - **Common Ground:** Single ground plane simplifies design and eliminates ground loops
-- **Optical Signal Isolation:** FOD817BSD optocouplers isolate RS485 signals only
+- **Level Shifting:** TXS0108E provides fast bidirectional voltage translation for RS485 signals
 - **Safety Level:** Practical for enclosed 12V systems in ASA IP65 box
 
 ## Connection Diagram
@@ -186,25 +190,25 @@ This document provides complete hardware specifications for the hardware-managed
                         │                 │
                         │      ESP32      │
                         │   (3.3V LDO)    │
-                        └─┬───┬───┬───┬───┘
-                          │   │   │   │
-                          │   │   │   │
-┌─────────────┐           │   │   │   │           ┌────────────┐
-│             │◄──SDA─────┘   │   │   └───TX────►│ FOD817BSD  │
-│   BME280    │               │   │               │(Signal ISO)│
-│             │◄──SCL─────────┘   └───RX────────►│            │
-└─────────────┘                   │               └──────┬─────┘
-                                  └───DE/RE─────────────►│
-                                                         │
-┌─────────────┐                                    ┌─────▼─────┐
-│  Reservoir  │                                    │           │
-│  Low Level  │◄──GPIO32───┐                       │  MIKROE   │
-│   Sensor    │            │                       │   4156    │
-└─────────────┘            │                       │  (5V LDO  │
-                           │                       │Always-On) │
-┌─────────────┐            │                       └─────┬─────┘
-│  Reservoir  │            │                             │
-│  High Level │◄──GPIO33───┤                             │
+                        └─┬───┬───┬───┬───┬─┘
+                          │   │   │   │   │
+                          │   │   │   │   │
+┌─────────────┐           │   │   │   │   │         ┌────────────┐
+│             │◄──SDA─────┘   │   │   │   └──OE────►│ TXS0108E   │
+│   BME280    │               │   │   │             │(3.3V↔5V)   │
+│             │◄──SCL─────────┘   │   └───TX──────►│ A1    B1 ──┼──►
+└─────────────┘                   │                 │ A2    B2 ──┼──◄─RX
+                                  └───DE/RE──────►│ A3    B3 ──┼──►
+                                                    └──────┬─────┘
+┌─────────────┐                                          │
+│  Reservoir  │                                    ┌─────▼─────┐
+│  Low Level  │◄──GPIO33───┐                       │           │
+│   Sensor    │            │                       │  MIKROE   │
+└─────────────┘            │                       │   4156    │
+                           │                       │  (5V LDO  │
+┌─────────────┐            │                       │Always-On) │
+│  Reservoir  │            │                       └─────┬─────┘
+│  High Level │◄──GPIO34───┤                             │
 │   Sensor    │            │                        ┌────▼─────┐
 └─────────────┘            │                        │          │
                            │                        │  RS485   │
@@ -248,7 +252,7 @@ This document provides complete hardware specifications for the hardware-managed
 | 2 | BME280 Sensor Module | 1 | 50 | 50 | Environmental sensing |
 | 3 | RS485 Soil Sensor (NPK) | 1 | 600 | 600 | Soil parameters measurement |
 | 4 | MIKROE-4156 RS485 5 Click | 1 | 200 | 200 | RS485 transceiver |
-| 5 | FOD817BSD Optocoupler | 3 | 15 | 45 | 5kV optical isolation |
+| 5 | TXS0108E Level Shifter | 1 | 8 | 8 | 3.3V↔5V voltage translation |
 | 6 | 12V DC Water Pump | 2 | 150 | 300 | Plant + reservoir pumps |
 | 7 | IRLZ44N N-Channel MOSFET | 2 | 10 | 20 | Pump control |
 | 8 | 1N4007 Diode | 2 | 2 | 4 | Flyback protection |
@@ -275,23 +279,23 @@ This document provides complete hardware specifications for the hardware-managed
 |-----------|---------|----------------|-----------|
 | ESP32 | 3.3V | 250mA | 0.8 |
 | BME280 | 3.3V | 1mA | 0.003 |
-| FOD817BSD (3x) | 3.3V | 30mA | 0.1 |
+| TXS0108E | 3.3V/5V | 2mA | 0.007 |
 | RS485 Module | 5V | 100mA | 0.5 |
 | Soil Sensor | 5V | 50mA | 0.25 |
 | Water Pump (active) | 12V | 1.5A | 18 |
-| **Total (pump off)** | | | **1.65W** |
-| **Total (pump on)** | | | **19.65W** |
+| **Total (pump off)** | | | **1.56W** |
+| **Total (pump on)** | | | **19.56W** |
 
 **Battery Life Calculation:**
-- Normal operation: 240Wh ÷ 1.65W = ~145 hours (6 days)
-- With 30min pumping/day: ~130 hours (5.4 days)
+- Normal operation: 240Wh ÷ 1.56W = ~154 hours (6.4 days)
+- With 30min pumping/day: ~140 hours (5.8 days)
 
 ## Safety Features
 
 ### Optical Isolation
-- **5kV isolation** via FOD817BSD optocouplers
-- **Signal separation** between ESP32 and field domains
-- **Ground loop prevention** in soil sensor applications
+- **Fast level shifting** via TXS0108E (110 Mbps capability)
+- **Voltage translation** between ESP32 (3.3V) and field domains (5V)
+- **Bidirectional communication** with minimal propagation delay (10ns)
 
 ### Hardware-Managed Power
 - **Always-on LDO design** provides continuous regulated power

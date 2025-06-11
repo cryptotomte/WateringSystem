@@ -24,16 +24,17 @@
 #include "communication/WateringSystemWebServer.h"
 #include "hardware/RS485Config.h" // Hardware configuration for RS485
 
-// Pin definitions based on hardware.md specification with optical isolation
+// Pin definitions based on hardware.md specification with TXS0108E level shifter
 #define PIN_I2C_SDA           21
 #define PIN_I2C_SCL           22
-#define PIN_RS485_TX          16  // Direct connection via optocoupler
-#define PIN_RS485_RX          17  // Direct connection via optocoupler  
-#define PIN_RS485_DE          25  // Direction control via optocoupler
-#define PIN_MAIN_PUMP_CONTROL 26
-#define PIN_RESERVOIR_PUMP_CONTROL 27  
-#define PIN_RESERVOIR_LOW_LEVEL   32  // Sensor for low water level in reservoir
-#define PIN_RESERVOIR_HIGH_LEVEL  33  // Sensor for high water level in reservoir
+#define PIN_RS485_TX          16  // ESP32 TX -> TXS0108E A1 -> RS485 DI
+#define PIN_RS485_RX          17  // ESP32 RX <- TXS0108E A2 <- RS485 RO  
+#define PIN_RS485_DE          25  // Direction control via TXS0108E A3
+#define PIN_TXS0108E_OE       26  // Output Enable for TXS0108E level shifter
+#define PIN_MAIN_PUMP_CONTROL 27  // Changed from 26 due to TXS0108E OE usage
+#define PIN_RESERVOIR_PUMP_CONTROL 32  // Changed pin assignment
+#define PIN_RESERVOIR_LOW_LEVEL   33  // Sensor for low water level in reservoir
+#define PIN_RESERVOIR_HIGH_LEVEL  34  // Sensor for high water level in reservoir
 #define PIN_STATUS_LED        2       
 #define PIN_BUTTON_MANUAL     5       
 #define PIN_BUTTON_CONFIG     18
@@ -53,7 +54,7 @@
 // Global component instances
 BME280Sensor envSensor(BME280_I2C_ADDR, "BME280");
 HardwareSerial rs485Serial(2);  // Using UART2 for RS485
-SP3485ModbusClient modbusClient(&rs485Serial, PIN_RS485_DE); // Removed power control pin - now hardware managed
+SP3485ModbusClient modbusClient(&rs485Serial, PIN_RS485_DE); // Using TXS0108E level shifter - hardware managed
 ModbusSoilSensor soilSensor(&modbusClient, SOIL_SENSOR_MODBUS_ADDR, "SoilSensor");
 WaterPump plantPump(PIN_MAIN_PUMP_CONTROL, "PlantPump");         // Renamed for clarity
 WaterPump reservoirPump(PIN_RESERVOIR_PUMP_CONTROL, "ReservoirPump"); // Added new pump for filling reservoir
@@ -215,8 +216,8 @@ bool connectToWiFiEnhanced() {
 void initHardware() {
   // Initialize serial port for debugging
   Serial.begin(115200);
-  Serial.println("\n\nWateringSystem v2.2 - Hardware-Managed Power");
-  Serial.println("Architecture: LDO-powered domains with optical isolation");
+  Serial.println("\n\nWateringSystem v2.3 - Hardware-Managed Power");
+  Serial.println("Architecture: LDO-powered domains with TXS0108E level shifting");
   
   // Initialize status LED
   pinMode(PIN_STATUS_LED, OUTPUT);
@@ -229,19 +230,23 @@ void initHardware() {
   // Initialize reservoir level sensors with pull-ups
   pinMode(PIN_RESERVOIR_LOW_LEVEL, INPUT_PULLUP);
   pinMode(PIN_RESERVOIR_HIGH_LEVEL, INPUT_PULLUP);
-  
-  // Initialize I2C for BME280 (ESP32 domain)
+    // Initialize I2C for BME280 (ESP32 domain)
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
   Serial.println("I2C initialized for BME280");
   
-  // Initialize RS485 UART (hardware managed power)
+  // Initialize RS485 UART with TXS0108E level shifter
   rs485Serial.begin(9600, SERIAL_8N1, PIN_RS485_RX, PIN_RS485_TX);
-  Serial.println("RS485 UART initialized (hardware-managed power)");
   
-  // Hardware stabilization delay
-  delay(500);
+  // Initialize TXS0108E Output Enable
+  pinMode(PIN_TXS0108E_OE, OUTPUT);
+  digitalWrite(PIN_TXS0108E_OE, HIGH); // Enable level shifter
   
-  Serial.println("Hardware initialization completed with hardware-managed power");
+  Serial.println("RS485 UART initialized (TXS0108E level shifter enabled)");
+  
+  // Hardware stabilization delay (much shorter with TXS0108E)
+  delay(100);
+  
+  Serial.println("Hardware initialization completed with TXS0108E level shifting");
 }
 
 /**

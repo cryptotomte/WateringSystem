@@ -1,9 +1,9 @@
 /**
  * @file SP3485ModbusClient.h
- * @brief Header for RS485 based Modbus client with optical isolation
+ * @brief Header for RS485 based Modbus client with TXS0108E level shifter
  * @author Paul Waserbrot
  * @date 2025-04-15
- * @updated 2025-06-04 - Added support for MikroElektronika RS485 5 Click with FOD817BSD isolation
+ * @updated 2025-06-11 - Changed from FOD817BSD optocoupler to TXS0108E level shifter
  */
 
 #ifndef WATERINGSYSTEM_COMMUNICATION_SP3485MODBUSCLIENT_H
@@ -14,22 +14,22 @@
 #include <HardwareSerial.h>
 
 /**
- * @brief Implementation of Modbus client interface for RS485 with optical isolation
+ * @brief Implementation of Modbus client interface for RS485 with TXS0108E level shifter
  * 
  * This class provides a concrete implementation of the IModbusClient
  * interface for communicating with Modbus RTU devices over RS485 using
- * direct SP3485EN transceiver with FOD817BSD optocoupler isolation.
+ * TXS0108E bidirectional level shifter for voltage translation.
  *
  * Hardware Configuration (Hardware-Managed Power):
  * - RS485 Transceiver: SP3485EN (direct connection)
- * - Isolation: FOD817BSD optocouplers (5kV optical isolation)
+ * - Level Shifter: TXS0108E (3.3V ↔ 5V bidirectional)
  * - Power Management: Hardware LDO converters (always-on)
- * - Ground Strategy: Common ground with optical signal isolation
+ * - Ground Strategy: Common ground with level shifting
  */
 class SP3485ModbusClient : public IModbusClient {
 private:
     HardwareSerial* serial;
-    int dePin;              // DE/RE pin for direction control (via optocoupler)
+    int dePin;              // DE/RE pin for direction control (via TXS0108E level shifter)
     bool initialized;
     int lastError;
     uint32_t timeout;       // Communication timeout in milliseconds
@@ -43,22 +43,21 @@ private:
      * @return Calculated CRC16
      */
     uint16_t calculateCRC(uint8_t* buffer, int length);
-    
-    /**
-     * @brief Set transceiver to transmit mode (with optocoupler delay compensation)
+      /**
+     * @brief Set transceiver to transmit mode (with TXS0108E level shifter)
      */
     void setTransmitMode();
     
     /**
-     * @brief Set transceiver to receive mode (with optocoupler delay compensation)
+     * @brief Set transceiver to receive mode (with TXS0108E level shifter)
      */
     void setReceiveMode();
 
 public:
     /**
-     * @brief Constructor for SP3485ModbusClient with optical isolation
+     * @brief Constructor for SP3485ModbusClient with TXS0108E level shifter
      * @param serialPort Pointer to HardwareSerial port
-     * @param directionPin GPIO pin connected to DE/RE optocoupler
+     * @param directionPin GPIO pin connected to DE/RE via TXS0108E
      */
     SP3485ModbusClient(HardwareSerial* serialPort, int directionPin);
     

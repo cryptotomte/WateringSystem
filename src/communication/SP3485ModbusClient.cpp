@@ -1,9 +1,9 @@
 /**
  * @file SP3485ModbusClient.cpp
- * @brief RS485 interface implementation for Modbus communication with optical isolation
+ * @brief RS485 interface implementation for Modbus communication with TXS0108E level shifter
  * @author Paul Waserbrot
  * @date 2025-04-15
- * @updated 2025-06-09 - Simplified for hardware-managed power (LDO-based)
+ * @updated 2025-06-11 - Changed from FOD817BSD optocoupler to TXS0108E level shifter for faster switching
  */
 
 #include "communication/SP3485ModbusClient.h"
@@ -32,16 +32,18 @@ bool SP3485ModbusClient::initialize()
     {
         lastError = 1; // No serial port
         return false;
-    }
-
-    // Setup DE/RE pin for direction control (via optocoupler)
+    }    // Setup DE/RE pin for direction control (via TXS0108E level shifter)
     pinMode(dePin, OUTPUT);
     setReceiveMode();
+
+    // Initialize TXS0108E Output Enable pin
+    pinMode(TXS0108E_OE_PIN, OUTPUT);
+    digitalWrite(TXS0108E_OE_PIN, HIGH); // Enable TXS0108E level shifter
 
     // Hardware-managed power - no software control needed
     // LDO converters provide always-on power to field domain
     
-    // Wait for hardware to stabilize
+    // Wait for hardware to stabilize (much faster with TXS0108E)
     delay(RS485_POWER_ON_DELAY_MS);
 
     // Flush any existing data
@@ -61,13 +63,13 @@ bool SP3485ModbusClient::initialize()
 void SP3485ModbusClient::setTransmitMode()
 {
     digitalWrite(dePin, HIGH);
-    delayMicroseconds(200); // Increased delay for reliable switching
+    delayMicroseconds(RS485_DE_ASSERT_DELAY_US); // Fast switching with TXS0108E
 }
 
 void SP3485ModbusClient::setReceiveMode()
 {
     digitalWrite(dePin, LOW);
-    delayMicroseconds(200); // Increased delay for reliable switching
+    delayMicroseconds(RS485_DE_DEASSERT_DELAY_US); // Fast switching with TXS0108E
 }
 
 uint16_t SP3485ModbusClient::calculateCRC(uint8_t *buffer, int length)
@@ -131,17 +133,15 @@ bool SP3485ModbusClient::readHoldingRegisters(uint8_t deviceAddress, uint16_t st
     while (serial->available())
     {
         serial->read();
-    }
-
-    // Switch to transmit mode and send request
+    }    // Switch to transmit mode and send request
     setTransmitMode();
-    delayMicroseconds(500); // Extra delay for mode switching
+    delayMicroseconds(50); // Shorter delay for TXS0108E mode switching
     serial->write(request, 8);
     serial->flush(); // Wait for transmission to complete
 
-    // Critical timing: delay before switching to receive mode
-    delay(1); // 1ms delay to ensure sensor starts responding
-    setReceiveMode();    // Calculate expected response length
+    // Critical timing: delay before switching to receive mode (much shorter with TXS0108E)
+    delayMicroseconds(100); // 100µs delay vs 1ms with optocoupler
+    setReceiveMode();// Calculate expected response length
     // Response: [address(1)] + [function(1)] + [byte count(1)] + [data(2*count)] + [CRC(2)]
     uint8_t expectedLength = 5 + (count * 2);
     uint8_t response[256]; // Buffer must be large enough for maximum possible response
