@@ -28,7 +28,7 @@
 #define RS485_TX_PIN 16                 // ESP32 TX -> TXS0108E A1 -> RS485 DI
 #define RS485_RX_PIN 17                 // ESP32 RX <- TXS0108E A2 <- RS485 RO
 #define RS485_DE_RE_PIN 25              // Driver/Receiver Enable via TXS0108E A3
-#define TXS0108E_OE_PIN 26              // Output Enable for TXS0108E level shifter
+// Note: TXS0108E OE pin connected to VCC (always enabled)
 // Note: No power enable pin needed - RS485 module always powered by 5V LDO
 
 // RS485 Bus Configuration

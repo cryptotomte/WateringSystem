@@ -36,12 +36,9 @@ bool SP3485ModbusClient::initialize()
     pinMode(dePin, OUTPUT);
     setReceiveMode();
 
-    // Initialize TXS0108E Output Enable pin
-    pinMode(TXS0108E_OE_PIN, OUTPUT);
-    digitalWrite(TXS0108E_OE_PIN, HIGH); // Enable TXS0108E level shifter
-
     // Hardware-managed power - no software control needed
     // LDO converters provide always-on power to field domain
+    // TXS0108E OE pin connected to VCC for always-on operation
     
     // Wait for hardware to stabilize (much faster with TXS0108E)
     delay(RS485_POWER_ON_DELAY_MS);

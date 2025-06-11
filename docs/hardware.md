@@ -133,22 +133,24 @@ This document provides complete hardware specifications for the hardware-managed
 ## Pin Assignments - Hardware-Managed LDO Architecture with TXS0108E
 
 | GPIO | Connected To | Description |
+| GPIO | Connected To | Description |
 |------|--------------|-------------|
 | GPIO 21 | I2C SDA | BME280 Data Line |
 | GPIO 22 | I2C SCL | BME280 Clock Line |
 | GPIO 16 | TX2 | RS485 TX (via TXS0108E A1) |
 | GPIO 17 | RX2 | RS485 RX (via TXS0108E A2) |
 | GPIO 25 | DE/RE | RS485 Direction Control (via TXS0108E A3) |
-| GPIO 26 | TXS0108E OE | Level Shifter Output Enable |
-| GPIO 27 | Plant Pump Control | Main Water Pump MOSFET Gate |
-| GPIO 32 | Reservoir Pump Control | Reservoir Filling Pump MOSFET Gate |
-| GPIO 33 | Reservoir Low Level | Water Reservoir Low Level Sensor |
-| GPIO 34 | Reservoir High Level | Water Reservoir High Level Sensor |
+| GPIO 26 | Plant Pump Control | Main Water Pump MOSFET Gate |
+| GPIO 27 | Reservoir Pump Control | Reservoir Filling Pump MOSFET Gate |
+| GPIO 32 | Reservoir Low Level | Water Reservoir Low Level Sensor |
+| GPIO 33 | Reservoir High Level | Water Reservoir High Level Sensor |
 | GPIO 2 | Status LED | System Status Indicator |
 | GPIO 5 | Button 1 | Manual Mode Button |
 | GPIO 18 | Button 2 | Configuration Button |
 
-**Changes from FOD817BSD to TXS0108E:**
+**Component Change: FOD817BSD → TXS0108E:**
+- TXS0108E OE pin connected to VCC (always enabled)
+- No GPIO pin required for Output Enable control
 - GPIO 26 now controls TXS0108E Output Enable (was Main Pump)
 - Main Pump moved to GPIO 27 (was Reservoir Pump)
 - Reservoir Pump moved to GPIO 32 (was Low Level Sensor)
@@ -187,28 +189,28 @@ This document provides complete hardware specifications for the hardware-managed
 
 ```
                         ┌─────────────────┐
-                        │                 │
-                        │      ESP32      │
+                        │                 │                        │      ESP32      │
                         │   (3.3V LDO)    │
-                        └─┬───┬───┬───┬───┬─┘
-                          │   │   │   │   │
-                          │   │   │   │   │
-┌─────────────┐           │   │   │   │   │         ┌────────────┐
-│             │◄──SDA─────┘   │   │   │   └──OE────►│ TXS0108E   │
-│   BME280    │               │   │   │             │(3.3V↔5V)   │
-│             │◄──SCL─────────┘   │   └───TX──────►│ A1    B1 ──┼──►
-└─────────────┘                   │                 │ A2    B2 ──┼──◄─RX
-                                  └───DE/RE──────►│ A3    B3 ──┼──►
-                                                    └──────┬─────┘
+                        └─┬───┬───┬───┬───┘
+                          │   │   │   │
+                          │   │   │   │
+┌─────────────┐           │   │   │   │           ┌────────────┐
+│             │◄──SDA─────┘   │   │   │           │ TXS0108E   │
+│   BME280    │               │   │   │           │(3.3V↔5V)   │
+│             │◄──SCL─────────┘   │   └───TX────►│ A1    B1 ──┼──►
+└─────────────┘                   │               │ A2    B2 ──┼──◄─RX
+                                  └───DE/RE─────►│ A3    B3 ──┼──►
+                                                  │ OE←VCC     │
+                                                  └──────┬─────┘
 ┌─────────────┐                                          │
 │  Reservoir  │                                    ┌─────▼─────┐
-│  Low Level  │◄──GPIO33───┐                       │           │
+│  Low Level  │◄──GPIO32───┐                       │           │
 │   Sensor    │            │                       │  MIKROE   │
 └─────────────┘            │                       │   4156    │
                            │                       │  (5V LDO  │
 ┌─────────────┐            │                       │Always-On) │
 │  Reservoir  │            │                       └─────┬─────┘
-│  High Level │◄──GPIO34───┤                             │
+│  High Level │◄──GPIO33───┤                             │
 │   Sensor    │            │                        ┌────▼─────┐
 └─────────────┘            │                        │          │
                            │                        │  RS485   │
