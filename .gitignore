@@ -40,6 +40,8 @@ dist/
 *-cache.lib
 *-rescue.lib
 _autosave*
+fp-info-cache
+*-backups/
 
 # GitHub Copilot
 .github/copilot-instructions.md
