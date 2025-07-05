@@ -158,22 +158,25 @@ void WateringSystemWebServer::setupEndpoints()
     
     // Add same endpoint without /api prefix
     server.on("/control/water/start", HTTP_POST, [this](AsyncWebServerRequest *request) {
-        Serial.println("Endpoint /control/water/start called");
+        Serial.printf("DEBUG-WEB: /control/water/start called at %lu ms\n", millis());
         
         // Extract duration parameter from form data (default to 20 seconds if not found)
         int duration = 20; // Default duration to 20 seconds
         
         if (request->hasParam("duration", true)) {
-            duration = request->getParam("duration", true)->value().toInt();
-            Serial.printf("Found duration parameter in form data: %d seconds\n", duration);
+            String durationStr = request->getParam("duration", true)->value();
+            duration = durationStr.toInt();
+            Serial.printf("DEBUG-WEB: Duration parameter found: '%s' -> %d seconds\n", 
+                         durationStr.c_str(), duration);
         } else {
-            Serial.println("No duration parameter found, using default: 20 seconds");
+            Serial.println("DEBUG-WEB: No duration parameter found, using default: 20 seconds");
         }
         
         // Process the request with the determined duration
         bool success = controller->manualWatering(duration);
         String message = success ? "Watering started" : "Failed to start watering";
-        Serial.printf("Starting watering for %d seconds, result: %s\n", duration, success ? "success" : "failed");
+        Serial.printf("DEBUG-WEB: Manual watering request result: %s (duration: %d seconds)\n", 
+                     success ? "SUCCESS" : "FAILED", duration);
         
         AsyncResponseStream *response = request->beginResponseStream("application/json");
         response->printf("{\"success\":%s,\"message\":\"%s\",\"duration\":%d}", 

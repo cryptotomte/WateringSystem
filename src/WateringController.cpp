@@ -111,15 +111,11 @@ bool WateringController::initialize()
         }
     }    bool soilSensorSuccess = false;
     if (soilSensor) {
-        Serial.printf("DEBUG-CONTROLLER: Attempting soil sensor initialization at %lu ms\n", millis());
         if (soilSensor->initialize()) {
             soilSensorSuccess = true;
-            Serial.printf("DEBUG-CONTROLLER: Soil sensor initialization SUCCESS at %lu ms\n", millis());
         } else {
             lastError = 4; // Soil sensor initialization failed
             fullSuccess = false;
-            Serial.printf("DEBUG-CONTROLLER: Soil sensor initialization FAILED at %lu ms (error: %d)\n", 
-                         millis(), soilSensor->getLastError());
         }
     }
     
@@ -232,10 +228,12 @@ void WateringController::update()
             if (soilSensor && soilSensor->isAvailable()) {
                 processReadings();
             } else {
-                // CRITICAL SAFETY: Sensor failed - STOP PUMP IMMEDIATELY!
-                if (waterPump && waterPump->isRunning()) {
-                    Serial.println("SAFETY: Sensor failed - EMERGENCY PUMP STOP!");
+                // CRITICAL SAFETY: Sensor failed - STOP PUMP IMMEDIATELY! (but only for automatic mode)
+                if (waterPump && waterPump->isRunning() && !waterPump->isManualMode()) {
+                    Serial.println("SAFETY: Sensor failed - EMERGENCY PUMP STOP! (automatic mode only)");
                     waterPump->stop();
+                } else if (waterPump && waterPump->isRunning() && waterPump->isManualMode()) {
+                    Serial.println("INFO: Sensor failed but pump is in manual mode - continuing");
                 }
                 // Mark sensor data as invalid
                 lastValidSensorTime = 0;
@@ -253,11 +251,12 @@ void WateringController::update()
     // when newSensorDataAvailable flag is set, providing fast enough response for watering control
     
     // ADDITIONAL SAFETY CHECK: Periodic verification that pump doesn't run without fresh sensor data
+    // (Only for automatic mode - manual mode is allowed to run without sensors)
     unsigned long currentTime = millis();
-    if (waterPump && waterPump->isRunning()) {
-        // If pump is running but we haven't had valid sensor data recently, EMERGENCY STOP
+    if (waterPump && waterPump->isRunning() && !waterPump->isManualMode()) {
+        // If pump is running in automatic mode but we haven't had valid sensor data recently, EMERGENCY STOP
         if (lastValidSensorTime == 0 || (currentTime - lastValidSensorTime) > 30000UL) {
-            Serial.println("SAFETY: Pump running without recent sensor data - EMERGENCY STOP!");
+            Serial.println("SAFETY: Pump running in automatic mode without recent sensor data - EMERGENCY STOP!");
             waterPump->stop();
         }
     }
@@ -271,15 +270,15 @@ void WateringController::update()
 
 bool WateringController::processReadings()
 {
-    // SAFETY CHECK: Ensure we have recent sensor data
+    // SAFETY CHECK: Ensure we have recent sensor data (only for automatic mode)
     unsigned long currentTime = millis();
-    if (lastValidSensorTime > 0 && (currentTime - lastValidSensorTime) > 30000UL) {
-        // No valid sensor data for 30 seconds - EMERGENCY STOP!
-        if (waterPump && waterPump->isRunning()) {
-            Serial.println("SAFETY: Sensor data too old - EMERGENCY PUMP STOP!");
+    if (waterPump && waterPump->isRunning() && !waterPump->isManualMode()) {
+        if (lastValidSensorTime > 0 && (currentTime - lastValidSensorTime) > 30000UL) {
+            // No valid sensor data for 30 seconds in automatic mode - EMERGENCY STOP!
+            Serial.println("SAFETY: Sensor data too old - EMERGENCY PUMP STOP! (automatic mode)");
             waterPump->stop();
+            return false;
         }
-        return false;
     }
     
     // Mark that we have fresh sensor data
@@ -288,15 +287,15 @@ bool WateringController::processReadings()
     // Get the current soil moisture
     float moisture = soilSensor->getMoisture();
     
-    // SAFETY CHECK: Validate moisture reading
-    if (moisture < 0.0f || moisture > 100.0f) {
-        Serial.printf("SAFETY: Invalid moisture reading %.1f%% - cannot proceed with automatic watering\n", moisture);
-        // Stop pump if running on invalid data
-        if (waterPump && waterPump->isRunning()) {
-            Serial.println("SAFETY: Invalid sensor data - EMERGENCY PUMP STOP!");
+    // SAFETY CHECK: Validate moisture reading (only for automatic mode)
+    if (waterPump && waterPump->isRunning() && !waterPump->isManualMode()) {
+        if (moisture < 0.0f || moisture > 100.0f) {
+            Serial.printf("SAFETY: Invalid moisture reading %.1f%% - cannot proceed with automatic watering\n", moisture);
+            // Stop pump if running on invalid data in automatic mode
+            Serial.println("SAFETY: Invalid sensor data - EMERGENCY PUMP STOP! (automatic mode)");
             waterPump->stop();
+            return false;
         }
-        return false;
     }
     
     // Check if we need to water (NO minimum interval - if it's dry, water immediately!)
@@ -390,6 +389,9 @@ bool WateringController::manualWatering(unsigned int duration)
         return false;
     }
     
+    Serial.printf("DEBUG-CONTROLLER: Manual watering requested for %u seconds at %lu ms\n", 
+                  duration, millis());
+    
     bool result = false;
     
     if (duration > 0) {
@@ -400,6 +402,11 @@ bool WateringController::manualWatering(unsigned int duration)
     
     if (result) {
         lastWateringTime = millis();
+        Serial.printf("DEBUG-CONTROLLER: Manual watering started successfully at %lu ms\n", 
+                      lastWateringTime);
+    } else {
+        Serial.printf("DEBUG-CONTROLLER: Manual watering failed to start at %lu ms\n", 
+                      millis());
     }
     
     return result;

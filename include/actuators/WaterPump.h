@@ -26,6 +26,7 @@ private:
     const char* name;
     unsigned long startTime;  // When the pump was started (millis)
     unsigned int runDuration; // How long to run in seconds
+    bool manualMode;      // Flag to track if pump is running in manual mode
     
     /**
      * @brief Check if timed run has completed
@@ -58,6 +59,8 @@ public:
     bool isRunning() override;
     unsigned int getRunTime() override;
     unsigned int getRunDuration() const override;
+    bool isManualMode() const override;
+    void setManualMode(bool manual) override;
     void update() override;
 };
 

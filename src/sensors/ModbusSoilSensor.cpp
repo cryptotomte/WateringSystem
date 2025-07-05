@@ -44,36 +44,27 @@ ModbusSoilSensor::~ModbusSoilSensor()
 
 bool ModbusSoilSensor::initialize()
 {
-    Serial.printf("DEBUG-INIT: Soil sensor initialization started at %lu ms\n", millis());
-    
     if (initialized) {
-        Serial.println("DEBUG-INIT: Already initialized");
         return true;
     }
     
     if (!modbusClient) {
-        Serial.println("DEBUG-INIT: FAILED - No Modbus client");
         lastError = 1; // No Modbus client
         return false;
     }
     
-    Serial.println("DEBUG-INIT: Initializing Modbus client...");
     if (!modbusClient->initialize()) {
-        Serial.println("DEBUG-INIT: FAILED - Modbus client initialization failed");
         lastError = 2; // Modbus client initialization failed
         return false;
     }
     
-    Serial.printf("DEBUG-INIT: Testing communication with device address 0x%02X...\n", deviceAddress);
     // Try to read a single register to verify that the sensor is working
     uint16_t testRegister;
     if (!modbusClient->readHoldingRegisters(deviceAddress, REG_HUMIDITY, 1, &testRegister)) {
-        Serial.printf("DEBUG-INIT: FAILED - Unable to communicate with sensor (Error: %d)\n", modbusClient->getLastError());
         lastError = 3; // Unable to communicate with sensor
         return false;
     }
     
-    Serial.printf("DEBUG-INIT: SUCCESS - Sensor responding, test register value: 0x%04X\n", testRegister);
     initialized = true;
     lastError = 0;
     return true;
@@ -87,33 +78,16 @@ bool ModbusSoilSensor::read()
         }
     }
 
-    // DEBUG: Track when sensor starts working after Error 4
-    static bool wasError4 = false;
-    static unsigned long lastError4Time = 0;
-    
     // Read all sensor registers in one request (corrected register count)
     const uint16_t registerCount = 9; // 0x0000 to 0x0008 (9 registers) 
     uint16_t registerValues[registerCount];
-      if (!modbusClient->readHoldingRegisters(deviceAddress, REG_HUMIDITY, registerCount, registerValues)) {
+    
+    if (!modbusClient->readHoldingRegisters(deviceAddress, REG_HUMIDITY, registerCount, registerValues)) {
         lastError = 4; // Failed to read registers
-        
-        // DEBUG: Track Error 4 occurrences and recovery
-        if (!wasError4) {
-            Serial.printf("DEBUG-SENSOR: First Error 4 detected at %lu ms\n", millis());
-            wasError4 = true;
-        }
-        lastError4Time = millis();
-        
         return false;
     }
-    
-    // DEBUG: Sensor recovery detection
-    if (wasError4) {
-        unsigned long recoveryTime = millis() - lastError4Time;
-        Serial.printf("DEBUG-SENSOR: SENSOR RECOVERED! Error 4 lasted %lu ms, recovery at %lu ms\n", 
-                     recoveryTime, millis());
-        wasError4 = false;
-    }// Parse and convert register values according to NPK manual PDF
+
+    // Parse and convert register values according to NPK manual PDF
     // Register 0x0000: Humidity (0.1% RH) 
     float rawHumidity = static_cast<float>(registerValues[0]) / 10.0f; // % (divided by 10)
     humidity = rawHumidity; // No calibration factor for humidity yet
@@ -137,7 +111,9 @@ bool ModbusSoilSensor::read()
     phosphorus = static_cast<float>(registerValues[5]); // mg/kg
     
     // Register 0x0006: Potassium (1 mg/kg)
-    potassium = static_cast<float>(registerValues[6]); // mg/kg    // For backward compatibility, moisture = humidity for this sensor type
+    potassium = static_cast<float>(registerValues[6]); // mg/kg
+    
+    // For backward compatibility, moisture = humidity for this sensor type
     moisture = humidity;
     
     // Validate all readings using the validRanges map

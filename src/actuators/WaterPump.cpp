@@ -15,6 +15,7 @@ WaterPump::WaterPump(int pin, const char* pumpName)
     , name(pumpName)
     , startTime(0)
     , runDuration(0)
+    , manualMode(false)
 {
 }
 
@@ -69,6 +70,11 @@ bool WaterPump::start()
     startTime = millis();
     runDuration = 0; // Indefinite run
     
+    // Automatic mode by default for start()
+    manualMode = false;
+    
+    Serial.printf("DEBUG-PUMP: Pump %s started at %lu ms (AUTOMATIC MODE)\n", name, startTime);
+    
     return true;
 }
 
@@ -79,8 +85,16 @@ bool WaterPump::stop()
         return false;
     }
     
+    if (running) {
+        unsigned long elapsedMillis = millis() - startTime;
+        Serial.printf("DEBUG-PUMP: Stopping pump %s after %lu ms (%.1f seconds) - %s MODE\n", 
+                      name, elapsedMillis, elapsedMillis / 1000.0f, 
+                      manualMode ? "MANUAL" : "AUTOMATIC");
+    }
+    
     digitalWrite(controlPin, LOW);
     running = false;
+    manualMode = false; // Reset manual mode flag
     
     return true;
 }
@@ -91,11 +105,20 @@ bool WaterPump::runFor(unsigned int seconds)
         return stop();
     }
     
+    Serial.printf("DEBUG-PUMP: Starting pump %s for %u seconds at %lu ms (MANUAL MODE)\n", 
+                  name, seconds, millis());
+    
     if (!start()) {
+        Serial.printf("DEBUG-PUMP: Failed to start pump %s\n", name);
         return false;
     }
     
+    // Set manual mode flag AFTER start() so it doesn't get overridden
+    manualMode = true;
+    
     runDuration = seconds;
+    Serial.printf("DEBUG-PUMP: Pump %s started successfully, will run until %lu ms (MANUAL MODE)\n", 
+                  name, startTime + (runDuration * 1000));
     return true;
 }
 
@@ -122,10 +145,24 @@ unsigned int WaterPump::getRunDuration() const
 
 void WaterPump::checkTimedRun()
 {
-    if (running && runDuration > 0) {        unsigned long elapsedMillis = millis() - startTime;
+    if (running && runDuration > 0) {
+        unsigned long currentTime = millis();
+        unsigned long elapsedMillis = currentTime - startTime;
+        unsigned long targetMillis = runDuration * 1000;
+        
+        // Debug-logging every 2 seconds while running
+        static unsigned long lastDebugTime = 0;
+        if (currentTime - lastDebugTime >= 2000) {
+            Serial.printf("DEBUG-PUMP: %s running: %lu/%lu ms (%.1f/%u seconds)\n", 
+                          name, elapsedMillis, targetMillis, 
+                          elapsedMillis / 1000.0f, runDuration);
+            lastDebugTime = currentTime;
+        }
         
         // Check if we've reached the run duration
-        if (elapsedMillis >= (runDuration * 1000)) {
+        if (elapsedMillis >= targetMillis) {
+            Serial.printf("DEBUG-PUMP: Stopping pump %s after %lu ms (target: %lu ms, duration: %u seconds)\n", 
+                          name, elapsedMillis, targetMillis, runDuration);
             stop();
         }
     }
@@ -134,4 +171,15 @@ void WaterPump::checkTimedRun()
 void WaterPump::update()
 {
     checkTimedRun();
+}
+
+bool WaterPump::isManualMode() const
+{
+    return manualMode;
+}
+
+void WaterPump::setManualMode(bool manual)
+{
+    manualMode = manual;
+    Serial.printf("DEBUG-PUMP: Pump %s set to %s mode\n", name, manual ? "MANUAL" : "AUTOMATIC");
 }

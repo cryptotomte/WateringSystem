@@ -57,6 +57,18 @@ public:
     virtual unsigned int getRunDuration() const = 0;
     
     /**
+     * @brief Check if pump is running in manual mode
+     * @return true if manual mode, false if automatic mode
+     */
+    virtual bool isManualMode() const = 0;
+    
+    /**
+     * @brief Set manual mode flag
+     * @param manual true for manual mode, false for automatic mode
+     */
+    virtual void setManualMode(bool manual) = 0;
+    
+    /**
      * @brief Update function that should be called regularly
      * 
      * This function performs any periodic updates needed for the pump,
