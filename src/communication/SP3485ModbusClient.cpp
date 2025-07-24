@@ -132,18 +132,18 @@ bool SP3485ModbusClient::readHoldingRegisters(uint8_t deviceAddress, uint16_t st
         serial->read();
     }    // Switch to transmit mode and send request
     setTransmitMode();
-    delayMicroseconds(50); // Shorter delay for TXS0108E mode switching
+    delayMicroseconds(RS485_DE_ASSERT_DELAY_US); // Use config value for reliable switching
     serial->write(request, 8);
     serial->flush(); // Wait for transmission to complete
 
-    // Critical timing: delay before switching to receive mode (much shorter with TXS0108E)
-    delayMicroseconds(100); // 100µs delay vs 1ms with optocoupler
+    // Critical timing: delay before switching to receive mode
+    delayMicroseconds(RS485_DE_DEASSERT_DELAY_US); // Use config value for reliable switching
     setReceiveMode();// Calculate expected response length
     // Response: [address(1)] + [function(1)] + [byte count(1)] + [data(2*count)] + [CRC(2)]
     uint8_t expectedLength = 5 + (count * 2);
     uint8_t response[256]; // Buffer must be large enough for maximum possible response
 
-    // Wait for response with timeout
+    // Wait for response with timeout (matching successful test implementation)
     unsigned long startTime = millis();
     int bytesRead = 0;
     uint8_t rawResponse[256]; // Raw buffer to handle timing issues
@@ -154,6 +154,8 @@ bool SP3485ModbusClient::readHoldingRegisters(uint8_t deviceAddress, uint16_t st
         {
             rawResponse[bytesRead] = serial->read();
             bytesRead++;
+            // Extend timeout when receiving data (like in successful test)
+            startTime = millis() - (timeout - 100);
         }
         yield(); // Give time for other tasks
     }    // SMART PARSING - Handle byte offset due to timing issues (proven working in test)
@@ -181,7 +183,9 @@ bool SP3485ModbusClient::readHoldingRegisters(uint8_t deviceAddress, uint16_t st
     for (int i = 0; i < bytesRead; i++)
     {
         response[i] = rawResponse[i + correctOffset];
-    }    // Check if we got complete response (allow for timing offset corrections)
+    }
+    
+    // Check if we got complete response (allow for timing offset corrections)
     if (bytesRead < expectedLength)
     {
         lastError = 3; // Incomplete response

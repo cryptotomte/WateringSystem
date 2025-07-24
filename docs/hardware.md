@@ -91,6 +91,8 @@ This document provides complete hardware specifications for the hardware-managed
 | Package | 20-pin TSSOP |
 | Operating Temperature | -40°C to +85°C |
 | Channels Used | 3 (TX, RX, DE/RE) |
+| **Verified Timing** | **50µs DE/RE switching delays (tested July 2025)** |
+| **Communication Rate** | **9600 baud Modbus RTU verified functional** |
 
 ### 5. Water Pumps - 12V DC
 
@@ -137,8 +139,8 @@ This document provides complete hardware specifications for the hardware-managed
 |------|--------------|-------------|
 | GPIO 21 | I2C SDA | BME280 Data Line |
 | GPIO 22 | I2C SCL | BME280 Clock Line |
-| GPIO 16 | TX2 | RS485 TX (via TXS0108E A1) |
-| GPIO 17 | RX2 | RS485 RX (via TXS0108E A2) |
+| GPIO 17 | TX2 | RS485 TX (via TXS0108E A1) |
+| GPIO 16 | RX2 | RS485 RX (via TXS0108E A2) |
 | GPIO 25 | DE/RE | RS485 Direction Control (via TXS0108E A3) |
 | GPIO 26 | Plant Pump Control | Main Water Pump MOSFET Gate |
 | GPIO 27 | Reservoir Pump Control | Reservoir Filling Pump MOSFET Gate |
@@ -148,16 +150,12 @@ This document provides complete hardware specifications for the hardware-managed
 | GPIO 5 | Button 1 | Manual Mode Button |
 | GPIO 18 | Button 2 | Configuration Button |
 
-**Component Change: FOD817BSD → TXS0108E:**
-- TXS0108E OE pin connected to VCC (always enabled)
-- No GPIO pin required for Output Enable control
-- GPIO 26 now controls TXS0108E Output Enable (was Main Pump)
-- Main Pump moved to GPIO 27 (was Reservoir Pump)
-- Reservoir Pump moved to GPIO 32 (was Low Level Sensor)
-- Reservoir sensors moved to GPIO 33/34
-- GPIO 19 (SENSOR_PWR) - Sensors always powered via LDO
-- GPIO 23 (ISO_MONITOR) - Hardware isolation monitoring removed
-- GPIO 15 (ISO_FAULT_LED) - Software fault detection removed
+**Pin Configuration Updates (July 2025):**
+- **CRITICAL FIX:** GPIO 16/17 pin assignments corrected for proper RS485 communication
+- Previous configuration had TX/RX pins swapped causing communication failures
+- Now matches verified working test configuration: TX=GPIO17, RX=GPIO16
+- TXS0108E timing delays optimized to 50µs for reliable level shifting
+- All RS485 communication now fully functional with Modbus soil sensors
 
 ## Power Architecture - Hardware-Managed LDO System
 

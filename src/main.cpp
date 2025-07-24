@@ -27,8 +27,8 @@
 // Pin definitions based on hardware.md specification with TXS0108E level shifter
 #define PIN_I2C_SDA           21
 #define PIN_I2C_SCL           22
-#define PIN_RS485_TX          16  // ESP32 TX -> TXS0108E A1 -> RS485 DI
-#define PIN_RS485_RX          17  // ESP32 RX <- TXS0108E A2 <- RS485 RO  
+#define PIN_RS485_TX          17  // ESP32 TX -> TXS0108E A1 -> RS485 DI (FIXED: was 16)
+#define PIN_RS485_RX          16  // ESP32 RX <- TXS0108E A2 <- RS485 RO (FIXED: was 17)  
 #define PIN_RS485_DE          25  // Direction control via TXS0108E A3
 #define PIN_MAIN_PUMP_CONTROL 26  // Main Water Pump MOSFET Gate (unchanged)
 #define PIN_RESERVOIR_PUMP_CONTROL 27  // Reservoir Filling Pump MOSFET Gate (unchanged)

@@ -287,6 +287,10 @@ public:
 ```cpp
 /**
  * Interface for Modbus communication
+ * 
+ * Implementation Note (July 2025): SP3485ModbusClient provides production-ready
+ * RS485 communication using TXS0108E level shifter with verified 50µs timing delays.
+ * Supports full Modbus RTU protocol with error handling and automatic retry logic.
  */
 class IModbusClient {
 public:

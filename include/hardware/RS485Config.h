@@ -43,8 +43,9 @@
 #define RS485_GROUND_ISOLATION_METHOD "TXS0108E_LEVEL_SHIFTING_ONLY"
 
 // Hardware-managed timing constants (LDO always-on system with TXS0108E)
-#define RS485_DE_ASSERT_DELAY_US 10    // Fast delay for TXS0108E direction control
-#define RS485_DE_DEASSERT_DELAY_US 10  // Fast delay for TXS0108E direction control
+// Timing values verified to work with direct RS485 testing
+#define RS485_DE_ASSERT_DELAY_US 50    // Increased delay for reliable TXS0108E direction control
+#define RS485_DE_DEASSERT_DELAY_US 50  // Increased delay for reliable TXS0108E direction control
 #define RS485_RX_TIMEOUT_MS 1000       // Receive timeout
 #define RS485_POWER_STABILIZE_MS 0     // No stabilization needed (always-on LDO)
 #define RS485_DEFAULT_TIMEOUT_MS 3000  // Standard timeout for communication
