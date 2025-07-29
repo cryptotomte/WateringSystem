@@ -986,6 +986,57 @@ void handleSerialCommands() {
         Serial.printf("Sensor read failed (Error: %d)\n", soilSensor.getLastError());
       }
     }
+    else if (command == "rs485test" || command == "test") {
+      Serial.println("\n=== RS485 Diagnostic Test ===");
+      Serial.println("Testing RS485 communication with isolated client...");
+      
+      // Create temporary RS485 client for testing (independent of main application)
+      HardwareSerial tempSerial(2);
+      tempSerial.begin(9600, SERIAL_8N1, PIN_RS485_RX, PIN_RS485_TX);
+      SP3485ModbusClient tempClient(&tempSerial, PIN_RS485_DE);
+      
+      if (!tempClient.initialize()) {
+        Serial.printf("Test client initialization failed\n");
+        return;
+      }
+      
+      Serial.println("Test client initialized successfully");
+      
+      // Test basic communication
+      uint16_t testData[9];
+      bool success = tempClient.readHoldingRegisters(SOIL_SENSOR_MODBUS_ADDR, 0x0000, 9, testData);
+      
+      if (success) {
+        Serial.println("✓ RS485 communication successful!");
+        Serial.printf("Raw register values:\n");
+        for (int i = 0; i < 9; i++) {
+          Serial.printf("  Reg[0x%04X]: %d (0x%04X)\n", i, testData[i], testData[i]);
+        }
+        
+        // Parse values like the sensor does
+        float humidity = testData[0] / 10.0f;
+        int16_t rawTemp = static_cast<int16_t>(testData[1]);
+        float temperature = rawTemp / 10.0f;
+        float ec = testData[2];
+        float ph = testData[3] / 10.0f;
+        
+        Serial.printf("\nParsed values:\n");
+        Serial.printf("  Humidity: %.1f%%\n", humidity);
+        Serial.printf("  Temperature: %.1f°C\n", temperature);
+        Serial.printf("  EC: %.0f µS/cm\n", ec);
+        Serial.printf("  pH: %.1f\n", ph);
+        Serial.printf("  N: %d mg/kg\n", testData[4]);
+        Serial.printf("  P: %d mg/kg\n", testData[5]);
+        Serial.printf("  K: %d mg/kg\n", testData[6]);
+      } else {
+        Serial.printf("✗ RS485 communication failed (Error: %d)\n", tempClient.getLastError());
+        uint32_t successCount, errorCount;
+        tempClient.getStatistics(&successCount, &errorCount);
+        Serial.printf("Client statistics: %lu success, %lu errors\n", successCount, errorCount);
+      }
+      
+      Serial.println("=== Test Complete ===\n");
+    }
     else if (command == "help") {
       Serial.println("\nAvailable commands:");
       Serial.println("  rs485test - Run comprehensive RS485 diagnostic tests");
