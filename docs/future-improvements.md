@@ -195,8 +195,26 @@ Optimize performance and add advanced monitoring.
 - [ ] Implement **A/B testing** capabilities for new features
 - [ ] Create **rollback mechanisms** for failed deployments
 
-**Estimated Impact**: 🟢 **Small** - ~40-60 work hours
-**New Files**: ~5-8 configuration and tooling files
+#### **OTA Updates & Distribution**
+- [ ] Implement **Over-The-Air (OTA) updates** via GitHub Actions
+- [ ] Create **web-based firmware installer** for easy customer updates
+- [ ] Set up **automated firmware builds** on code commits
+- [ ] Implement **firmware version management** and release channels
+- [ ] Add **rollback capabilities** for failed OTA updates
+- [ ] Create **update verification** and integrity checks
+- [ ] Document **customer update procedures** for end users
+
+**Reference Project**: [NightDriverStrip OTA Implementation](https://github.com/PlummersSoftwareLLC/NightDriverStrip)
+
+**Benefits for Production:**
+- **Easy customer updates** - Users can update via web interface
+- **Automated distribution** - GitHub Actions handle build and release
+- **Reduced support burden** - No need for manual firmware flashing
+- **Faster bug fixes** - Critical fixes can be deployed immediately
+- **Version control** - Clear tracking of firmware versions in field
+
+**Estimated Impact**: 🟡 **Medium** - ~60-90 work hours
+**New Files**: ~8-12 configuration and distribution files
 
 ---
 
@@ -207,9 +225,9 @@ Optimize performance and add advanced monitoring.
 Phase 1 (Critical Safety):     ~200-300 hours
 Phase 2 (Architecture):        ~180-250 hours  
 Phase 3 (Quality & Testing):   ~160-210 hours
-Phase 4 (Performance):         ~130-180 hours
+Phase 4 (Performance & OTA):   ~190-270 hours
 ────────────────────────────────────────────
-TOTAL ESTIMATE:                ~670-940 hours
+TOTAL ESTIMATE:                ~730-1030 hours
 ```
 
 ### **Timeline Estimate:**
@@ -220,9 +238,9 @@ TOTAL ESTIMATE:                ~670-940 hours
 ### **File Impact Summary:**
 ```
 Existing files modified:     ~85% (25-30 files)
-New files created:          ~50-70 files
+New files created:          ~58-82 files
 Code lines changed:         ~60-70% of existing code
-New code lines:             ~3000-5000 lines
+New code lines:             ~3500-6000 lines
 ```
 
 ---
