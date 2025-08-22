@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2025 Cryptotomte
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * @file RS485Config.h
  * @brief Hardware configuration for RS485 communication with MikroElektronika RS485 5 Click

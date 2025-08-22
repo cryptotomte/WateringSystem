@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2025 Cryptotomte
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * @file BME280Sensor.cpp
  * @brief Implementation of the BME280 environmental sensor

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2025 Cryptotomte
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * @file WateringSystemWebServer.cpp
  * @brief Implementation of web server for remote control and monitoring

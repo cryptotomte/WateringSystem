@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2025 Cryptotomte
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * @file WateringController.cpp
  * @brief Implementation of the main watering controller

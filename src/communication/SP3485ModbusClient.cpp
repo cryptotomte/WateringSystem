@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2025 Cryptotomte
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * @file SP3485ModbusClient.cpp
  * @brief RS485 interface implementation for Modbus communication with TXS0108E level shifter

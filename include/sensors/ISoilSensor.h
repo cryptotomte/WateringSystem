@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2025 Cryptotomte
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * @file ISoilSensor.h
  * @brief Interface for soil condition sensors in the WateringSystem
