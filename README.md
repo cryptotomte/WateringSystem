@@ -1,7 +1,7 @@
 # WateringSystem v2.3 (Hardware-Managed LDO Architecture)
 
 ![Project Status](https://img.shields.io/badge/status-production--ready-brightgreen.svg)
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue.svg)
 ![Hardware](https://img.shields.io/badge/hardware-ESP32-blue.svg)
 ![Isolation](https://img.shields.io/badge/isolation-5kV-orange.svg)
 
@@ -173,4 +173,13 @@ For complete safety information, see [Safety Documentation](docs/safety.md).
 Contributions to the WateringSystem project are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
 
 ## License
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later) - see the [LICENSE](LICENSE) file for details.
+
+**Key License Points:**
+- ✅ Commercial use allowed
+- ✅ Private use allowed  
+- ✅ Modification allowed
+- ⚠️ **Must share source code** when distributing binaries
+- ⚠️ **Must share source code** when running as network service (SaaS)
+- ⚠️ **Must preserve copyright** and license notices
+- ⚠️ All modifications must use the same license
