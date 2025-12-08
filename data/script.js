@@ -146,11 +146,15 @@ function initApp() {
     initChart();
     console.log('Chart initialized');
 
+    // Initialize chart options (populate reading dropdown based on selected sensor)
+    updateChartOptions();
+    console.log('Chart options initialized');
+
     // Fetch initial data
     console.log('Starting initial data fetch...');
     fetchSensorData();
     fetchSystemStatus();
-    fetchHistoricalData();
+    // Note: fetchHistoricalData() is called by updateChartOptions() above
 
     // Start auto-refresh
     startAutoRefresh();
@@ -927,9 +931,35 @@ async function fetchHistoricalData() {
  * @param {string} label - Chart label
  */
 function updateChart(data, label) {
-    if (!appState.chart || !data || !data.timestamps || !data.values) {
+    if (!appState.chart) {
+        console.error('Chart not initialized');
         return;
     }
+
+    if (!data) {
+        console.error('No data received for chart');
+        showNotification('Chart Error', 'No data received from server.', 'error');
+        return;
+    }
+
+    if (!data.timestamps || !data.values) {
+        console.error('Invalid data format:', data);
+        showNotification('Chart Error', 'Invalid data format received.', 'error');
+        return;
+    }
+
+    if (data.timestamps.length === 0) {
+        console.log('No historical data available for selected time range');
+        // Clear chart and show message
+        appState.chart.data.labels = [];
+        appState.chart.data.datasets[0].data = [];
+        appState.chart.data.datasets[0].label = `${label} (No data)`;
+        appState.chart.update();
+        showNotification('No Data', 'No historical data available for the selected time range.', 'info');
+        return;
+    }
+
+    console.log(`Updating chart with ${data.timestamps.length} data points`);
     const isDarkMode = document.documentElement.classList.contains('dark');
     const textColor = isDarkMode ? '#cbd5e1' : '#4b5563'; // slate-300/slate-600
 

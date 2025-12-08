@@ -603,43 +603,77 @@ String WateringSystemWebServer::handleConfigRequest(AsyncWebServerRequest* reque
 String WateringSystemWebServer::handleHistoricalDataRequest(AsyncWebServerRequest* request)
 {
     DynamicJsonDocument doc(8192); // Larger doc for historical data
-    
-    // Get parameters
+
+    // Get parameters with support for both old (sensorId/readingType) and new (sensor/reading) parameter names
     String sensorId = "env";  // Default: environmental sensor
     String readingType = "temperature"; // Default: temperature
-    time_t startTime = 0;
     time_t endTime = time(nullptr);
-    
-    if (request->hasParam("sensorId")) {
+    time_t startTime = endTime - 86400; // Default: last 24 hours
+
+    // Support both "sensor" (from web UI) and "sensorId" (legacy) parameter names
+    if (request->hasParam("sensor")) {
+        sensorId = request->getParam("sensor")->value();
+    } else if (request->hasParam("sensorId")) {
         sensorId = request->getParam("sensorId")->value();
     }
-    
-    if (request->hasParam("readingType")) {
+
+    // Support both "reading" (from web UI) and "readingType" (legacy) parameter names
+    if (request->hasParam("reading")) {
+        readingType = request->getParam("reading")->value();
+    } else if (request->hasParam("readingType")) {
         readingType = request->getParam("readingType")->value();
     }
-    
-    if (request->hasParam("startTime")) {
-        startTime = request->getParam("startTime")->value().toInt();
+
+    // Support "range" parameter (from web UI) and convert to timestamps
+    if (request->hasParam("range")) {
+        String range = request->getParam("range")->value();
+        if (range == "1h") {
+            startTime = endTime - 3600;
+        } else if (range == "6h") {
+            startTime = endTime - 21600;
+        } else if (range == "24h") {
+            startTime = endTime - 86400;
+        } else if (range == "7d") {
+            startTime = endTime - 604800;
+        } else if (range == "30d") {
+            startTime = endTime - 2592000;
+        }
+    } else {
+        // Legacy support for explicit startTime/endTime parameters
+        if (request->hasParam("startTime")) {
+            startTime = request->getParam("startTime")->value().toInt();
+        }
+
+        if (request->hasParam("endTime")) {
+            endTime = request->getParam("endTime")->value().toInt();
+        }
     }
-    
-    if (request->hasParam("endTime")) {
-        endTime = request->getParam("endTime")->value().toInt();
-    }
-    
+
     // Get readings from storage
     String readings = dataStorage->getSensorReadings(sensorId, readingType, startTime, endTime);
-    
-    // Parse readings into JSON array
+
+    // Parse readings JSON string into JSON array
+    DynamicJsonDocument readingsDoc(8192);
+    deserializeJson(readingsDoc, readings);
+
+    // Build response with timestamps and values arrays (expected by web UI)
+    JsonArray timestamps = doc.createNestedArray("timestamps");
+    JsonArray values = doc.createNestedArray("values");
+
+    for (JsonObject reading : readingsDoc.as<JsonArray>()) {
+        if (reading.containsKey("timestamp") && reading.containsKey("value")) {
+            timestamps.add(reading["timestamp"].as<long>());
+            values.add(reading["value"].as<float>());
+        }
+    }
+
+    // Include metadata
     doc["sensorId"] = sensorId;
     doc["readingType"] = readingType;
     doc["startTime"] = startTime;
     doc["endTime"] = endTime;
-    
-    // Parse readings JSON string into JSON array
-    DynamicJsonDocument readingsDoc(8192);
-    deserializeJson(readingsDoc, readings);
-    doc["readings"] = readingsDoc.as<JsonArray>();
-    
+    doc["count"] = timestamps.size();
+
     String response;
     serializeJson(doc, response);
     return response;
