@@ -1,6 +1,6 @@
 /* styles.css - WateringSystem UI Styles
- * Consolidated styles for both light and dark mode
- * Works with Tailwind CSS utility classes
+ * Pure CSS styles for both light and dark mode
+ * Note: @apply directives don't work with Tailwind CDN, so we use pure CSS
  */
 
 /* ===== CSS Custom Properties ===== */
@@ -13,89 +13,278 @@
     --status-inactive: #6B7280;
     --status-warning: #FBBF24;
     --status-running: #34D399;
+
+    /* Light mode colors */
+    --bg-card: #ffffff;
+    --bg-input: #ffffff;
+    --bg-toggle: #cbd5e1;
+    --border-color: #e2e8f0;
+    --text-primary: #1e293b;
+    --text-secondary: #475569;
+    --text-muted: #64748b;
+}
+
+.dark {
+    --bg-card: #1e293b;
+    --bg-input: #334155;
+    --bg-toggle: #475569;
+    --border-color: #334155;
+    --text-primary: #f1f5f9;
+    --text-secondary: #cbd5e1;
+    --text-muted: #94a3b8;
 }
 
 /* ===== Base Card Styles ===== */
 .card {
-    @apply bg-white dark:bg-slate-800 p-4 sm:p-6 rounded-lg shadow-lg transition-colors duration-200;
+    background-color: var(--bg-card);
+    padding: 1rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    transition: background-color 0.2s, color 0.2s;
+}
+
+@media (min-width: 640px) {
+    .card {
+        padding: 1.5rem;
+    }
 }
 
 .card-header {
-    @apply text-xl font-semibold mb-4 text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 pb-2;
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.5rem;
 }
 
 /* ===== Button Styles ===== */
 .btn-primary {
-    @apply bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed;
+    background-color: #3b82f6;
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 0.25rem;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.15s ease-in-out;
+}
+
+.btn-primary:hover {
+    background-color: #2563eb;
+}
+
+.btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .btn-success {
-    @apply bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed;
+    background-color: #22c55e;
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 0.25rem;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.15s ease-in-out;
+}
+
+.btn-success:hover {
+    background-color: #16a34a;
+}
+
+.btn-success:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .btn-danger {
-    @apply bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed;
+    background-color: #ef4444;
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 0.25rem;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.15s ease-in-out;
+}
+
+.btn-danger:hover {
+    background-color: #dc2626;
+}
+
+.btn-danger:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .btn-warning {
-    @apply bg-orange-500 hover:bg-orange-600 text-white py-2 px-4 rounded transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed;
+    background-color: #f97316;
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 0.25rem;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.15s ease-in-out;
+}
+
+.btn-warning:hover {
+    background-color: #ea580c;
+}
+
+.btn-warning:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .btn-secondary {
-    @apply bg-slate-500 hover:bg-slate-600 text-white py-2 px-4 rounded transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed;
+    background-color: #64748b;
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 0.25rem;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.15s ease-in-out;
+}
+
+.btn-secondary:hover {
+    background-color: #475569;
+}
+
+.btn-secondary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 /* ===== Form Input Styles ===== */
-.input {
-    @apply w-full p-2 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors;
+.input, .select {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-input);
+    color: var(--text-primary);
+    border-radius: 0.25rem;
+    font-size: 0.875rem;
+    transition: border-color 0.15s, background-color 0.2s, color 0.2s;
 }
 
-.input:disabled {
-    @apply bg-slate-100 dark:bg-slate-700/50 cursor-not-allowed opacity-60;
+.input:focus, .select:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+}
+
+.input:disabled, .select:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background-color: var(--border-color);
 }
 
 .label {
-    @apply block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1;
-}
-
-.select {
-    @apply w-full p-2 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors;
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    margin-bottom: 0.25rem;
 }
 
 /* ===== Toggle Switch Styles ===== */
 .toggle-wrapper {
-    @apply relative inline-flex items-center cursor-pointer;
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
 }
 
 .toggle-input {
-    @apply sr-only peer;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
 }
 
 .toggle-slider {
-    @apply w-11 h-6 bg-slate-300 dark:bg-slate-600 rounded-full peer
-           peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800
-           peer-checked:after:translate-x-full peer-checked:after:border-white
-           after:content-[''] after:absolute after:top-0.5 after:left-[2px]
-           after:bg-white after:border-slate-300 dark:after:border-slate-500
-           after:border after:rounded-full after:h-5 after:w-5 after:transition-all
-           peer-checked:bg-blue-500 peer-disabled:opacity-50 peer-disabled:cursor-not-allowed;
+    width: 2.75rem;
+    height: 1.5rem;
+    background-color: var(--bg-toggle);
+    border-radius: 9999px;
+    position: relative;
+    transition: background-color 0.2s;
+}
+
+.toggle-slider::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 1.25rem;
+    height: 1.25rem;
+    background-color: white;
+    border-radius: 9999px;
+    transition: transform 0.2s;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.toggle-input:checked + .toggle-slider {
+    background-color: #3b82f6;
+}
+
+.toggle-input:checked + .toggle-slider::after {
+    transform: translateX(1.25rem);
+}
+
+.toggle-input:focus + .toggle-slider {
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+}
+
+.toggle-input:disabled + .toggle-slider {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 /* ===== Sensor Row Styles ===== */
 .sensor-row {
-    @apply flex justify-between items-center text-sm;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.875rem;
 }
 
 .reading-label {
-    @apply text-slate-500 dark:text-slate-400;
+    color: var(--text-muted);
 }
 
 .reading-value {
-    @apply font-semibold text-slate-800 dark:text-slate-200;
+    font-weight: 600;
+    color: var(--text-primary);
 }
 
 .reading-unit {
-    @apply text-slate-400 dark:text-slate-500 ml-1;
+    color: var(--text-muted);
+    margin-left: 0.25rem;
+}
+
+/* ===== Section Styles ===== */
+.section-title {
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+.section-border {
+    border-top: 1px solid var(--border-color);
+}
+
+/* ===== Info Styles ===== */
+.info-label {
+    color: var(--text-muted);
+}
+
+.info-value {
+    font-weight: 500;
+    color: var(--text-primary);
 }
 
 /* ===== Status Indicators ===== */
@@ -139,33 +328,37 @@
 }
 
 /* ===== Loading States ===== */
-
-/* Skeleton loader animation */
 .skeleton {
-    @apply bg-slate-200 dark:bg-slate-700 rounded animate-pulse;
+    background: linear-gradient(90deg, var(--border-color) 25%, var(--bg-toggle) 50%, var(--border-color) 75%);
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s infinite;
+    border-radius: 0.25rem;
 }
 
-/* Spinner animation */
+@keyframes skeleton-loading {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
 .loading-spinner {
-    @apply inline-flex items-center;
-}
-
-/* Full page loading overlay */
-.loading-overlay {
-    @apply fixed inset-0 bg-black/50 flex items-center justify-center z-50;
-}
-
-.loading-card {
-    @apply bg-white dark:bg-slate-800 p-6 rounded-lg shadow-xl flex flex-col items-center gap-3;
+    display: inline-flex;
+    align-items: center;
 }
 
 /* ===== Progress Bar ===== */
 .progress-bar {
-    @apply w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2.5 overflow-hidden;
+    width: 100%;
+    background-color: var(--border-color);
+    border-radius: 9999px;
+    height: 0.625rem;
+    overflow: hidden;
 }
 
 .progress-fill {
-    @apply bg-blue-500 h-2.5 rounded-full transition-all duration-500 ease-out;
+    background-color: #3b82f6;
+    height: 100%;
+    border-radius: 9999px;
+    transition: width 0.5s ease-out;
 }
 
 /* ===== Chart Container ===== */
@@ -174,133 +367,98 @@
 }
 
 .chart-container {
-    @apply relative h-[300px] bg-slate-50 dark:bg-slate-800 rounded;
+    position: relative;
+    height: 300px;
+    background-color: var(--bg-card);
+    border-radius: 0.25rem;
 }
 
-/* Chart loading skeleton */
 .chart-skeleton {
-    @apply absolute inset-0 flex items-center justify-center;
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 /* ===== Notification Styles ===== */
 .notification {
-    @apply max-w-sm p-4 rounded-lg shadow-lg transition-all duration-300 ease-out;
-    @apply bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200;
-    @apply border border-slate-200 dark:border-slate-600;
+    max-width: 350px;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    transition: opacity 0.3s, transform 0.3s;
+    background-color: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
 }
 
 .notification.success {
-    @apply border-l-4 border-l-green-500;
+    border-left: 4px solid var(--status-connected);
 }
 
 .notification.error {
-    @apply border-l-4 border-l-red-500;
+    border-left: 4px solid var(--status-disconnected);
 }
 
 .notification.info {
-    @apply border-l-4 border-l-blue-500;
+    border-left: 4px solid var(--status-active);
 }
 
 .notification.warning {
-    @apply border-l-4 border-l-yellow-500;
+    border-left: 4px solid var(--status-warning);
 }
 
 .notification.fade-out {
-    @apply opacity-0 translate-x-full;
+    opacity: 0;
+    transform: translateX(100%);
 }
 
 /* ===== Modal Styles ===== */
 .modal-backdrop {
-    @apply fixed inset-0 bg-black/60 dark:bg-black/75 overflow-y-auto h-full w-full z-40 hidden items-center justify-center;
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.6);
+    overflow-y: auto;
+    height: 100%;
+    width: 100%;
+    z-index: 40;
+    display: none;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-backdrop.flex {
+    display: flex;
 }
 
 .modal-content {
-    @apply relative mx-auto p-5 border border-slate-200 dark:border-slate-700 w-full max-w-sm shadow-lg rounded-lg;
-    @apply bg-white dark:bg-slate-800;
+    position: relative;
+    margin: 0 auto;
+    padding: 1.25rem;
+    border: 1px solid var(--border-color);
+    width: 100%;
+    max-width: 24rem;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    border-radius: 0.5rem;
+    background-color: var(--bg-card);
 }
 
 .modal-title {
-    @apply text-lg leading-6 font-medium text-slate-800 dark:text-slate-100;
+    font-size: 1.125rem;
+    font-weight: 500;
+    color: var(--text-primary);
 }
 
 .modal-message {
-    @apply text-sm text-slate-600 dark:text-slate-300;
-}
-
-/* ===== Section Headers ===== */
-.section-title {
-    @apply font-medium text-slate-600 dark:text-slate-400;
-}
-
-.section-border {
-    @apply border-t border-slate-200 dark:border-slate-700;
-}
-
-/* ===== System Info ===== */
-.info-label {
-    @apply text-slate-500 dark:text-slate-400;
-}
-
-.info-value {
-    @apply font-medium text-slate-800 dark:text-slate-200;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
 }
 
 /* ===== Footer ===== */
 .footer {
-    @apply mt-8 text-center text-xs text-slate-500 dark:text-slate-500;
-}
-
-/* ===== Responsive Utilities ===== */
-@media (max-width: 640px) {
-    .card {
-        @apply p-3;
-    }
-}
-
-/* ===== Fallback styles if Tailwind CDN fails ===== */
-@supports not (background-color: theme('colors.slate.800')) {
-    body {
-        background-color: #0f172a;
-        color: #e2e8f0;
-        font-family: system-ui, -apple-system, sans-serif;
-    }
-
-    .card {
-        background-color: #1e293b;
-        padding: 1.5rem;
-        border-radius: 0.5rem;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-    }
-
-    .btn-primary {
-        background-color: #3b82f6;
-        color: white;
-        padding: 0.5rem 1rem;
-        border-radius: 0.25rem;
-        border: none;
-        cursor: pointer;
-    }
-
-    .btn-primary:hover {
-        background-color: #2563eb;
-    }
-
-    .input, .select {
-        width: 100%;
-        padding: 0.5rem;
-        border: 1px solid #475569;
-        background-color: #334155;
-        color: #e2e8f0;
-        border-radius: 0.25rem;
-    }
-
-    .skeleton {
-        background-color: #334155;
-        animation: skeleton-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-    }
-
-    @keyframes skeleton-pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.5; }
-    }
+    margin-top: 2rem;
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--text-muted);
 }
