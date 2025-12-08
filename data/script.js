@@ -99,14 +99,24 @@ function populateElements() {
         // System info
         systemIp: document.getElementById('system-ip'),
         storageUsage: document.getElementById('storage-usage'),
-        
+
         // Modals and notifications
         notificationContainer: document.getElementById('notification-container'),
         confirmationModal: document.getElementById('confirmation-modal'),
         modalMessage: document.getElementById('modal-message'),
         modalCancel: document.getElementById('modal-cancel'),
         modalConfirm: document.getElementById('modal-confirm'),
-        closeModal: document.getElementById('modal-cancel') // Using cancel button as close
+        closeModal: document.getElementById('modal-cancel'), // Using cancel button as close
+
+        // Theme toggle
+        themeToggle: document.getElementById('theme-toggle'),
+
+        // Loading states
+        sensorsLoading: document.getElementById('sensors-loading'),
+        sensorsContent: document.getElementById('sensors-content'),
+        sensorsSkeleton: document.getElementById('sensors-skeleton'),
+        chartLoading: document.getElementById('chart-loading'),
+        chartSkeleton: document.getElementById('chart-skeleton')
     };
     
     // Log any missing elements
@@ -129,11 +139,15 @@ function populateElements() {
  */
 function initApp() {
     console.log('initApp() called');
-    
+
     // Populate DOM element references first
     populateElements();
     console.log('DOM elements populated');
-    
+
+    // Initialize theme from localStorage or system preference
+    initTheme();
+    console.log('Theme initialized');
+
     // Set up event listeners
     setupEventListeners();
     console.log('Event listeners set up');
@@ -166,9 +180,99 @@ function initApp() {
 }
 
 /**
+ * Initialize theme from localStorage or system preference
+ */
+function initTheme() {
+    const savedTheme = localStorage.getItem('theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+    if (savedTheme === 'light') {
+        document.documentElement.classList.remove('dark');
+    } else if (savedTheme === 'dark') {
+        document.documentElement.classList.add('dark');
+    } else {
+        // Use system preference if no saved preference
+        if (prefersDark) {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
+    }
+}
+
+/**
+ * Toggle between dark and light theme
+ */
+function toggleTheme() {
+    const isDark = document.documentElement.classList.toggle('dark');
+    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+
+    // Update chart colors if chart exists
+    if (appState.chart) {
+        updateChartTheme();
+    }
+}
+
+/**
+ * Update chart colors when theme changes
+ */
+function updateChartTheme() {
+    if (!appState.chart) return;
+
+    const isDarkMode = document.documentElement.classList.contains('dark');
+    const textColor = isDarkMode ? '#cbd5e1' : '#4b5563';
+    const gridColor = isDarkMode ? 'rgba(100, 116, 139, 0.2)' : 'rgba(203, 213, 225, 0.5)';
+
+    appState.chart.options.scales.x.grid.color = gridColor;
+    appState.chart.options.scales.y.grid.color = gridColor;
+    appState.chart.options.scales.x.ticks.color = textColor;
+    appState.chart.options.scales.y.ticks.color = textColor;
+    appState.chart.options.scales.x.title.color = textColor;
+    appState.chart.options.scales.y.title.color = textColor;
+    appState.chart.options.plugins.legend.labels.color = isDarkMode ? '#e2e8f0' : '#334155';
+
+    appState.chart.update();
+}
+
+/**
+ * Show loading state for sensors
+ */
+function showSensorsLoading() {
+    if (elements.sensorsLoading) elements.sensorsLoading.classList.remove('hidden');
+}
+
+/**
+ * Hide loading state for sensors
+ */
+function hideSensorsLoading() {
+    if (elements.sensorsLoading) elements.sensorsLoading.classList.add('hidden');
+}
+
+/**
+ * Show loading state for chart
+ */
+function showChartLoading() {
+    if (elements.chartLoading) elements.chartLoading.classList.remove('hidden');
+    if (elements.chartSkeleton) elements.chartSkeleton.classList.remove('hidden');
+}
+
+/**
+ * Hide loading state for chart
+ */
+function hideChartLoading() {
+    if (elements.chartLoading) elements.chartLoading.classList.add('hidden');
+    if (elements.chartSkeleton) elements.chartSkeleton.classList.add('hidden');
+}
+
+/**
  * Set up event listeners for UI elements
  */
 function setupEventListeners() {
+    // Theme toggle
+    if (elements.themeToggle) {
+        elements.themeToggle.addEventListener('click', toggleTheme);
+    }
+
     // Refresh button
     elements.refreshDataBtn.addEventListener('click', () => {
         fetchSensorData();
@@ -280,6 +384,7 @@ function startAutoRefresh() {
  */
 async function fetchSensorData() {
     console.log('fetchSensorData() called');
+    showSensorsLoading();
     try {
         console.log('Fetching from:', `${API_CONFIG.ENDPOINT}/sensors`);
         const response = await fetch(`${API_CONFIG.ENDPOINT}/sensors`);
@@ -301,6 +406,8 @@ async function fetchSensorData() {
     } catch (error) {
         console.error('Error fetching sensor data:', error);
         updateConnectionStatus(false);
+    } finally {
+        hideSensorsLoading();
     }
 }
 
@@ -911,6 +1018,7 @@ async function fetchHistoricalData() {
         return;
     }
 
+    showChartLoading();
     try {
         const response = await fetch(`${API_CONFIG.ENDPOINT}/history?sensor=${sensor}&reading=${reading}&range=${timeRange}`);
         if (!response.ok) {
@@ -922,6 +1030,8 @@ async function fetchHistoricalData() {
     } catch (error) {
         console.error('Error fetching historical data:', error);
         showNotification('Chart Error', 'Failed to load historical data.', 'error');
+    } finally {
+        hideChartLoading();
     }
 }
 

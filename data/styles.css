@@ -1,6 +1,104 @@
-/* styles.css - Custom styles complementing Tailwind CSS */
+/* styles.css - WateringSystem UI Styles
+ * Consolidated styles for both light and dark mode
+ * Works with Tailwind CSS utility classes
+ */
 
-/* Status dot styling for connection and activity indicators */
+/* ===== CSS Custom Properties ===== */
+:root {
+    --brand-accent: #3b82f6;
+    --brand-accent-hover: #2563eb;
+    --status-connected: #10B981;
+    --status-disconnected: #F87171;
+    --status-active: #60A5FA;
+    --status-inactive: #6B7280;
+    --status-warning: #FBBF24;
+    --status-running: #34D399;
+}
+
+/* ===== Base Card Styles ===== */
+.card {
+    @apply bg-white dark:bg-slate-800 p-4 sm:p-6 rounded-lg shadow-lg transition-colors duration-200;
+}
+
+.card-header {
+    @apply text-xl font-semibold mb-4 text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 pb-2;
+}
+
+/* ===== Button Styles ===== */
+.btn-primary {
+    @apply bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-success {
+    @apply bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-danger {
+    @apply bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-warning {
+    @apply bg-orange-500 hover:bg-orange-600 text-white py-2 px-4 rounded transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-secondary {
+    @apply bg-slate-500 hover:bg-slate-600 text-white py-2 px-4 rounded transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+/* ===== Form Input Styles ===== */
+.input {
+    @apply w-full p-2 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors;
+}
+
+.input:disabled {
+    @apply bg-slate-100 dark:bg-slate-700/50 cursor-not-allowed opacity-60;
+}
+
+.label {
+    @apply block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1;
+}
+
+.select {
+    @apply w-full p-2 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors;
+}
+
+/* ===== Toggle Switch Styles ===== */
+.toggle-wrapper {
+    @apply relative inline-flex items-center cursor-pointer;
+}
+
+.toggle-input {
+    @apply sr-only peer;
+}
+
+.toggle-slider {
+    @apply w-11 h-6 bg-slate-300 dark:bg-slate-600 rounded-full peer
+           peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800
+           peer-checked:after:translate-x-full peer-checked:after:border-white
+           after:content-[''] after:absolute after:top-0.5 after:left-[2px]
+           after:bg-white after:border-slate-300 dark:after:border-slate-500
+           after:border after:rounded-full after:h-5 after:w-5 after:transition-all
+           peer-checked:bg-blue-500 peer-disabled:opacity-50 peer-disabled:cursor-not-allowed;
+}
+
+/* ===== Sensor Row Styles ===== */
+.sensor-row {
+    @apply flex justify-between items-center text-sm;
+}
+
+.reading-label {
+    @apply text-slate-500 dark:text-slate-400;
+}
+
+.reading-value {
+    @apply font-semibold text-slate-800 dark:text-slate-200;
+}
+
+.reading-unit {
+    @apply text-slate-400 dark:text-slate-500 ml-1;
+}
+
+/* ===== Status Indicators ===== */
 .status-dot {
     width: 12px;
     height: 12px;
@@ -10,136 +108,199 @@
     transition: background-color 0.3s ease;
 }
 
-/* Connection status colors */
 .status-connected {
-    background-color: #10B981; /* emerald-500 - green for connected */
+    background-color: var(--status-connected);
 }
 
 .status-disconnected {
-    background-color: #F87171; /* red-400 - red for disconnected */
+    background-color: var(--status-disconnected);
 }
 
-/* Activity status colors */
 .status-active {
-    background-color: #60A5FA; /* blue-400 - blue for active */
+    background-color: var(--status-active);
 }
 
 .status-inactive {
-    background-color: #6B7280; /* gray-500 - gray for inactive */
+    background-color: var(--status-inactive);
 }
 
-/* Warning status */
 .status-warning {
-    background-color: #FBBF24; /* amber-400 - yellow for warning */
+    background-color: var(--status-warning);
 }
 
-/* Running status */
 .status-running {
-    background-color: #34D399; /* emerald-400 - light green for running */
+    background-color: var(--status-running);
+    animation: pulse 1.5s infinite;
 }
 
-/* Dark mode status colors (using CSS custom properties defined in Tailwind config) */
-.dark .status-connected {
-    background-color: var(--status-connected-dark, #10B981);
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
 }
 
-.dark .status-disconnected {
-    background-color: var(--status-disconnected-dark, #F87171);
+/* ===== Loading States ===== */
+
+/* Skeleton loader animation */
+.skeleton {
+    @apply bg-slate-200 dark:bg-slate-700 rounded animate-pulse;
 }
 
-.dark .status-active {
-    background-color: var(--status-active-dark, #60A5FA);
+/* Spinner animation */
+.loading-spinner {
+    @apply inline-flex items-center;
 }
 
-.dark .status-inactive {
-    background-color: var(--status-inactive-dark, #6B7280);
+/* Full page loading overlay */
+.loading-overlay {
+    @apply fixed inset-0 bg-black/50 flex items-center justify-center z-50;
 }
 
-.dark .status-warning {
-    background-color: var(--status-warning-dark, #FBBF24);
+.loading-card {
+    @apply bg-white dark:bg-slate-800 p-6 rounded-lg shadow-xl flex flex-col items-center gap-3;
 }
 
-.dark .status-running {
-    background-color: var(--status-running-dark, #34D399);
+/* ===== Progress Bar ===== */
+.progress-bar {
+    @apply w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2.5 overflow-hidden;
 }
 
-/* Define custom properties for light mode (can be overridden by Tailwind dark mode config) */
-:root {
-    --brand-accent-light: #3b82f6;
-    /* blue-500 */
-    --brand-accent-hover-light: #2563eb;
-    /* blue-600 */
-    --text-light-primary: #1f2937;
-    /* gray-800 */
-    --text-light-secondary: #4b5563;
-    /* gray-600 */
-    --text-light-muted: #9ca3af;
-    /* gray-400 */
-    --bg-light-primary: #ffffff;
-    /* white */
-    --bg-light-secondary: #f3f4f6;
-    /* gray-100 */
-    --border-light-primary: #e5e7eb;
-    /* gray-200 */
-    --border-light-secondary: #d1d5db;
-    /* gray-300 */
+.progress-fill {
+    @apply bg-blue-500 h-2.5 rounded-full transition-all duration-500 ease-out;
 }
 
-/* Custom style for the reservoir level bar fill animation/transition */
-#water-level-indicator {
-    transition: width 0.5s ease-out, background-color 0.5s ease-out;
+/* ===== Chart Container ===== */
+#data-chart {
+    height: 300px !important;
 }
 
-/* Custom styles for notification appearance/disappearance */
+.chart-container {
+    @apply relative h-[300px] bg-slate-50 dark:bg-slate-800 rounded;
+}
+
+/* Chart loading skeleton */
+.chart-skeleton {
+    @apply absolute inset-0 flex items-center justify-center;
+}
+
+/* ===== Notification Styles ===== */
 .notification {
-    transition: opacity 0.3s ease-out, transform 0.3s ease-out;
-    max-width: 350px;
-    /* Base notification styles - will be adapted for dark mode in JS or via Tailwind dark: classes */
-    /* Example for light mode (can be overridden) */
-    background-color: var(--bg-light-primary);
-    color: var(--text-light-primary);
-    border: 1px solid var(--border-light-primary);
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    @apply max-w-sm p-4 rounded-lg shadow-lg transition-all duration-300 ease-out;
+    @apply bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200;
+    @apply border border-slate-200 dark:border-slate-600;
+}
+
+.notification.success {
+    @apply border-l-4 border-l-green-500;
+}
+
+.notification.error {
+    @apply border-l-4 border-l-red-500;
+}
+
+.notification.info {
+    @apply border-l-4 border-l-blue-500;
+}
+
+.notification.warning {
+    @apply border-l-4 border-l-yellow-500;
 }
 
 .notification.fade-out {
-    opacity: 0;
-    transform: translateX(100%);
+    @apply opacity-0 translate-x-full;
 }
 
-/* Dark mode specific notification styles (can be applied by JS based on <html> class) */
-.dark .notification {
-    background-color: #374151;
-    /* gray-700 */
-    color: #e5e7eb;
-    /* gray-200 */
-    border-color: #4b5563;
-    /* gray-600 */
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -1px rgba(0, 0, 0, 0.12);
-    /* Darker shadow */
+/* ===== Modal Styles ===== */
+.modal-backdrop {
+    @apply fixed inset-0 bg-black/60 dark:bg-black/75 overflow-y-auto h-full w-full z-40 hidden items-center justify-center;
 }
 
-.dark .notification.success {
-    border-left: 4px solid theme('colors.status-connected-dark');
+.modal-content {
+    @apply relative mx-auto p-5 border border-slate-200 dark:border-slate-700 w-full max-w-sm shadow-lg rounded-lg;
+    @apply bg-white dark:bg-slate-800;
 }
 
-.dark .notification.error {
-    border-left: 4px solid theme('colors.status-disconnected-dark');
+.modal-title {
+    @apply text-lg leading-6 font-medium text-slate-800 dark:text-slate-100;
 }
 
-.dark .notification.info {
-    border-left: 4px solid theme('colors.status-active-dark');
+.modal-message {
+    @apply text-sm text-slate-600 dark:text-slate-300;
 }
 
-/* Chart.js dark mode tooltip and legend styling (applied via JS options) */
-/* This is just a placeholder for where you might put CSS if not handled by JS */
-/* For example:
-.chartjs-tooltip-dark {
-    background: rgba(31, 41, 55, 0.9); // bg-slate-800 with opacity
-    color: #e5e7eb; // text-slate-200
-    border: 1px solid #4b5563; // border-slate-600
+/* ===== Section Headers ===== */
+.section-title {
+    @apply font-medium text-slate-600 dark:text-slate-400;
 }
-.chartjs-legend-dark span {
-    color: #cbd5e1; // text-slate-300
+
+.section-border {
+    @apply border-t border-slate-200 dark:border-slate-700;
 }
-*/
+
+/* ===== System Info ===== */
+.info-label {
+    @apply text-slate-500 dark:text-slate-400;
+}
+
+.info-value {
+    @apply font-medium text-slate-800 dark:text-slate-200;
+}
+
+/* ===== Footer ===== */
+.footer {
+    @apply mt-8 text-center text-xs text-slate-500 dark:text-slate-500;
+}
+
+/* ===== Responsive Utilities ===== */
+@media (max-width: 640px) {
+    .card {
+        @apply p-3;
+    }
+}
+
+/* ===== Fallback styles if Tailwind CDN fails ===== */
+@supports not (background-color: theme('colors.slate.800')) {
+    body {
+        background-color: #0f172a;
+        color: #e2e8f0;
+        font-family: system-ui, -apple-system, sans-serif;
+    }
+
+    .card {
+        background-color: #1e293b;
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    }
+
+    .btn-primary {
+        background-color: #3b82f6;
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 0.25rem;
+        border: none;
+        cursor: pointer;
+    }
+
+    .btn-primary:hover {
+        background-color: #2563eb;
+    }
+
+    .input, .select {
+        width: 100%;
+        padding: 0.5rem;
+        border: 1px solid #475569;
+        background-color: #334155;
+        color: #e2e8f0;
+        border-radius: 0.25rem;
+    }
+
+    .skeleton {
+        background-color: #334155;
+        animation: skeleton-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+
+    @keyframes skeleton-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+}
