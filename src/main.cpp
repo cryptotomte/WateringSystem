@@ -501,9 +501,9 @@ void handleReservoirPump() {
     return;
   }
   
-  // Read water level sensors (sensors are active LOW with pull-ups)
-  reservoirLowLevel = digitalRead(PIN_RESERVOIR_LOW_LEVEL) == LOW;
-  reservoirHighLevel = digitalRead(PIN_RESERVOIR_HIGH_LEVEL) == LOW;
+  // Read water level sensors (XKC-Y26 sensors are active HIGH - output HIGH when water detected)
+  reservoirLowLevel = digitalRead(PIN_RESERVOIR_LOW_LEVEL) == HIGH;
+  reservoirHighLevel = digitalRead(PIN_RESERVOIR_HIGH_LEVEL) == HIGH;
   
   // Always check safety conditions for running pump
   if (reservoirPumpRunning) {
@@ -564,7 +564,7 @@ bool startManualReservoirFilling(uint16_t seconds) {
   }
   
   // Check if high level is already reached
-  reservoirHighLevel = digitalRead(PIN_RESERVOIR_HIGH_LEVEL) == LOW;
+  reservoirHighLevel = digitalRead(PIN_RESERVOIR_HIGH_LEVEL) == HIGH;
   if (reservoirHighLevel) {
     Serial.println("Cannot start manual reservoir filling (reservoir already full)");
     return false;
@@ -649,11 +649,11 @@ bool isReservoirPumpEnabled() {
 bool getReservoirStatus(bool* isLow, bool* isHigh, bool* isRunning) {
   // Read sensors directly for latest status
   if (isLow != nullptr) {
-    *isLow = digitalRead(PIN_RESERVOIR_LOW_LEVEL) == LOW;
+    *isLow = digitalRead(PIN_RESERVOIR_LOW_LEVEL) == HIGH;
   }
-  
+
   if (isHigh != nullptr) {
-    *isHigh = digitalRead(PIN_RESERVOIR_HIGH_LEVEL) == LOW;
+    *isHigh = digitalRead(PIN_RESERVOIR_HIGH_LEVEL) == HIGH;
   }
   
   if (isRunning != nullptr) {
