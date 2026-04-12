@@ -29,8 +29,8 @@
 // Pin definitions based on hardware.md specification with TXS0108E level shifter
 #define PIN_I2C_SDA           21
 #define PIN_I2C_SCL           22
-#define PIN_RS485_TX          17  // ESP32 TX -> TXS0108E A1 -> RS485 DI (FIXED: was 16)
-#define PIN_RS485_RX          16  // ESP32 RX <- TXS0108E A2 <- RS485 RO (FIXED: was 17)  
+#define PIN_RS485_TX          16  // ESP32 TX -> TXS0108E A2 -> B2 -> Click pin13 (DI)
+#define PIN_RS485_RX          17  // ESP32 RX <- TXS0108E A1 <- B1 <- Click pin14 (RO)
 #define PIN_RS485_DE          25  // Direction control via TXS0108E A3
 #define PIN_MAIN_PUMP_CONTROL 26  // Main Water Pump MOSFET Gate (unchanged)
 #define PIN_RESERVOIR_PUMP_CONTROL 27  // Reservoir Filling Pump MOSFET Gate (unchanged)
@@ -990,53 +990,91 @@ void handleSerialCommands() {
     }
     else if (command == "rs485test" || command == "test") {
       Serial.println("\n=== RS485 Diagnostic Test ===");
-      Serial.println("Testing RS485 communication with isolated client...");
-      
-      // Create temporary RS485 client for testing (independent of main application)
-      HardwareSerial tempSerial(2);
-      tempSerial.begin(9600, SERIAL_8N1, PIN_RS485_RX, PIN_RS485_TX);
-      SP3485ModbusClient tempClient(&tempSerial, PIN_RS485_DE);
-      
-      if (!tempClient.initialize()) {
-        Serial.printf("Test client initialization failed\n");
-        return;
+
+      // Step 1: Verify DE pin control
+      Serial.printf("DE pin (GPIO%d) test:\n", PIN_RS485_DE);
+      digitalWrite(PIN_RS485_DE, HIGH);
+      Serial.printf("  DE set HIGH (TX mode) - measure 3.3V on GPIO%d, 5V on TXS0108E B3\n", PIN_RS485_DE);
+      delay(100);
+      digitalWrite(PIN_RS485_DE, LOW);
+      Serial.printf("  DE set LOW  (RX mode)\n");
+      delay(100);
+
+      // Step 2: Build and show the raw Modbus request
+      uint8_t request[8];
+      request[0] = SOIL_SENSOR_MODBUS_ADDR;
+      request[1] = 0x03;
+      request[2] = 0x00; request[3] = 0x00;  // Start register 0x0000
+      request[4] = 0x00; request[5] = 0x09;  // 9 registers
+      // CRC16-MODBUS calculation
+      uint16_t crc = 0xFFFF;
+      for (int pos = 0; pos < 6; pos++) {
+        crc ^= (uint16_t)request[pos];
+        for (int i = 0; i < 8; i++) {
+          if (crc & 0x0001) { crc >>= 1; crc ^= 0xA001; }
+          else { crc >>= 1; }
+        }
       }
-      
-      Serial.println("Test client initialized successfully");
-      
-      // Test basic communication
+      request[6] = crc & 0xFF;
+      request[7] = crc >> 8;
+
+      Serial.printf("TX frame: ");
+      for (int i = 0; i < 8; i++) Serial.printf("%02X ", request[i]);
+      Serial.println();
+
+      // Step 3: Send manually and capture raw response
+      // Clear RX buffer
+      while (rs485Serial.available()) rs485Serial.read();
+
+      // Transmit
+      digitalWrite(PIN_RS485_DE, HIGH);
+      delayMicroseconds(100);
+      rs485Serial.write(request, 8);
+      rs485Serial.flush();
+      delayMicroseconds(100);
+      digitalWrite(PIN_RS485_DE, LOW);
+
+      // Wait and capture everything
+      Serial.printf("Waiting for response (3s timeout)...\n");
+      unsigned long startTime = millis();
+      uint8_t rxBuf[64];
+      int rxCount = 0;
+
+      while ((millis() - startTime) < 3000 && rxCount < 64) {
+        if (rs485Serial.available()) {
+          rxBuf[rxCount++] = rs485Serial.read();
+        }
+        yield();
+      }
+
+      Serial.printf("RX bytes received: %d\n", rxCount);
+      if (rxCount > 0) {
+        Serial.printf("RX data: ");
+        for (int i = 0; i < rxCount; i++) Serial.printf("%02X ", rxBuf[i]);
+        Serial.println();
+      } else {
+        Serial.println("No response - possible causes:");
+        Serial.println("  1. TX signal not reaching sensor (check TXS0108E A1->B1)");
+        Serial.println("  2. RX signal not returning (check TXS0108E B2->A2)");
+        Serial.println("  3. RS485 A/B lines swapped");
+        Serial.println("  4. Sensor address mismatch (expecting 0x01)");
+        Serial.println("  5. DE/RE not switching (check TXS0108E A3->B3)");
+      }
+
+      // Step 4: Also try via the normal modbusClient
+      Serial.println("\nRetrying via modbusClient...");
       uint16_t testData[9];
-      bool success = tempClient.readHoldingRegisters(SOIL_SENSOR_MODBUS_ADDR, 0x0000, 9, testData);
-      
+      bool success = modbusClient.readHoldingRegisters(SOIL_SENSOR_MODBUS_ADDR, 0x0000, 9, testData);
+
       if (success) {
-        Serial.println("✓ RS485 communication successful!");
-        Serial.printf("Raw register values:\n");
+        Serial.println("OK! Communication successful!");
         for (int i = 0; i < 9; i++) {
           Serial.printf("  Reg[0x%04X]: %d (0x%04X)\n", i, testData[i], testData[i]);
         }
-        
-        // Parse values like the sensor does
-        float humidity = testData[0] / 10.0f;
-        int16_t rawTemp = static_cast<int16_t>(testData[1]);
-        float temperature = rawTemp / 10.0f;
-        float ec = testData[2];
-        float ph = testData[3] / 10.0f;
-        
-        Serial.printf("\nParsed values:\n");
-        Serial.printf("  Humidity: %.1f%%\n", humidity);
-        Serial.printf("  Temperature: %.1f°C\n", temperature);
-        Serial.printf("  EC: %.0f µS/cm\n", ec);
-        Serial.printf("  pH: %.1f\n", ph);
-        Serial.printf("  N: %d mg/kg\n", testData[4]);
-        Serial.printf("  P: %d mg/kg\n", testData[5]);
-        Serial.printf("  K: %d mg/kg\n", testData[6]);
       } else {
-        Serial.printf("✗ RS485 communication failed (Error: %d)\n", tempClient.getLastError());
-        uint32_t successCount, errorCount;
-        tempClient.getStatistics(&successCount, &errorCount);
-        Serial.printf("Client statistics: %lu success, %lu errors\n", successCount, errorCount);
+        Serial.printf("Failed (Error: %d)\n", modbusClient.getLastError());
       }
-      
+
       Serial.println("=== Test Complete ===\n");
     }
     else if (command == "help") {
