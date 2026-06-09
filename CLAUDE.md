@@ -201,3 +201,8 @@ lib_deps =
 - **Diagnostic Mode:** Serial commands for field troubleshooting
 
 This system represents a production-ready IoT embedded solution with comprehensive safety features, designed for reliable greenhouse automation deployment.
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+<!-- SPECKIT END -->
