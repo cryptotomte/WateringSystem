@@ -889,7 +889,7 @@
 							)
 						)
 					)
-					(number "1"
+					(number "2"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -1033,7 +1033,7 @@
 							)
 						)
 					)
-					(number "2"
+					(number "1"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -1069,7 +1069,7 @@
 							)
 						)
 					)
-					(number "19"
+					(number "20"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -1087,7 +1087,7 @@
 							)
 						)
 					)
-					(number "20"
+					(number "19"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -6030,6 +6030,16 @@
 	)
 	(wire
 		(pts
+			(xy 130.81 147.32) (xy 132.08 147.32)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "6d613191-208e-44de-96ec-389d6bd79f9d")
+	)
+	(wire
+		(pts
 			(xy 262.89 152.4) (xy 255.27 152.4)
 		)
 		(stroke
@@ -6377,6 +6387,16 @@
 			(type default)
 		)
 		(uuid "cf367c62-c39e-4e40-a6fe-6e1612ffff88")
+	)
+	(wire
+		(pts
+			(xy 130.81 144.78) (xy 130.81 147.32)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "cf572be9-5628-4415-9873-1a8a2b637489")
 	)
 	(wire
 		(pts
@@ -13364,6 +13384,72 @@
 			(project "WateringSystem"
 				(path "/48c2e22f-8006-434e-86fa-459a1d38947a"
 					(reference "R9")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:+3V3")
+		(at 130.81 144.78 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "e6e1b495-eeb7-4af9-99b1-1898a21bfe78")
+		(property "Reference" "#PWR046"
+			(at 130.81 148.59 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "+3V3"
+			(at 130.81 139.7 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 130.81 144.78 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 130.81 144.78 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"+3V3\""
+			(at 130.81 144.78 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "dc9eddd9-754d-44e2-bcea-69b325324c6d")
+		)
+		(instances
+			(project "WateringSystem"
+				(path "/48c2e22f-8006-434e-86fa-459a1d38947a"
+					(reference "#PWR046")
 					(unit 1)
 				)
 			)

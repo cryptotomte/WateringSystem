@@ -1,0 +1,42 @@
+Reference,Quantity,Value,Footprint,Manufacturer,MPN,Description,Notes
+U1,1,ESP32-WROOM-32E,Module,Espressif,ESP32-WROOM-32E-N4,"ESP32 module, 4MB flash, PCB antenna",Behåll samma modul som idag
+U2,1,CP2102N,QFN-28,Silicon Labs,CP2102N-A02-GQFN28R,USB-to-UART bridge,Auto-program-krets med 2x 2N3904
+U3,1,THVD1426,SOIC-8,Texas Instruments,THVD1426DR,"RS485 transceiver, auto-direction, 3-5.5V supply",Ingen DE-pin behövs - bias-resistorer R4/R5 krävs
+U4,1,MP2307DN,SOIC-8-EP,Monolithic Power,MP2307DN,"Buck converter, 4.75-23V in, 0.925-15V out, 3A",12V till 3.3V
+U5,2,INA226AIDGSR,MSOP-10,Texas Instruments,INA226AIDGSR,"Current/voltage/power monitor, 16-bit, I2C",En per pump - olika I2C-adress via A0/A1
+U6,1,BME280,LGA-8,Bosch,BME280,"Temp/humidity/pressure sensor, I2C",Behåll - samma som idag
+Q1,2,2N7002,SOT-23,Onsemi,2N7002LT1G,"N-MOSFET 60V 200mA",Level-shift XKC-Y26 OUT till 3.3V
+Q2,2,AOD514,DPAK (TO-252),Alpha & Omega,AOD514,"N-MOSFET 30V 75A logic-level",Pump-switch (huvudpump + reservoarpump)
+Q3,1,AO3401,SOT-23,Alpha & Omega,AO3401A,P-MOSFET 30V 4A,Reverse-polarity-skydd på 12V-input
+D1,2,SS54,SMA,Onsemi,SS54,"Schottky 5A 40V",Flyback-diod över pump
+D2,2,SMBJ16CA,SMB,Littelfuse,SMBJ16CA,"TVS bidirectional 16V",Skydd över AOD514 drain-source
+D3,1,SMBJ15CA,SMB,Littelfuse,SMBJ15CA,"TVS bidirectional 15V",Skydd på 12V-input-rail
+D4,1,SM712,SOT-23,Semtech,SM712,"RS485 TVS array 7/12V",Skydd över A/B på RS485-buss
+L1,1,22uH,SMD power inductor,Coilcraft,XAL5030-223MEC,"22uH 3A power inductor",För MP2307 buck
+R1,1,2 mΩ 1W,2512,Susumu,KRL3216E-C-R002-F-T1,"Current shunt 2mΩ 1% 1W",I serie med pump - krymp BOM med en per pump om delade INA226
+R2,1,2 mΩ 1W,2512,Susumu,KRL3216E-C-R002-F-T1,"Current shunt 2mΩ 1% 1W",Andra pumpens shunt
+R3,1,120Ω 1/8W,0603,Yageo,RC0603FR-07120RL,RS485-terminering,Mellan A och B
+R4,1,680Ω 1/8W,0603,Yageo,RC0603FR-07680RL,RS485 bias-pullup,A till 3.3V
+R5,1,680Ω 1/8W,0603,Yageo,RC0603FR-07680RL,RS485 bias-pulldown,B till GND
+R6,2,10kΩ 1/8W,0603,Yageo,RC0603FR-0710KL,XKC-Y26 OUT pullup till 12V,En per nivåsensor
+R7,2,10kΩ 1/8W,0603,Yageo,RC0603FR-0710KL,2N7002 drain pullup till 3.3V,En per nivåsensor
+R8,2,10kΩ 1/8W,0603,Yageo,RC0603FR-0710KL,AOD514 gate-pulldown,Säker av under boot
+R9,2,100Ω 1/8W,0603,Yageo,RC0603FR-07100RL,AOD514 gate-resistor,Begränsar switching-transient
+R10,2,5.1kΩ 1/8W,0603,Yageo,RC0603FR-075K1L,USB-C CC1/CC2 pulldown,För source-detection
+R11,2,10kΩ 1/8W,0603,Yageo,RC0603FR-0710KL,EN/BOOT pullups,För ESP32 boot-konfiguration
+C1,4,10uF 25V,0805,Murata,GRM21BR61E106KA73L,Buck input cap,2 på 12V-rail nära MP2307
+C2,2,22uF 10V,0805,Murata,GRM21BR61A226KE51L,Buck output cap,3.3V efter buck-induktor
+C3,1,100nF 16V,0402,Murata,GRM155R61C104KA88D,Bypass-cap på alla IC,Sätt 1 per IC nära VCC
+C4,4,100nF 16V,0402,Murata,GRM155R61C104KA88D,Bypass-cap på alla IC,En per IC
+C5,1,470uF 25V,SMD electrolytic,Nichicon,UWT1E471MNL1GS,Bulk input cap,Stora transienter från pumpstart
+SW1,1,Tactile switch SMD,SMD 6x6mm,C&K,PTS636SK50SMTR LFS,BOOT-knapp,Till GPIO0
+SW2,1,Tactile switch SMD,SMD 6x6mm,C&K,PTS636SK50SMTR LFS,RESET-knapp,Till EN
+J1,1,USB-C receptacle,16-pin SMD,GCT,USB4105-GF-A,USB-C connector,För programmering och ström alternativt
+J2,1,2-pin terminal block,5.08mm pitch,Weidmüller,Per användares val,12V-input,Användare väljer modell
+J3,2,2-pin terminal block,5.08mm pitch,Weidmüller,Per användares val,Pump output,En per pump
+J4,1,JST XH 4-pin,XH-4P,JST,B4B-XH-A(LF)(SN),Soil-sensor (RS485),A/B/12V/GND
+J5,2,JST XH 4-pin,XH-4P,JST,B4B-XH-A(LF)(SN),Nivåsensorer XKC-Y26,VCC/OUT/GND/MODE
+J6,1,JTAG 6-pin header,0.1" pitch,Generic,Per användares val,JTAG för ESP-IDF debug,GPIO12-15 + GND/3.3V
+LED1,1,LED grön,0603,Lite-On,LTST-C190KGKT,Power-indikator,På 3.3V via 1k resistor
+LED2,1,LED röd,0603,Lite-On,LTST-C190KRKT,Status-LED,På GPIO2
+F1,1,Polyfuse 1A,1812,Bel Fuse,0ZCJ0100AF2C,Resettable fuse på 12V-input,Skydd mot kortslutning
