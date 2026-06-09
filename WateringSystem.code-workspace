@@ -12,6 +12,7 @@
       "${workspaceFolder}/src/**",
       "${workspaceFolder}/lib/**",
       "${workspaceFolder}/.pio/libdeps/**"
-    ]
+    ],
+    "claudeCodeChat.permissions.yoloMode": false
   }
 }
