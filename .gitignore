@@ -74,3 +74,4 @@ docs/cleanup-completion-report.md
 docs/testing.md
 docs/user-guide.md
 docs/safety.md
+.playwright-mcp/
