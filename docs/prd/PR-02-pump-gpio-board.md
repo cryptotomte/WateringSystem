@@ -32,7 +32,10 @@ board feature flags.
     `/control` `start` with duration 0) uncapped (see `docs/parity-checklist.md` §4).
   - Runtime tracking (start time, accumulated run time) for status reporting.
 - Two pump instances wired in `app_main` behind the interfaces; simple serial
-  diagnostic to toggle pumps for rig testing.
+  diagnostic to toggle pumps for rig testing. *(Decision update 2026-06-10: rev2
+  is a single-pump node — `BOARD_HAS_RESERVOIR_PUMP` lands in PR-05 and makes the
+  reservoir instance conditional; the two-pump wiring built here remains correct
+  for rev1.)*
 - Mock `IWaterPump` for host tests (foundation for PR-11).
 
 ## Out of scope

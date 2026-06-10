@@ -29,6 +29,10 @@ safety conditions under host tests running in CI** on the IDF linux target.
     window: 30 s) stops the plant pump and blocks automatic watering (FR4).
   - Reservoir state machine on low/high level sensors: fill on low, stop on high,
     hard 300 s max fill runtime, sensor-implausibility handling (high without low).
+    Active only on boards with a local refill pump (`BOARD_HAS_RESERVOIR_PUMP`,
+    rev1 — FR4 decision 2026-06-10); on rev2 the level sensors feed status (and a
+    future refill-request in the multi-zone PRD). The state machine is still fully
+    host-tested (logic is board-independent; the flag gates the wiring).
   - Data logging cadence (Arduino default 5 min) into `IDataStorage`.
   - Time-not-set behavior (pre-SNTP) defined and tested.
 - **Host test suite in CI** (IDF linux target + mocks from PR-02..06):

@@ -17,9 +17,15 @@ the greenhouse and retire the Arduino unit after a two-week unattended soak.
     verify driver-release/idle behavior against datasheet timing (tHOLD vs 104 µs bit
     time at 9600 baud — open question from rev2 BOM) with scope on A/B; confirm bias
     resistors (R4 pull-up A, R5 pull-down B) give a defined idle state.
-  - **INA226 per pump:** both devices respond on their A0/A1-strapped addresses (no
-    collision with BME280 0x76/0x77); plausible 12 V bus voltage; current readings
-    against a bench meter while pumps run (high-side shunts R1/R2).
+  - **INA226 (single device — rev2 has one pump channel, FR4 decision
+    2026-06-10):** responds at its address (default 0x40, no collision with
+    BME280 0x76/0x77); plausible 12 V bus voltage; current readings against a
+    bench meter while the watering pump runs (high-side shunt R1).
+  - **Single-pump node:** no reservoir pump output exists; verify the firmware
+    (BOARD_HAS_RESERVOIR_PUMP=0) exposes exactly one pump in console/API and the
+    reservoir level sensors report status without driving any refill logic.
+    Greenhouse reservoir is refilled manually until the central reservoir unit
+    exists (multi-zone, future PRD).
   - **Inverted level sensors:** XKC-Y26 through 2N7002 inverter ⇒ GPIO active LOW;
     wet/dry bench measurement confirms `BOARD_LEVEL_SENSOR_ACTIVE_LOW` mapping
     (counterpart of the PR-05 rev1 verification).

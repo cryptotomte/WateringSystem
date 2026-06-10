@@ -16,12 +16,16 @@ deliverable and the input to the future frontend PRD.
   - System status (mode, WiFi, time-sync, uptime, reset reason, firmware version).
   - Environmental + soil sensor readings (incl. validity flags).
   - Sensor history from littlefs storage.
-  - Pump control: start/stop/timed-run for both pumps, mode switch manual/automatic.
+  - Pump control: start/stop/timed-run for the pumps the board exposes (rev1: plant
+    + reservoir; rev2: plant only — `BOARD_HAS_RESERVOIR_PUMP`, FR4 decision
+    2026-06-10; the API enumerates pumps rather than hard-coding two), mode switch
+    manual/automatic.
     Honor the Arduino lesson that pump operations must be reliable — define idempotent
     semantics and explicit error responses; the old GET/POST-form-data workaround is
     replaced by a clean JSON contract.
   - Configuration get/set (thresholds, intervals, durations) with validation.
-  - INA226 readings per pump on rev2 (`null`/absent on rev1) (FR6 exposure).
+  - INA226 readings for the watering-pump channel on rev2 (`null`/absent on rev1)
+    (FR6 exposure).
   - Diagnostics (FR12 API side): event log retrieval, RS485/sensor self-test trigger —
     exact diagnostics scope is the master PRD's open question, settled in this spec.
   - OTA-trigger endpoint **stub** (contract defined here, implementation in PR-13).
