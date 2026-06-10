@@ -15,12 +15,24 @@ safety conditions under host tests running in CI** on the IDF linux target.
   level sensors, injectable clock) — zero hardware includes, fully host-buildable.
 - Behavior parity per `docs/parity-checklist.md` (the phase 0 ground truth), notably:
   - Moisture-threshold watering with configurable duration. **Minimum watering
-    interval: the Arduino code stores and persists the value but NEVER enforces it**
-    (deliberate "NO minimum interval — if it's dry, water immediately!" comment,
-    `WateringController.cpp:303`). Whether the ESP-IDF port starts enforcing it is
-    an **OPEN DECISION for Paul** (`docs/parity-checklist.md` §1 marks it
-    `[DECISION for Paul]`) — this PR must not silently resolve it; the decision is
-    recorded in the spec before implementation.
+    interval — RESOLVED by Paul, 2026-06-10: the ESP-IDF port MUST enforce it**,
+    as a soak/absorption pause. This is a **DELIBERATE behavior change, not parity**:
+    the Arduino code stores and persists the value but never enforces it (deliberate
+    "NO minimum interval — if it's dry, water immediately!" comment,
+    `WateringController.cpp:303`).
+    - **Rationale (pulsed watering):** even bone-dry soil must be watered in bursts.
+      Water needs time to absorb — poured continuously it pools on the surface while
+      the moisture sensor lags, so the controller would keep filling. The automatic
+      cycle is therefore: watering burst (configurable duration) → enforced soak
+      pause (no automatic watering, even if the sensor still reads dry) →
+      re-evaluate moisture → repeat until the high threshold is reached.
+    - Both knobs (burst duration, soak pause) are runtime-configurable; good values
+      are unknown yet and will be tuned empirically on the rig/in the greenhouse.
+      The pause MUST be respected by automatic mode regardless of configuration
+      source; manual mode is unaffected (operator override, as today).
+    - Host tests MUST cover the soak gate: no automatic start during the pause,
+      restart after expiry while still below threshold, and pause interaction with
+      fail-safe stops (a safety stop must not be delayed by the gate).
   - Manual/automatic mode; manual operation bypasses sensor safety checks (parity).
     Manual runs capped at 300 s — **DELIBERATE behavior change, not parity**: the
     Arduino firmware runs manual/indefinite starts (legacy `/control` `start` with
