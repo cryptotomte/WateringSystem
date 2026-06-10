@@ -1,0 +1,64 @@
+# Cold reproducibility build of the frozen legacy Arduino/PlatformIO firmware.
+#
+# This workflow lives on main (the default branch) because GitHub only honors
+# workflow_dispatch and schedule triggers for workflows on the default branch —
+# the arduino-legacy.yml on the arduino-maintenance branch itself only covers
+# push/PR events to that branch. This file checks out and builds the frozen
+# arduino-maintenance branch as a reproducibility canary.
+#
+# Deliberately NO caching: a cold build proves the pinned platform/library
+# packages are still downloadable from scratch, which is the actual guarantee
+# behind "git checkout arduino-final always builds".
+name: arduino-legacy-cold
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Monthly canary: 06:00 UTC on the 1st.
+    - cron: "0 6 1 * *"
+
+jobs:
+  build:
+    name: Cold build of frozen legacy firmware (pinned deps, no cache)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout arduino-maintenance
+        uses: actions/checkout@v4
+        with:
+          ref: arduino-maintenance
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install PlatformIO Core (pinned)
+        run: pip install platformio==6.1.19
+
+      - name: Build firmware
+        run: pio run -e wateringsystem
+
+      - name: Build LittleFS filesystem image
+        run: pio run -e wateringsystem -t buildfs
+
+      # if-no-files-found: error only fires when ZERO files match, so a partial
+      # match could silently upload an incomplete artifact set. Verify all four
+      # files exist before uploading.
+      - name: Verify all artifacts exist
+        run: |
+          test -f .pio/build/wateringsystem/firmware.bin
+          test -f .pio/build/wateringsystem/littlefs.bin
+          test -f .pio/build/wateringsystem/bootloader.bin
+          test -f .pio/build/wateringsystem/partitions.bin
+
+      - name: Upload flashable artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: arduino-firmware-cold
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            .pio/build/wateringsystem/firmware.bin
+            .pio/build/wateringsystem/littlefs.bin
+            .pio/build/wateringsystem/bootloader.bin
+            .pio/build/wateringsystem/partitions.bin
