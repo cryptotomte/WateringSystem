@@ -54,6 +54,13 @@
 /* Pump current monitoring */
 #define BOARD_HAS_INA226                0
 
+/* Status LED */
+#define BOARD_PIN_STATUS_LED            2
+
+/* Buttons (manual watering trigger, WiFi config/AP mode) */
+#define BOARD_PIN_BTN_MANUAL            5
+#define BOARD_PIN_BTN_CONFIG            18
+
 #elif CONFIG_BOARD_REV2
 
 /* ------------------------------------------------------------------------
@@ -91,8 +98,47 @@
 /* Pump current monitoring (one INA226 per pump on the I2C bus) */
 #define BOARD_HAS_INA226                1   // TODO(SYNC1): final rev2 pin map frozen at hardware sync 1
 
+/* Status LED */
+#define BOARD_PIN_STATUS_LED            2   // TODO(SYNC1): final rev2 pin map frozen at hardware sync 1
+
+/* Buttons (manual watering trigger, WiFi config/AP mode) */
+#define BOARD_PIN_BTN_MANUAL            5   // TODO(SYNC1): final rev2 pin map frozen at hardware sync 1
+#define BOARD_PIN_BTN_CONFIG            18  // TODO(SYNC1): final rev2 pin map frozen at hardware sync 1
+
 #else
 #error "No board selected: enable CONFIG_BOARD_REV1_DEVKIT or CONFIG_BOARD_REV2"
+#endif
+
+/* ------------------------------------------------------------------------
+ * Compile-time board sanity checks (preprocessor — the values are macros).
+ * A wrong or inconsistent pin table must fail the build, not the rig.
+ * ------------------------------------------------------------------------ */
+
+/* Pin distinctness within each function group */
+#if BOARD_PIN_MAIN_PUMP == BOARD_PIN_RESERVOIR_PUMP
+#error "Board sanity: BOARD_PIN_MAIN_PUMP and BOARD_PIN_RESERVOIR_PUMP must differ"
+#endif
+#if BOARD_PIN_LEVEL_LOW == BOARD_PIN_LEVEL_HIGH
+#error "Board sanity: BOARD_PIN_LEVEL_LOW and BOARD_PIN_LEVEL_HIGH must differ"
+#endif
+#if BOARD_PIN_BTN_MANUAL == BOARD_PIN_BTN_CONFIG
+#error "Board sanity: BOARD_PIN_BTN_MANUAL and BOARD_PIN_BTN_CONFIG must differ"
+#endif
+
+/* Pumps must not share a pin with the level sensors */
+#if (BOARD_PIN_MAIN_PUMP == BOARD_PIN_LEVEL_LOW) || \
+    (BOARD_PIN_MAIN_PUMP == BOARD_PIN_LEVEL_HIGH) || \
+    (BOARD_PIN_RESERVOIR_PUMP == BOARD_PIN_LEVEL_LOW) || \
+    (BOARD_PIN_RESERVOIR_PUMP == BOARD_PIN_LEVEL_HIGH)
+#error "Board sanity: pump pins collide with level sensor pins"
+#endif
+
+/* Feature flag consistency: BOARD_HAS_RS485_DE == 1 iff the DE pin exists */
+#if BOARD_HAS_RS485_DE && !defined(BOARD_PIN_RS485_DE)
+#error "Board sanity: BOARD_HAS_RS485_DE is 1 but BOARD_PIN_RS485_DE is not defined"
+#endif
+#if !BOARD_HAS_RS485_DE && defined(BOARD_PIN_RS485_DE)
+#error "Board sanity: BOARD_PIN_RS485_DE is defined but BOARD_HAS_RS485_DE is 0"
 #endif
 
 #endif /* WATERINGSYSTEM_BOARD_BOARD_H */

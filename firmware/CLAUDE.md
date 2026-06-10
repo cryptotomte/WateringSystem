@@ -26,6 +26,18 @@ overlays are only applied when `sdkconfig` is regenerated. CI
 is main-only, feature branches build via PR or manual dispatch. Both boards
 must stay green.
 
+### Host tests (linux preview target)
+
+Pump enforcement logic is unit-tested natively, no ESP32 needed. The test
+executable's exit code equals the Unity failure count (CI gate, job
+`host-test`):
+
+```bash
+cd firmware/test_apps/host
+docker run --rm -v "$PWD":/project -w /project espressif/idf:v6.0.1 bash -c \
+  "idf.py --preview set-target linux && idf.py build && ./build/pump_host_tests.elf"
+```
+
 ## Directory structure
 
 ```
@@ -39,15 +51,51 @@ firmware/
 ├── Dockerfile                  # Pins espressif/idf:v6.0.1
 ├── main/
 │   ├── app_main.cpp            # Entry point — pumps forced OFF first, always
+│   ├── diag_console.cpp/.h     # esp_console UART REPL (prompt "ws>")
 │   ├── Kconfig.projbuild       # Board revision choice
 │   └── idf_component.yml       # Pinned managed deps (esp-modbus, littlefs)
-└── components/
-    └── board/                  # Board abstraction (header-only)
-        └── include/board/board.h
+├── components/
+│   ├── board/                  # Board abstraction (header-only)
+│   │   └── include/board/board.h
+│   ├── interfaces/             # Header-only, NO IDF deps (host-includable)
+│   │   └── include/interfaces/ # IActuator, IWaterPump, ITimeProvider
+│   └── actuators/              # Pump drivers
+│       ├── include/actuators/  # WaterPump (pure C++ logic), GpioWaterPump,
+│       │                       # EspTimeProvider (esp32-only header),
+│       │                       # testing/ (MockWaterPump, FakeTimeProvider)
+│       └── src/                # GpioWaterPump.cpp excluded on linux target
+└── test_apps/
+    └── host/                   # Host test app (linux preview target, Unity)
 ```
 
 Future components (drivers, controllers, web server) are added as siblings
 under `components/`, one concern per component.
+
+## Pump actuator layer
+
+All timing/safety logic (timed runs, hard 300 s max-runtime cap, runtime
+statistics, stop reasons) lives in the pure C++ `WaterPump` base class,
+driven by an injected `ITimeProvider` and a polled `update()` (main loop,
+10 Hz). The only hardware touchpoint is `applyOutput(bool)`, implemented by
+`GpioWaterPump` (active-HIGH MOSFET gate, OFF re-asserted glitch-free at
+init). Host-tested code must never call `esp_timer` directly — it is not
+simulated on the linux target; inject time instead. Concurrency: `WaterPump`
+is unsynchronized by design — any pump accessed from more than one task
+(e.g. main loop + console REPL) must be wrapped in `LockedWaterPump` and
+accessed only through the wrapper.
+
+## Serial diagnostic console
+
+`main/diag_console.cpp` starts an `esp_console` UART REPL (prompt `ws>`,
+same UART as logs, 115200 baud). Command grammar and exact response formats
+are normative in `specs/002-pump-gpio-board/contracts/serial-diagnostic.md`:
+
+```
+pump <plant|reservoir> start <seconds>   # timed run; 1..300
+pump <plant|reservoir> stop
+pump <plant|reservoir> status
+pump status                              # both pumps
+```
 
 ## Board abstraction
 
