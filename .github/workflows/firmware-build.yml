@@ -78,5 +78,9 @@ jobs:
         uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1
         with:
           esp_idf_version: v6.0.1
+          # The action defaults IDF_TARGET to esp32, which makes
+          # `set-target linux` abort ("not consistent with target in the
+          # environment"). Match the env to the linux preview target.
+          target: linux
           path: firmware
           command: cd test_apps/host && idf.py --preview set-target linux && idf.py build && ./build/pump_host_tests.elf
