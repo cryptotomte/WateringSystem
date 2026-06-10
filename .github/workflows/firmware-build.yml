@@ -62,3 +62,21 @@ jobs:
             firmware/build/wateringsystem.bin
             firmware/build/partition_table/partition-table.bin
             firmware/build/bootloader/bootloader.bin
+
+  # Host tests: the pump enforcement logic runs natively on the IDF linux
+  # preview target. The test executable's exit code equals the Unity
+  # failure count, so running it is the gate (no log scraping needed).
+  host-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build and run host tests (linux target)
+        uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1
+        with:
+          esp_idf_version: v6.0.1
+          path: firmware
+          command: cd test_apps/host && idf.py --preview set-target linux && idf.py build && ./build/pump_host_tests.elf
