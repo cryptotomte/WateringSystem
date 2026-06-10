@@ -1,0 +1,10 @@
+menu "WateringSystem"
+    choice BOARD
+        prompt "Board revision"
+        default BOARD_REV1_DEVKIT
+        config BOARD_REV1_DEVKIT
+            bool "Rev 1 — ESP32 devkit + breakout (TXS0108E + SP3485)"
+        config BOARD_REV2
+            bool "Rev 2 — custom PCB (THVD1426 auto-direction, INA226, CP2102N)"
+    endchoice
+endmenu

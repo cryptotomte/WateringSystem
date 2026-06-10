@@ -1,0 +1,7 @@
+# Managed dependencies (IDF Component Registry), pinned for reproducible builds.
+# Not yet used by app_main — pinned here so dependency resolution is validated
+# in CI from phase 0 onwards.
+dependencies:
+  idf: ">=6.0.0"
+  espressif/esp-modbus: "==2.1.2"
+  joltwallet/littlefs: "==1.22.1"
