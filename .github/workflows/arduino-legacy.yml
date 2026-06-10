@@ -1,0 +1,72 @@
+# CI build for the frozen legacy Arduino/PlatformIO firmware.
+# Lives on the arduino-maintenance branch only — never merged to main.
+# Guarantees the PRD success criterion: `git checkout arduino-final` always builds.
+#
+# Note: GitHub only surfaces workflow_dispatch in the UI/API for workflows on the
+# default branch. Manual/scheduled reproducibility builds of this branch are
+# provided by .github/workflows/arduino-legacy-cold.yml on main (added in the
+# phase 0 PR); this file's push/PR triggers cover changes to the branch itself.
+name: arduino-legacy-build
+
+on:
+  push:
+    branches:
+      - arduino-maintenance
+  pull_request:
+    branches:
+      - arduino-maintenance
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build legacy firmware (pinned deps)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache PlatformIO and pip
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.cache/pip
+          key: pio-legacy-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            pio-legacy-${{ runner.os }}-
+
+      - name: Install PlatformIO Core (pinned)
+        run: pip install platformio==6.1.19
+
+      - name: Build firmware
+        run: pio run -e wateringsystem
+
+      - name: Build LittleFS filesystem image
+        run: pio run -e wateringsystem -t buildfs
+
+      # if-no-files-found: error only fires when ZERO files match, so a partial
+      # match could silently upload an incomplete artifact set. Verify all four
+      # files exist before uploading.
+      - name: Verify all artifacts exist
+        run: |
+          test -f .pio/build/wateringsystem/firmware.bin
+          test -f .pio/build/wateringsystem/littlefs.bin
+          test -f .pio/build/wateringsystem/bootloader.bin
+          test -f .pio/build/wateringsystem/partitions.bin
+
+      - name: Upload flashable artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: arduino-firmware
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            .pio/build/wateringsystem/firmware.bin
+            .pio/build/wateringsystem/littlefs.bin
+            .pio/build/wateringsystem/bootloader.bin
+            .pio/build/wateringsystem/partitions.bin
