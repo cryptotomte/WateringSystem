@@ -52,6 +52,7 @@ jobs:
           test -f firmware/build/wateringsystem.bin
           test -f firmware/build/bootloader/bootloader.bin
           test -f firmware/build/partition_table/partition-table.bin
+          test -f firmware/build/ota_data_initial.bin
 
       - name: Upload binaries
         uses: actions/upload-artifact@v4
@@ -62,6 +63,7 @@ jobs:
             firmware/build/wateringsystem.bin
             firmware/build/partition_table/partition-table.bin
             firmware/build/bootloader/bootloader.bin
+            firmware/build/ota_data_initial.bin
 
   # Host tests: the pump enforcement logic runs natively on the IDF linux
   # preview target. The test executable's exit code equals the Unity
