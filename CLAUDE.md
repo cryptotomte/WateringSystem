@@ -1,5 +1,15 @@
 # CLAUDE.md
 
+> ⚠️ **MAINTENANCE BRANCH — FROZEN LEGACY FIRMWARE**
+> This branch (`arduino-maintenance`) preserves the Arduino/PlatformIO firmware (v2.3.x)
+> that runs the production greenhouse unit. It is NEVER merged into `main`.
+> Active development happens on `main` under `firmware/` (ESP-IDF).
+> All platform and library dependencies are pinned exactly in `platformio.ini`
+> (do not relax the pins), and CI (`.github/workflows/arduino-legacy.yml`) is the
+> canonical build. Patch flow: worktree → fix → CI build (pinned deps) → deploy to the
+> production unit (serial flash — this firmware has no web-OTA endpoint) →
+> tag `arduino-v2.3.x`.
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
@@ -18,6 +28,12 @@ WateringSystem v2.3 is a production-ready embedded IoT system for automated gree
 - **Filesystem:** LittleFS
 
 ### Essential Build Commands
+
+**CI is the canonical build:** every push to `arduino-maintenance` runs
+`.github/workflows/arduino-legacy.yml`, which builds with exactly pinned
+dependencies and uploads a fully flashable artifact set (`firmware.bin`,
+`littlefs.bin`, `bootloader.bin`, `partitions.bin`). Local PlatformIO builds
+are optional and only needed for flashing/monitoring over USB.
 
 ```bash
 # Build the project
@@ -115,7 +131,7 @@ The codebase follows strict interface-based design with clean separation of conc
 ### Development Server
 - **Framework:** ESPAsyncWebServer with LittleFS file storage
 - **Features:** Real-time sensor monitoring, pump control, configuration management
-- **OTA Updates:** Web-based firmware updates via /update endpoint
+- **Firmware Updates:** No web-OTA endpoint exists in this firmware; updates are flashed over serial (use the CI artifacts: firmware.bin, littlefs.bin, bootloader.bin, partitions.bin)
 - **WiFi Configuration:** AP mode setup at 192.168.4.1 when unconfigured
 
 ### API Endpoints Structure
@@ -178,14 +194,23 @@ The system includes comprehensive diagnostic commands accessible via Serial moni
 
 ## Key Dependencies
 
+All dependencies are pinned to exact versions (the known-good set that built the
+production binary). Never reintroduce `^`/`~` ranges or unpinned entries on this branch.
+
 ```ini
-lib_deps = 
-    adafruit/Adafruit BME280 Library@^2.2.2
-    adafruit/Adafruit Unified Sensor@^1.1.6
-    bblanchon/ArduinoJson@^6.20.0
-    me-no-dev/AsyncTCP
-    me-no-dev/ESPAsyncWebServer
+platform = espressif32@6.12.0
+lib_deps =
+    adafruit/Adafruit BME280 Library@2.2.4
+    adafruit/Adafruit Unified Sensor@1.1.15
+    bblanchon/ArduinoJson@6.21.5
+    me-no-dev/AsyncTCP@3.3.2
+    me-no-dev/ESPAsyncWebServer@3.6.0
+    adafruit/Adafruit BusIO@1.17.0   ; transitive pin (BME280 dep)
 ```
+
+Note: ESPAsyncWebServer also installs ESP32Async/AsyncTCP transitively, but only the
+direct `me-no-dev/AsyncTCP@3.3.2` copy is linked (same as the production build). Do not
+add the esp32async copy to `lib_deps` — it causes multiple-definition linker errors.
 
 ## System Monitoring & Maintenance
 
