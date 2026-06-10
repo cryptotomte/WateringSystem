@@ -130,7 +130,7 @@ Spåren är oberoende utom vid SYNK 1 och SYNK 2. Fas 1–5 utvecklas och verifi
 - `pr-review-toolkit` körs före varje commit; merge commits (aldrig squash); en branch åt gången; `git worktree` vid parallellism.
 - Implementer levererar alltid testchecklista: host-test-PR:er verifieras av CI; hårdvarunära PR:er får HIL-checklista som Paul kör på riggen vid CP3.
 - Språk: engelska för commits/kod/docs/issues (publikt repo), svenska i dialogen. `.github/copilot-instructions.md` uppdateras.
-- Legacy-patch-flöde: `git worktree add ../WateringSystem-arduino arduino-maintenance` → fixa → bygg (CI/PlatformIO, pinnade versioner) → deploy via /update-OTA → tagga `arduino-v2.3.x`. Mergas aldrig till main.
+- Legacy-patch-flöde: `git worktree add ../WateringSystem-arduino arduino-maintenance` → fixa → bygg (CI/PlatformIO, pinnade versioner) → deploy via kabel/seriell flash (Arduino-firmwaren saknar OTA-endpoint) → tagga `arduino-v2.3.x`. Mergas aldrig till main.
 
 ## Efterföljande PRD:er (utanför scope, i prioritetsordning)
 

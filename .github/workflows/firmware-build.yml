@@ -1,0 +1,64 @@
+name: firmware-build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "firmware/**"
+      - ".github/workflows/firmware-build.yml"
+  pull_request:
+    paths:
+      - "firmware/**"
+      - ".github/workflows/firmware-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        board: [rev1_devkit, rev2]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build firmware (${{ matrix.board }})
+        uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1
+        with:
+          esp_idf_version: v6.0.1
+          target: esp32
+          path: firmware
+          command: idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.board.${{ matrix.board }}" build
+
+      # Unknown CONFIG_ keys in overlay files are silently ignored by IDF; a
+      # typo in sdkconfig.board.* would yield a green rev1 (Kconfig default)
+      # build labeled as rev2. Verify the board choice actually took effect.
+      - name: Verify board config took effect (${{ matrix.board }})
+        run: |
+          if [ "${{ matrix.board }}" = "rev1_devkit" ]; then
+            grep -qx "CONFIG_BOARD_REV1_DEVKIT=y" firmware/sdkconfig
+          else
+            grep -qx "CONFIG_BOARD_REV2=y" firmware/sdkconfig
+          fi
+
+      # if-no-files-found: error only fires when ZERO files match, so a
+      # partial match could silently upload an incomplete artifact set.
+      # Verify all three binaries exist before uploading.
+      - name: Verify all binaries exist
+        run: |
+          test -f firmware/build/wateringsystem.bin
+          test -f firmware/build/bootloader/bootloader.bin
+          test -f firmware/build/partition_table/partition-table.bin
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: wateringsystem-${{ matrix.board }}
+          if-no-files-found: error
+          path: |
+            firmware/build/wateringsystem.bin
+            firmware/build/partition_table/partition-table.bin
+            firmware/build/bootloader/bootloader.bin

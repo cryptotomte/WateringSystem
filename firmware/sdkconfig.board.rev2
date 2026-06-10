@@ -1,0 +1,2 @@
+# Board overlay: Rev 2 — custom PCB (THVD1426 auto-direction, INA226, CP2102N)
+CONFIG_BOARD_REV2=y

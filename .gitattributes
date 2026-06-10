@@ -1,0 +1,50 @@
+# Normalize line endings: LF in the repository for everything Git detects as text
+* text=auto eol=lf
+
+# Source code
+*.c        text eol=lf
+*.cpp      text eol=lf
+*.h        text eol=lf
+*.hpp      text eol=lf
+*.py       text eol=lf
+*.js       text eol=lf
+*.css      text eol=lf
+*.html     text eol=lf
+
+# Scripts (LF required for execution)
+*.sh       text eol=lf
+
+# Documentation and configuration
+*.md       text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+*.json     text eol=lf
+*.csv      text eol=lf
+*.txt      text eol=lf
+*.ini      text eol=lf
+
+# Build system
+*.cmake        text eol=lf
+CMakeLists.txt text eol=lf
+Kconfig        text eol=lf
+Kconfig.*      text eol=lf
+
+# KiCad text formats (s-expression based)
+*.kicad_pcb text eol=lf
+*.kicad_sch text eol=lf
+*.kicad_pro text eol=lf
+
+# Binary files — never normalize
+*.pdf   -text
+*.ico   -text
+*.png   -text
+*.jpg   -text
+*.jpeg  -text
+*.webp  -text
+*.gz    -text
+*.bin   -text
+*.elf   -text
+*.hex   -text
+*.woff  -text
+*.woff2 -text
+*.zip   -text
