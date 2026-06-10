@@ -4,205 +4,100 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-WateringSystem v2.3 is a production-ready embedded IoT system for automated greenhouse plant watering. This is a sophisticated ESP32-based system with hardware-managed power architecture, RS485 Modbus communication, and comprehensive safety features.
+WateringSystem is an ESP32-based automated greenhouse watering system. The repository contains **two firmware tracks**:
 
-**Key Architecture:** Hardware-managed LDO power domains with TXS0108E level shifting for reliable 5kV optical isolation between ESP32 (3.3V) and field devices (5V).
+1. **ESP-IDF firmware** (`firmware/`) — the NEW firmware under active development. All current and future work happens here. See `firmware/CLAUDE.md` for build details, component structure, and code conventions.
+2. **Arduino legacy firmware** (`src/`, `include/`, `data/`, `test/`, `platformio.ini`) — the FROZEN v2.3 firmware that still runs the production greenhouse unit. See the frozen-code rules below.
 
-## Development Environment & Build System
+Key documents:
 
-### PlatformIO Configuration
-- **Environment:** `wateringsystem` (defined in platformio.ini)
-- **Platform:** ESP32 (espressif32)
-- **Framework:** Arduino
-- **Board:** esp32dev
-- **Filesystem:** LittleFS
+- **Master PRD:** `docs/PRD-esp-idf-migration.md` — scope, requirements (FR1–FR13), phase plan.
+- **PR breakdown + dependency graph:** `docs/prd/` — one `PR-NN-*.md` per planned PR.
+- **Parity contract:** `docs/parity-checklist.md` — behavior the new firmware must match.
+- **Partition plan:** `docs/partition-plan.md` — flash layout calculation (A/B OTA + NVS + littlefs).
+- **Constitution:** `.specify/memory/constitution.md` — project principles for spec-kit.
 
-### Essential Build Commands
+## FROZEN Legacy Code — Read This First
+
+`src/`, `include/`, `data/`, `test/`, and `platformio.ini` **MUST NEVER be modified on `main` or on feature branches**. The production greenhouse unit runs this exact code. Treat these paths as read-only reference material.
+
+If a legacy bug must be patched, it goes ONLY through the `arduino-maintenance` branch, worked in a separate worktree:
 
 ```bash
-# Build the project
-platformio run --environment wateringsystem
-
-# Upload firmware to device
-platformio run --target upload --environment wateringsystem
-
-# Upload filesystem (web interface files)
-platformio run --target uploadfs --environment wateringsystem
-
-# Clean build
-platformio run --target clean
-
-# Monitor serial output
-platformio device monitor --port /dev/ttyUSB0 --baud 115200
+git worktree add ../WateringSystem-arduino arduino-maintenance
+# fix → build via CI (pinned PlatformIO deps) → deploy → tag arduino-v2.3.x
 ```
 
-### Windows PowerShell Commands
-```powershell
-# Build project (Windows with full path)
-& "C:\Users\crypt\.platformio\penv\Scripts\pio.exe" run --environment wateringsystem
+- **Never merge `arduino-maintenance` into `main`.**
+- Tag `arduino-final` is the permanent, buildable reference of the legacy firmware (`git checkout arduino-final` must always build).
 
-# Upload to device
-& "C:\Users\crypt\.platformio\penv\Scripts\pio.exe" run --target upload --environment wateringsystem
+## Language Policy
+
+**English for everything outward-facing** — code, comments, commit messages, PR titles and descriptions, issues, and documentation. The repository is public; this overrides the user-global rule about Swedish commit messages. Dialogue with Paul (chat) stays in Swedish.
+
+## Development Workflow
+
+Development is spec-kit driven and orchestrated with subagents. Each PR gets a `specs/NNN-*/` directory (spec, plan, tasks, checklists) generated from its `docs/prd/PR-NN-*.md`. Both `specs/` and `docs/prd/` are **versioned in git** — never gitignore them.
+
+### Phases
+
+1. `researcher` agent — optional codebase/docs exploration before specifying.
+2. `speckit.specify` — generate the feature spec from the PR description.
+3. `speckit.clarify` — resolve underspecified areas.
+4. **CHECKPOINT 1** — stop only if open questions remain after clarify; otherwise pass silently.
+5. `speckit.plan` → `speckit.tasks` → `speckit.analyze`.
+6. **CHECKPOINT 2** — ALWAYS stop. Present plan + tasks and wait for explicit approval before implementing.
+7. `speckit.implement` via the `implementer` agent. The orchestrator NEVER writes implementation code in the main session.
+8. `pr-review-toolkit:review-pr` — run all review agents.
+9. **CHECKPOINT 3** — ALWAYS stop. Present review findings. Fixes go through the `fixer` agent followed by a verification re-review. Commit/PR only after approval.
+
+### Workflow Rules
+
+- The review step is never skipped.
+- If review uncovers an architectural problem, go back to `speckit.plan` — do not patch around it.
+- Checkpoints 2 and 3 are mandatory stops; never auto-proceed past them.
+- Checkpoint 1 passes silently when clarify produced no open questions.
+- The implementer always delivers a test checklist with its work:
+  - **Host-test PRs** (logic, parsing, controllers) are verified by the CI host-test suite.
+  - **Hardware-near PRs** (drivers, RS485, GPIO) get a HIL checklist that Paul runs on the bench rig (rev1 devkit) at Checkpoint 3.
+
+### Subagent Model Policy
+
+Subagents (`researcher`, `implementer`, `fixer`) inherit the main session's model — `model: inherit` in `.claude/agents/*.md`. The model chosen for the session drives the entire flow; no agent pins a specific model.
+
+## Git Strategy
+
+- **Merge commits ALWAYS — never squash.** Squash merges break spec-kit branch chaining.
+- Branch naming: `NNN-short-name` for spec-kit features (e.g. `001-phase0-foundation`); `chore/...`, `fix/...` prefixes otherwise.
+- **One branch at a time.** Never switch branches with uncommitted changes; commit immediately after implementation completes.
+- Use `git worktree` for true parallelism. Never use `git checkout -- .` or `git clean -fd` as "cleanup" — they destroy other agents' work.
+- `main` is protected: all changes go through a feature branch + PR.
+
+## Build Commands
+
+### ESP-IDF firmware (active)
+
+```bash
+docker run --rm -v "$PWD/firmware":/project -w /project espressif/idf:v6.0.1 idf.py build
 ```
 
-## Code Architecture & Design Patterns
+Board selection (Kconfig: `BOARD_REV1_DEVKIT` / `BOARD_REV2`), flashing, host tests, and all other build details are documented in `firmware/CLAUDE.md`.
 
-### Interface-Based Architecture
-The codebase follows strict interface-based design with clean separation of concerns:
+### Arduino legacy (frozen)
 
-**Core Interfaces:**
-- `ISensor` - Base for all sensors (BME280, Modbus soil sensor)
-- `IEnvironmentalSensor` - Temperature, humidity, pressure sensors
-- `ISoilSensor` - Soil moisture, pH, EC, NPK sensors  
-- `IActuator` - Base for all actuators
-- `IWaterPump` - Water pump control with manual/automatic modes
-- `IModbusClient` - RS485 Modbus RTU communication
-- `IDataStorage` - Configuration and sensor data persistence
+Built by CI only, on the `arduino-maintenance` branch (pinned PlatformIO platform + library versions). Do not build it from `main`.
 
-### Hardware Abstraction Layers
-- **Sensors:** `sensors/` - BME280Sensor, ModbusSoilSensor with interface implementations
-- **Actuators:** `actuators/` - WaterPump with safety features and timed operation
-- **Communication:** `communication/` - SP3485ModbusClient, WateringSystemWebServer
-- **Storage:** `storage/` - LittleFSStorage for configuration and data logging
+## Hardware Summary
 
-### FreeRTOS Integration
-- **Sensor Task:** Dedicated FreeRTOS task for non-blocking sensor reads (5-second intervals)
-- **Thread Safety:** Mutex-protected shared data between sensor task and main loop
-- **Task Management:** Proper task lifecycle management with cleanup
+Two board revisions, abstracted via Kconfig in `firmware/components/board/`:
 
-## Hardware-Software Integration
+- **rev1 — devkit rig:** ESP32 devkit + RS485 transceiver behind a TXS0108E level shifter (manual DE direction control), BME280 on I2C, pump MOSFETs on GPIO. This is the bench rig for phases 1–5. (The rev1 RS485 module's actual IC is an ADM3485ARZ on a MikroE RS485 5 Click; "SP3485" survives only as a legacy class name in the Arduino code.)
+- **rev2 — custom PCB:** THVD1426 auto-direction RS485 (no DE pin), INA226 current/voltage monitoring per pump, CP2102N USB-C serial, JTAG header.
 
-### Critical Pin Mapping (Verified July 2025)
-```cpp
-#define PIN_I2C_SDA           21  // BME280 data
-#define PIN_I2C_SCL           22  // BME280 clock
-#define PIN_RS485_TX          17  // ESP32 TX -> TXS0108E A1 -> RS485 DI
-#define PIN_RS485_RX          16  // ESP32 RX <- TXS0108E A2 <- RS485 RO  
-#define PIN_RS485_DE          25  // Direction control via TXS0108E A3
-#define PIN_MAIN_PUMP_CONTROL 26  // Main Water Pump MOSFET Gate
-#define PIN_RESERVOIR_PUMP_CONTROL 27  // Reservoir Pump MOSFET Gate
-```
+Pin tables live in `firmware/components/board/` — do not duplicate them elsewhere. Source of truth for the rev1 pins is `docs/parity-checklist.md` (extracted from `src/main.cpp`); note that `docs/hardware.md` lists RS485 TX/RX swapped (checklist QUIRK 6).
 
-### RS485 Communication Architecture
-- **Hardware:** SP3485EN transceiver with TXS0108E level shifter (3.3V↔5V)
-- **Protocol:** Modbus RTU at 9600 baud, 8N1 format
-- **Timing:** 50µs switching delays for reliable level shifting
-- **Devices:** Soil sensors (NPK, pH, EC, moisture, temperature)
+**Level sensor polarity (FR5):** the XKC-Y26 output is active HIGH (water present = HIGH). On rev1 (non-inverting TXS0108E path) the GPIO is active HIGH; on rev2 (2N7002 inverter) the GPIO is active LOW. The Arduino code on this branch already reads active HIGH (`src/main.cpp:504-506`; the 2026-04-12 fix is merged — PRD FR5's "reads active LOW" describes the pre-fix state). Target is board-configured polarity, verified by bench measurement in phase 1; see `docs/parity-checklist.md` for the verified facts.
 
-### Power Architecture
-- **12V LiFePO4 Battery** → Always-on LDO regulators
-- **ESP32 Domain (3.3V):** Control logic, WiFi, BME280
-- **Field Domain (5V):** RS485 transceivers, soil sensors
-- **Common Ground:** No isolation, simplified design for greenhouse use
+## Safety Invariants
 
-## Safety & Reliability Features
-
-### Critical Safety Systems
-- **Sensor Validation:** Automatic pump shutdown if sensor data invalid in automatic mode
-- **Manual Mode Override:** Manual pump operation bypasses sensor safety checks
-- **Fail-Safe Design:** Hardware-managed power, no software power control
-- **Watchdog Protection:** Software watchdog prevents system hangs
-- **Emergency Stops:** Multiple safety mechanisms for pump control
-
-### Error Handling Strategy
-- Graceful degradation when sensors fail
-- Retry mechanisms for RS485 communication
-- WiFi reconnection with exponential backoff
-- Persistent error logging and status reporting
-
-## Web Interface & Configuration
-
-### Development Server
-- **Framework:** ESPAsyncWebServer with LittleFS file storage
-- **Features:** Real-time sensor monitoring, pump control, configuration management
-- **OTA Updates:** Web-based firmware updates via /update endpoint
-- **WiFi Configuration:** AP mode setup at 192.168.4.1 when unconfigured
-
-### API Endpoints Structure
-- GET/POST form-data for critical pump operations (reliability)
-- JSON responses for status and configuration data
-- Callback-based architecture for reservoir pump integration
-
-## Serial Diagnostic Commands
-
-The system includes comprehensive diagnostic commands accessible via Serial monitor:
-
-```cpp
-// Available commands (case-insensitive):
-"rs485test" or "test"  // Comprehensive RS485 diagnostic tests
-"soil" or "sensor"     // Test main application soil sensor
-"help"                 // Show available commands
-```
-
-## Development Guidelines
-
-### Code Standards (from .github/copilot-instructions.md)
-- **Language:** Swedish for commit messages and discussions, English for all code
-- **C++ Standard:** Strict modern C++ with constructors/destructors
-- **Interface Design:** Always use interfaces with inheritance for modularity
-- **Include Guards:** Format: `WATERINGSYSTEM_PATHNAME_FILENAME_H`
-- **Memory Management:** RAII principles, avoid dynamic allocation
-
-### Architecture Documents
-- `docs/requirements.md` - System requirements specification
-- `docs/architecture.md` - Detailed software architecture
-- `docs/hardware.md` - Complete hardware specifications and pin mapping
-- `docs/future-improvements.md` - Post-production enhancement roadmap
-
-### Testing Strategy
-- Hardware-in-the-loop testing for RS485 communication
-- Mock implementations for all hardware interfaces  
-- Serial diagnostic commands for field testing
-- Test files in `test/` directory for specific components
-
-## Deployment & Production
-
-### Build Flags & Configuration
-```cpp
--D VERSION=0.1.0
--D DEBUG=1
--D NO_GLOBAL_HTTPMETHOD  // Prevents HTTP method conflicts
-```
-
-### Hardware Deployment
-- **Target Hardware:** ESP32-WROOM-32E in IP65 enclosure
-- **Power Supply:** 12V 20Ah LiFePO4 battery (>48h operation)
-- **Environmental Rating:** 0°C to 50°C operation, IP65 protection
-- **Communication:** RS485 up to 200m for greenhouse applications
-
-### Production Readiness
-- **License:** AGPL-3.0-or-later for commercial use
-- **Safety Certified:** 5kV optical isolation, fail-safe design
-- **Field Tested:** RS485 communication verified, power management validated
-- **Documentation:** Complete user guides and technical specifications
-
-## Key Dependencies
-
-```ini
-lib_deps = 
-    adafruit/Adafruit BME280 Library@^2.2.2
-    adafruit/Adafruit Unified Sensor@^1.1.6
-    bblanchon/ArduinoJson@^6.20.0
-    me-no-dev/AsyncTCP
-    me-no-dev/ESPAsyncWebServer
-```
-
-## System Monitoring & Maintenance
-
-### Status Indicators
-- **Serial Output:** Comprehensive system status every 5 seconds
-- **LED Status:** Different blink patterns for system states
-- **Web Dashboard:** Real-time sensor data and system health
-- **Storage Monitoring:** Automatic filesystem usage reporting
-
-### Maintenance Commands
-- **WiFi Reset:** Hold config button during startup for emergency AP mode
-- **System Restart:** Automatic restart after WiFi configuration changes
-- **Diagnostic Mode:** Serial commands for field troubleshooting
-
-This system represents a production-ready IoT embedded solution with comprehensive safety features, designed for reliable greenhouse automation deployment.
-
-<!-- SPECKIT START -->
-For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan
-<!-- SPECKIT END -->
+Pumps are always OFF at boot, after watchdog reset, and across OTA restarts. Invalid sensor data in automatic mode stops the pumps (fail-safe); manual mode is an explicit override. These behaviors are part of the parity contract and must be host-tested.

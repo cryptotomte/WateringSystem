@@ -44,8 +44,15 @@ _autosave*
 fp-info-cache
 *-backups/
 
-# GitHub Copilot
-.github/copilot-instructions.md
+# ESP-IDF (firmware/dependencies.lock is intentionally tracked)
+firmware/build/
+firmware/sdkconfig
+firmware/sdkconfig.old
+firmware/managed_components/
+
+# Session dialog documents (not part of any PR)
+docs/phase0-plan.md
+docs/phase0-review.md
 
 # Claude Code
 .claude/
