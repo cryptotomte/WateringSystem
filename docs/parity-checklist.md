@@ -43,7 +43,7 @@ Sensor read cadence:
 Automatic-mode decision logic (`src/WateringController.cpp:273-330`):
 
 - [ ] `[HOST]` Watering starts when: watering enabled AND pump not running AND moisture ≤ low threshold; pump is started for the configured duration (`src/WateringController.cpp:303-313`)
-- [ ] `[HOST]` The minimum watering interval is **not enforced** in the decision logic — "if it's dry, water immediately" (`src/WateringController.cpp:303` comment). The value is configurable and persisted but unused as a gate. Parity target: same behavior. **[DECISION for Paul: keep unenforced, or enforce it in the ESP-IDF port? Enforcing would be a deliberate behavior change.]**
+- [ ] `[HOST]` The minimum watering interval is **not enforced** in the Arduino decision logic — "if it's dry, water immediately" (`src/WateringController.cpp:303` comment). The value is configurable and persisted but unused as a gate. **[RESOLVED by Paul 2026-06-10: the ESP-IDF port MUST enforce it as a soak/absorption pause — a DELIBERATE behavior change, not parity. Watering happens in bursts with enforced pauses so the soil can absorb (continuous watering pools on the surface while the moisture sensor lags). Burst duration and pause are both configurable; values tuned empirically. Full model in `docs/prd/PR-11-watering-controller-host-tests.md`.]**
 - [ ] `[HOST]` Watering stops early when moisture ≥ high threshold while the pump runs (`src/WateringController.cpp:315-321`)
 - [ ] `[HOST]` A timed run also stops by itself when the configured duration elapses (`src/actuators/WaterPump.cpp:148-171`)
 - [ ] `[HOST]` Enabling/disabling automatic watering is persisted immediately (`src/WateringController.cpp:370-374`)

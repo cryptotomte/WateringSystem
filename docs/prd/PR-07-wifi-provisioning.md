@@ -4,16 +4,23 @@
 
 ## Goal
 
-WiFi station management with robust reconnection, plus first-boot provisioning — this
-PR contains the FR9 decision spike (custom SoftAP portal vs IDF `wifi_provisioning`
-component) and documents the choice.
+WiFi station management with robust reconnection, plus first-boot provisioning,
+implementing the FR9 baseline decision (custom SoftAP portal).
 
 ## Scope
 
-- **FR9 decision spike (documented deliverable):** evaluate (a) porting the existing
-  SoftAP portal concept (AP at 192.168.4.1 with config page) vs (b) IDF's
-  `wifi_provisioning` component (SoftAP scheme). Criteria per master PRD: robustness
-  and simplicity. Write the decision + rationale into the spec; implement the winner.
+- **FR9 decision (RESOLVED by Paul, 2026-06-10): custom SoftAP portal** — port the
+  existing concept (AP at 192.168.4.1 with config page). Rationale: feature parity,
+  works from any phone browser, no dependency on Espressif's provisioning apps.
+  IDF's `wifi_provisioning` component is the documented fallback only if the portal
+  proves fragile during implementation (re-escalate to Paul in that case).
+  - **AP password policy:** moved from a source `#define` to a Kconfig option
+    (e.g. `CONFIG_WS_PROV_AP_PASSWORD`), treated as a documented non-secret (the
+    repo and release binaries are public; the password only shields the short
+    unconfigured-device window). Keep WPA2 rather than an open AP so the real
+    home-WiFi credentials are not sent in cleartext during setup. Choose a NEW
+    password at implementation — the legacy one is exposed in public git history
+    and must not be reused.
 - `WifiManager` on `esp_wifi`/`esp_event`:
   - STA mode with credentials from NVS (PR-06).
   - Reconnection strategy. Actual Arduino behavior (parity baseline) is **not**
@@ -32,7 +39,7 @@ component) and documents the choice.
 
 ## Out of scope
 
-- HTTP API (PR-09) — if the spike picks a custom portal, it uses a minimal standalone
+- HTTP API (PR-09) — the portal uses a minimal standalone
   `esp_http_server` instance, with the real API arriving in PR-09. SNTP (PR-08).
   Frontend (PR-10).
 
