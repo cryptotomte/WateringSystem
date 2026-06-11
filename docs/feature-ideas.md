@@ -1,77 +1,83 @@
 # Feature Ideas
 
-> Ideer och tankar kring framtida utveckling. Inget beslut taget - detta ar en samling koncept att utvardera.
+> Concepts under evaluation for future development. Items here are NOT scoped
+> work — decided items graduate into a PRD (see `docs/prd/`).
 
-## Produktions-PCB
+## Production PCB — superseded
 
-Ersatta devkits (ESP32-DevKitC, RS485 5 Click, TXS0108E breakout) med ett integrerat kretskort.
+The original idea (replace devkit + RS485 Click + TXS0108E breakout with a custom
+board) became the **rev2 hardware track**: see
+`hardware/bom/WateringSystem-rev2-BOM.md` and the ESP-IDF migration PRD
+(`docs/PRD-esp-idf-migration.md`, track B). Historical known issues (TX/RX label
+crossing, TXS0108E OE strap, DE/RE bridging) are resolved or designed out in rev2
+(THVD1426 auto-direction needs no DE at all). Kept here only as a pointer.
 
-### Komponenter att integrera
-- **ESP32-WROOM-32E** - direkt pa PCB (ersatter devkit)
-- **MAX485ESA+T** - direkt pa PCB (ersatter Click-board)
-- **TXS0108E** - direkt pa PCB (ersatter breakout)
-- USB-UART (CP2102/CH340) for programmering
-- Spannningsregulatorer (AMS1117-3.3 + AMS1117-5.0)
-- Skruvplintar for RS485, pumpar, nivasensorer
+## Multi-zone watering network
 
-### Kanda problem att fixa i schemat
-- [x] TX/RX-korsning - Click-kortets TX/RX-labels ar ur MAX485-perspektiv, inte ESP32 (fixat i mjukvara 2026-04-12)
-- [ ] OE pa TXS0108E - felkopplad i nuvarande PCB-layout (byglad externt)
-- [ ] DE/RE pa RS485 Click - separata pinnar, maste bridgas (byglad externt)
+Scale from a single watering site (the greenhouse) to several zones on the
+property. Refined 2026-06-10 (Paul); originally sketched 2026-04-12.
 
-### Fordelar
-- Mindre fysisk storlek
-- Hogre tillforlitlighet (inga losa kontakter/pin-headers)
-- Billigare i produktion
-- Enklare montering i IP65-kapslingar
+### Topology (current thinking)
 
----
-
-## Multi-zon bevattning
-
-Utoka fran en enda bevattningspunkt (vaxthuset) till flera zoner pa tomten.
-
-### Koncept
-- Varje zon har en **lokal cistern**, **pump**, **jordsensor** och **ESP32**
-- En **gateway/huvudenhet** samlar data och koordinerar pafyllning
-- Varje nod ar **autonom** - vattnar sjalv aven om kommunikationen gar ner
-- Central pafyllnadspump/ventiler fyller lokala cisterner vid behov
-
-### Arkitekturskiss
 ```
-[Huvudenhet / Gateway]
-  - ESP32 med WiFi -> hem-nat/dashboard
-  - Tradlos kommunikation -> alla bevattningsnoder
-  - Styr central pafyllnadspump/ventiler
+[Cistern] ──► [Reservoir unit]                    (ONE central pump)
+                ├─ MCU (ESP32) + pump control
+                ├─ Solenoid valve per zone (MCU-driven)
+                └─ Routes water: pump ON + open valve N → fills zone N's reservoir
 
-[Bevattningsnod 1..N]  (lokal cistern + pump + sensorer)
-  - ESP32 med tradlos kommunikation
-  - Lokal jordsensor (Modbus RS485)
-  - Lokal pump + cistern med nivasensorer
-  - Autonom bevattning
-  - Rapporterar status till gateway
-  - Begar pafyllning nar cisternen ar lag
+[Watering node 1..N]   (= rev2 hardware)
+                ├─ Local reservoir + two level sensors (low/high)
+                ├─ ONE watering pump channel (from local reservoir to plants)
+                ├─ Soil sensor (Modbus RS485), BME280
+                ├─ Autonomous watering — keeps working if comms are down
+                └─ Reports status; requests refill when reservoir low
 
-[Pafyllnadssystem]
-  - Kan vara i gateway eller separat enhet
-  - Styr ventiler/pump for att fylla respektive cistern
+[Gateway role]  — collects data, exposes dashboard/API; may live in the
+                  reservoir unit or a node; undecided.
 ```
 
-### Kommunikation - LoRa vs ESP-NOW
+**Key decisions (2026-06-10):**
+
+- **One central pump, many solenoids.** There is a single cistern to draw from,
+  so one pump + MCU-driven solenoid routing replaces per-zone refill pumps.
+  Simpler hydraulics, fewer high-current channels, fits the available space.
+- **The watering node has exactly ONE pump channel.** Reservoir refill is the
+  reservoir unit's job. Consequence for rev2 (the node hardware, design starting
+  now): single pump driver stage (one MOSFET/shunt/INA226/terminal) — see the
+  rev2 BOM changelog. Level sensors stay on the node (refill requests + local
+  fail-safes).
+- **Interim consequence (decided):** until the reservoir unit exists, the
+  greenhouse rev2 node's reservoir is refilled manually. The firmware keeps the
+  reservoir *control logic* behind a board capability flag so the rev1 bench rig
+  can still exercise it (parity testing), but rev2 hardware does not expose a
+  second pump channel.
+
+### Open questions (for a future PRD)
+
+- Comms: ESP-NOW vs WiFi/MQTT vs LoRa. April assessment still stands —
+  ESP-NOW likely sufficient for one property (<200 m, zero extra hardware,
+  250-peer limit irrelevant); LoRa only if distance/terrain demands it.
+  MQTT enters the picture if the gateway should integrate with home automation
+  (listed as a post-migration candidate in the master PRD).
+- Refill protocol: request/grant semantics, what happens when several nodes are
+  low at once (queueing), and fail-safes (valve stuck open, pump dry-run —
+  ties into the INA226 protection PRD).
+- Reservoir unit hardware: own design; possibly a rev2 derivative with the pump
+  channel + N solenoid drivers instead of sensors.
+- Gateway placement and dashboard.
 
 | | LoRa | ESP-NOW |
 |---|---|---|
-| **Rackvidd** | 1-10 km (oppen mark) | ~200m (oppen mark) |
-| **Datarate** | Lag (0.3-50 kbps) | Hog (1 Mbps) |
-| **Latens** | Hog (sekunder) | Lag (ms) |
-| **Extra hardvara** | Ja (LoRa-modul) | Nej, finns i ESP32 |
-| **Stromforbrukning** | Mycket lag | Lag |
-| **Max peers** | Nastan obegransat | 250 |
-| **Kostnad per nod** | +50-100 SEK (LoRa-modul) | 0 SEK (inbyggt) |
-
-**Preliminar bedomning:** ESP-NOW racker troligtvis for en tomt (<200m avstand). LoRa ar relevant om avstand/terraeng/byggnader kraver det.
+| **Range** | 1–10 km (open field) | ~200 m (open field) |
+| **Data rate** | Low (0.3–50 kbps) | High (1 Mbps) |
+| **Latency** | High (seconds) | Low (ms) |
+| **Extra hardware** | Yes (LoRa module) | No (built into ESP32) |
+| **Power draw** | Very low | Low |
+| **Max peers** | Practically unlimited | 250 |
+| **Cost per node** | +50–100 SEK | 0 SEK |
 
 ---
 
-*Skapad: 2026-04-12*
-*Status: Idestadiet - inget beslut taget*
+*Created 2026-04-12 (Swedish original) · rewritten in English and refined
+2026-06-10 · Status: multi-zone = concept (future PRD); the single-pump-node
+decision is FINAL and reflected in the rev2 BOM and the migration PRD.*

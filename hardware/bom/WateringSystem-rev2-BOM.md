@@ -2,7 +2,15 @@
 
 Bill of Materials för custom-PCB Fas 0 enligt plan i `/Users/pw/.claude/plans/om-vi-skulle-ta-parsed-giraffe.md`.
 
-Mål: ersätta ESP32-devkort + MIKROE RS485 5 Click + TXS0108E breakout + extern LDO med ett eget kort. Allt SMD utom terminalblock och kontakter. Körs med oförändrad Arduino-firmware initialt.
+Mål: ersätta ESP32-devkort + MIKROE RS485 5 Click + TXS0108E breakout + extern LDO med ett eget kort. Allt SMD utom terminalblock och kontakter.
+
+> **BESLUT 2026-06-10 — en pumpkanal.** Rev2 är *nod*-hårdvaran i det planerade
+> multi-zon-nätet (`docs/feature-ideas.md`): reservoarpåfyllning sköts av en
+> framtida central reservoar-enhet (en pump + solenoidventiler), så noden har
+> EN pumpkanal (bevattningspumpen). Antal för Q2/D1/D2/R1/R8/R9/J3 och INA226
+> är halverade mot tidigare utkast. Nivåsensorerna (J5, Q1, R6/R7) behålls —
+> de driver påfyllnadsbegäran och lokala fail-safes. Tills centralenheten
+> finns fylls växthusnodens reservoar manuellt.
 
 ## Aktiva komponenter
 
@@ -12,7 +20,7 @@ Mål: ersätta ESP32-devkort + MIKROE RS485 5 Click + TXS0108E breakout + extern
 | U2 | 1 | CP2102N | QFN-28 | CP2102N-A02-GQFN28R | USB-UART för programmering |
 | U3 | 1 | THVD1426 | SOIC-8 | THVD1426DR | RS485-transceiver, auto-direction, 3–5.5V |
 | U4 | 1 | MP2307 | SOIC-8-EP | MP2307DN | 12V→3.3V buck, 3A |
-| U5 | 2 | INA226 | MSOP-10 | INA226AIDGSR | Current/voltage/power monitor I2C |
+| U5 | 1 | INA226 | MSOP-10 | INA226AIDGSR | Current/voltage/power monitor I2C |
 | U6 | 1 | BME280 | LGA-8 | BME280 | Miljösensor, samma som idag |
 
 ## MOSFETs & dioder
@@ -20,10 +28,10 @@ Mål: ersätta ESP32-devkort + MIKROE RS485 5 Click + TXS0108E breakout + extern
 | Ref | Qty | Komponent | Paket | MPN | Roll |
 |---|---|---|---|---|---|
 | Q1 | 2 | 2N7002 | SOT-23 | 2N7002LT1G | Level-shift XKC-Y26 OUT till 3.3V |
-| Q2 | 2 | AOD514 | DPAK | AOD514 | Pump-switch, 75A logic-level |
+| Q2 | 1 | AOD514 | DPAK | AOD514 | Pump-switch (bevattningspump), 75A logic-level |
 | Q3 | 1 | AO3401 | SOT-23 | AO3401A | Reverse-polarity-skydd 12V-input |
-| D1 | 2 | SS54 | SMA | SS54 | Flyback över pump |
-| D2 | 2 | SMBJ16CA | SMB | SMBJ16CA | TVS över AOD514 drain-source |
+| D1 | 1 | SS54 | SMA | SS54 | Flyback över pump |
+| D2 | 1 | SMBJ16CA | SMB | SMBJ16CA | TVS över AOD514 drain-source |
 | D3 | 1 | SMBJ15CA | SMB | SMBJ15CA | TVS på 12V-rail |
 | D4 | 1 | SM712 | SOT-23 | SM712 | RS485 A/B TVS-array |
 
@@ -32,7 +40,7 @@ Mål: ersätta ESP32-devkort + MIKROE RS485 5 Click + TXS0108E breakout + extern
 ### Strömmätning (shunt)
 | Ref | Qty | Värde | Paket | MPN | Roll |
 |---|---|---|---|---|---|
-| R1, R2 | 2 | 2 mΩ 1W 1% | 2512 | KRL3216E-C-R002-F-T1 | Pump-shunt, i serie med pump (+) |
+| R1 | 1 | 2 mΩ 1W 1% | 2512 | KRL3216E-C-R002-F-T1 | Pump-shunt, i serie med pump (+) |
 
 ### RS485-bus
 | Ref | Qty | Värde | Paket | MPN | Roll |
@@ -46,8 +54,8 @@ Mål: ersätta ESP32-devkort + MIKROE RS485 5 Click + TXS0108E breakout + extern
 |---|---|---|---|---|---|
 | R6 | 2 | 10 kΩ | 0603 | RC0603FR-0710KL | XKC-Y26 OUT pullup till 12V |
 | R7 | 2 | 10 kΩ | 0603 | RC0603FR-0710KL | 2N7002 drain pullup till 3.3V |
-| R8 | 2 | 10 kΩ | 0603 | RC0603FR-0710KL | AOD514 gate-pulldown |
-| R9 | 2 | 100 Ω | 0603 | RC0603FR-07100RL | AOD514 gate-resistor |
+| R8 | 1 | 10 kΩ | 0603 | RC0603FR-0710KL | AOD514 gate-pulldown |
+| R9 | 1 | 100 Ω | 0603 | RC0603FR-07100RL | AOD514 gate-resistor |
 
 ### USB-C och ESP32 boot
 | Ref | Qty | Värde | Paket | MPN | Roll |
@@ -60,7 +68,7 @@ Mål: ersätta ESP32-devkort + MIKROE RS485 5 Click + TXS0108E breakout + extern
 |---|---|---|---|---|---|
 | C1 | 4 | 10 µF 25V | 0805 | GRM21BR61E106KA73L | Buck input + power-rail-bypass |
 | C2 | 2 | 22 µF 10V | 0805 | GRM21BR61A226KE51L | Buck output cap (3.3V) |
-| C3-C4 | 5 | 100 nF 16V | 0402 | GRM155R61C104KA88D | Bypass per IC (en nära VCC på varje) |
+| C3-C4 | 4 | 100 nF 16V | 0402 | GRM155R61C104KA88D | Bypass per IC (en nära VCC på varje) |
 | C5 | 1 | 470 µF 25V | SMD elec | UWT1E471MNL1GS | Bulk input cap för pumpstart-transienter |
 
 ### Buck-induktor
@@ -89,7 +97,7 @@ Mål: ersätta ESP32-devkort + MIKROE RS485 5 Click + TXS0108E breakout + extern
 | SW2 | 1 | Tactile switch | SMD 6×6mm | PTS636SK50SMTR LFS | RESET-knapp |
 | J1 | 1 | USB-C receptacle | 16-pin SMD | USB4105-GF-A | Programmering / 5V-alternativ |
 | J2 | 1 | Weidmüller 2-pin terminal | 5.08 mm pitch | (välj modell) | 12V-input |
-| J3 | 2 | Weidmüller 2-pin terminal | 5.08 mm pitch | (välj modell) | Pump-output |
+| J3 | 1 | Weidmüller 2-pin terminal | 5.08 mm pitch | (välj modell) | Pump-output (bevattningspump) |
 | J4 | 1 | JST XH 4-pin header | XH-4P | B4B-XH-A(LF)(SN) | Soil-sensor RS485 (A/B/12V/GND) |
 | J5 | 2 | JST XH 4-pin header | XH-4P | B4B-XH-A(LF)(SN) | XKC-Y26 (VCC/OUT/GND/MODE) |
 | J6 | 1 | 6-pin 0.1" header | THT eller TC2030 | (välj) | JTAG för ESP-IDF debug |
@@ -131,11 +139,11 @@ Om JLCPCB EMS används: konvertera BOM till deras format (KiCad → Tools → Ge
 ## Anteckningar
 
 - **Varför THVD1426 istället för MAX13487E (rättat juni 2026)**: MAX13487E kräver 5V-matning (4.75–5.25V) men rev2 har bara en 3.3V-rail (MP2307) – dess RO-utgång hade dessutom drivit 5V-logik in i ESP32:ans RX. TI THVD1426 ger samma auto-direction-funktion (via D-pinnen, ingen DE behövs) men drivs 3–5.5V och har ±12kV IEC ESD inbyggt. Auto-direction förutsätter bias-resistorerna R4 (pullup A→3.3V) och R5 (pulldown B→GND) så bussen vilar i definierat idle-läge – dessa finns redan i BOM. Verifiera tHOLD/driver-release i databladet mot 9600 baud (104 µs bittid) vid schemaritning.
-- **INA226 A0/A1**: INA226 har 4 möjliga I2C-adresser via A0/A1-pinnarna. Konfigurera olika på de två chippen så de inte krockar med varandra eller med BME280 (0x76/0x77).
+- **INA226 A0/A1**: INA226 har 4 möjliga I2C-adresser via A0/A1-pinnarna. Med en enda INA226 räcker default-strappning (0x40) — krockar inte med BME280 (0x76/0x77).
 - **AOD514 thermal**: vid 15A kontinuerligt blir effektförlusten 1.3W. Lägg minst 2 cm² koppar-pour under exposed pad + 6 thermal vias till bottenlager för värmespridning.
 - **Buck-layout**: håll input-cap (C1), MP2307, induktor (L1) och output-cap (C2) i en kompakt loop. Dålig layout = EMI som stör RS485.
-- **Shunt-placering (R1, R2)**: high-side (mellan 12V-rail och pump+) ger bäst INA226-mätning eftersom common-mode-spänningen då är 12V (within INA226's 0–36V range).
-- **Reservoir-pump-currentsense**: båda pumparna får INA226 + shunt. Reservoarpumpen drar typiskt mindre, men diagnostik är värdefullt även där.
+- **Shunt-placering (R1)**: high-side (mellan 12V-rail och pump+) ger bäst INA226-mätning eftersom common-mode-spänningen då är 12V (within INA226's 0–36V range).
+- **En pumpkanal (beslut 2026-06-10)**: ingen reservoarpump på noden — påfyllning sköts centralt i multi-zon-arkitekturen (se beslutsruta överst och `docs/feature-ideas.md`). CSV-filen för Mouser/JLCPCB behöver uppdateras med samma antalsändringar innan beställning.
 - **USB-C vs USB-A**: USB-C valt för framtidssäkring. CC1/CC2 pulldowns (R10) gör att kortet identifierar sig som USB device till sources.
 
 ## Källfiler

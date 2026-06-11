@@ -208,6 +208,7 @@ FR12 additionally requires the diagnostics to be reachable via the API — new c
 - **`/api/v1/` redesign** — new API contract (FR7). Parity requires *behavior coverage* of everything in section 4, not URL-for-URL equality; the legacy frontend is adapted to the new API (FR8).
 - **OTA** (A/B partitions, rollback, GitHub Releases, manual upload) — entirely new (FR11). The Arduino firmware has no OTA endpoint (see section 4 note).
 - **WiFi provisioning method** — FR9 decision in Phase 2 (own SoftAP portal vs IDF `wifi_provisioning`); only the *outcome* (unconfigured device is provisionable) is a parity item (section 7).
+- **Rev2 has no local reservoir pump** (FR4 decision 2026-06-10: single-pump node; refill moves to a future central reservoir unit, see `docs/feature-ideas.md`). The reservoir-control parity items in sections 2–3 are verified on the **rev1 bench rig** and remain in the firmware behind `BOARD_HAS_RESERVOIR_PUMP`; on rev2 the level sensors report status only, and the greenhouse reservoir is refilled manually until the central unit exists.
 
 ---
 
