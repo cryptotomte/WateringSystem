@@ -1,6 +1,6 @@
 /**
  * @file app_main.cpp
- * @brief WateringSystem firmware entry point (phase 0 skeleton).
+ * @brief WateringSystem firmware entry point.
  *
  * The very first action at boot is to force both pump outputs to a safe
  * OFF state. This fail-safe MUST stay first in app_main in all future
@@ -23,6 +23,14 @@
 #include "esp_idf_version.h"
 #include "esp_log.h"
 #include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#include "actuators/EspTimeProvider.h"
+#include "actuators/GpioWaterPump.h"
+#include "actuators/LockedWaterPump.h"
+
+#include "diag_console.h"
 
 static const char *TAG = "app_main";
 
@@ -81,4 +89,48 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "ESP-IDF:     %s", esp_get_idf_version());
     ESP_LOGI(TAG, "==========================================");
     ESP_LOGI(TAG, "Pumps forced OFF (fail-safe boot state)");
+
+    // Pump driver instances. Function-local statics (NOT globals): they are
+    // constructed here, strictly after pumps_force_off(), so no constructor
+    // can run ahead of the boot fail-safe.
+    static EspTimeProvider time_provider;
+    static GpioWaterPump plant_pump(
+        static_cast<gpio_num_t>(BOARD_PIN_MAIN_PUMP), "plant",
+        time_provider);
+    static GpioWaterPump reservoir_pump(
+        static_cast<gpio_num_t>(BOARD_PIN_RESERVOIR_PUMP), "reservoir",
+        time_provider);
+
+    // Mutex-serializing wrappers: the pumps are touched by two tasks (this
+    // main loop's update() and the esp_console REPL task's commands), so
+    // EVERY access from here on goes through the wrappers — never through
+    // the GpioWaterPump objects directly.
+    static LockedWaterPump plant(plant_pump);
+    static LockedWaterPump reservoir(reservoir_pump);
+
+    // initialize() re-asserts OFF (glitch-free) before arming the drivers.
+    // Failure here is fatal: a pump whose output state is unknown must not
+    // be left powered (same policy as pumps_force_off above).
+    if (!plant.initialize() || !reservoir.initialize()) {
+        ESP_LOGE(TAG, "FATAL: pump driver initialization failed");
+        abort();
+    }
+
+    // Serial diagnostic REPL (rig testing; contracts/serial-diagnostic.md).
+    diag_console_register_pumps(plant, reservoir);
+    esp_err_t err = diag_console_start();
+    if (err != ESP_OK) {
+        // Console is a diagnostic aid, not a safety function: log and keep
+        // running so the pump safety loop below still executes.
+        ESP_LOGE(TAG, "diag console failed to start: %s",
+                 esp_err_to_name(err));
+    }
+
+    // Main loop: poll pump enforcement at 10 Hz. update() applies the timed
+    // self-stop and the hard 300 s max-runtime cap.
+    while (true) {
+        plant.update();
+        reservoir.update();
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
 }
