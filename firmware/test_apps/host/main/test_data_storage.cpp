@@ -238,6 +238,138 @@ void test_mock_holds_bounds_and_event_contract(void)
     TEST_ASSERT_FALSE(mock.storeEvent(30, IDataStorage::kCategoryReset, "c"));
 }
 
+// --- T019: bounding (FR-010, SC-004) -------------------------------------
+
+/// Append `count` records spaced `stepS` seconds from `firstEpoch`,
+/// value = record index. Asserts once on the aggregate failure count
+/// (per-append asserts would dominate the endurance runtime).
+void appendSeries(LittleFsDataStorage& storage, const std::string& metric,
+                  uint32_t firstEpoch, std::size_t count, uint32_t stepS)
+{
+    std::size_t failures = 0;
+    for (std::size_t i = 0; i < count; ++i) {
+        if (!storage.storeSensorReading(
+                metric, firstEpoch + static_cast<uint32_t>(i) * stepS,
+                static_cast<float>(i))) {
+            ++failures;
+        }
+    }
+    TEST_ASSERT_EQUAL_size_t(0, failures);
+}
+
+void test_chunk_seals_at_1024_records(void)
+{
+    TempDir dir;
+    LittleFsDataStorage storage(dir.path());
+    const std::string metric = "soil_moisture";
+    const uint32_t base = 1000;
+
+    appendSeries(storage, metric, base, kRecordsPerChunk, 1);
+    TEST_ASSERT_EQUAL_size_t(1, listDir(metricDirOf(dir, metric)).size());
+
+    // Record 1025 seals the chunk at 8 KiB and opens a successor.
+    TEST_ASSERT_TRUE(storage.storeSensorReading(
+        metric, base + static_cast<uint32_t>(kRecordsPerChunk), 9.0f));
+    TEST_ASSERT_EQUAL_size_t(2, listDir(metricDirOf(dir, metric)).size());
+
+    // All records remain retrievable across the chunk boundary.
+    const auto all = storage.getSensorReadings(metric, 0, UINT32_MAX);
+    TEST_ASSERT_EQUAL_size_t(kRecordsPerChunk + 1, all.size());
+    TEST_ASSERT_EQUAL_FLOAT(9.0f, all.back().value);
+}
+
+void test_ring_evicts_oldest_chunk(void)
+{
+    TempDir dir;
+    LittleFsDataStorage storage(dir.path());
+    const std::string metric = "soil_moisture";
+    const uint32_t base = 1000000;
+
+    // Fill the ring exactly: 10 chunks x 1024 records, nothing evicted.
+    appendSeries(storage, metric, base, kMetricCapacity, 1);
+    TEST_ASSERT_EQUAL_size_t(LittleFsDataStorage::kHistoryMaxChunksPerMetric,
+                             listDir(metricDirOf(dir, metric)).size());
+
+    // One more record needs an 11th chunk -> the oldest chunk is removed.
+    const uint32_t next = base + static_cast<uint32_t>(kMetricCapacity);
+    TEST_ASSERT_TRUE(storage.storeSensorReading(metric, next, -1.0f));
+    TEST_ASSERT_EQUAL_size_t(LittleFsDataStorage::kHistoryMaxChunksPerMetric,
+                             listDir(metricDirOf(dir, metric)).size());
+
+    // The first chunk's records are gone, everything newer is intact.
+    TEST_ASSERT_TRUE(
+        storage
+            .getSensorReadings(metric, base,
+                               base + static_cast<uint32_t>(kRecordsPerChunk) - 1)
+            .empty());
+    const auto rest = storage.getSensorReadings(metric, 0, UINT32_MAX);
+    TEST_ASSERT_EQUAL_size_t(kMetricCapacity - kRecordsPerChunk + 1,
+                             rest.size());
+    TEST_ASSERT_EQUAL_UINT32(base + static_cast<uint32_t>(kRecordsPerChunk),
+                             rest.front().epoch);
+    TEST_ASSERT_EQUAL_UINT32(next, rest.back().epoch);
+}
+
+void test_retention_30_days_at_default_interval(void)
+{
+    TempDir dir;
+    LittleFsDataStorage storage(dir.path());
+    const std::string metric = "env_temperature";
+    const uint32_t base = 1700000000;
+
+    // 30 days at the 5-min default log interval = 8640 records; the
+    // 10-chunk ring (10240 records) must hold them all (FR-010).
+    constexpr std::size_t k30Days = 30u * 24u * 3600u / kLogIntervalS;
+    appendSeries(storage, metric, base, k30Days, kLogIntervalS);
+
+    const auto all = storage.getSensorReadings(metric, 0, UINT32_MAX);
+    TEST_ASSERT_EQUAL_size_t(k30Days, all.size());
+    TEST_ASSERT_EQUAL_UINT32(base, all.front().epoch);  // nothing evicted
+}
+
+void test_endurance_ten_times_the_bound(void)
+{
+    TempDir dir;
+    LittleFsDataStorage storage(dir.path());
+    const std::string metric = "soil_moisture";
+    const uint32_t base = 1000;
+
+    // SC-004: 10x the per-metric bound (100 chunk-fulls) without a write
+    // failure or budget overrun.
+    constexpr std::size_t kAppends = 10 * kMetricCapacity;
+    appendSeries(storage, metric, base, kAppends, 1);
+
+    TEST_ASSERT_EQUAL_size_t(LittleFsDataStorage::kHistoryMaxChunksPerMetric,
+                             listDir(metricDirOf(dir, metric)).size());
+
+    // The newest records are intact after ~90 evictions.
+    const uint32_t last = base + static_cast<uint32_t>(kAppends) - 1;
+    const auto tail = storage.getSensorReadings(metric, last - 99, last);
+    TEST_ASSERT_EQUAL_size_t(100, tail.size());
+    TEST_ASSERT_EQUAL_UINT32(last, tail.back().epoch);
+    TEST_ASSERT_EQUAL_FLOAT(static_cast<float>(kAppends - 1),
+                            tail.back().value);
+}
+
+void test_eleventh_distinct_metric_rejected(void)
+{
+    TempDir dir;
+    LittleFsDataStorage storage(dir.path());
+
+    for (std::size_t i = 0; i < IDataStorage::kMaxMetrics; ++i) {
+        TEST_ASSERT_TRUE(
+            storage.storeSensorReading("metric_" + std::to_string(i), 100, 1.0f));
+    }
+    TEST_ASSERT_FALSE(storage.storeSensorReading("metric_extra", 100, 1.0f));
+    TEST_ASSERT_TRUE(
+        storage.getSensorReadings("metric_extra", 0, UINT32_MAX).empty());
+    TEST_ASSERT_EQUAL_size_t(IDataStorage::kMaxMetrics,
+                             listDir(dir.path() + "/hist").size());
+
+    // Existing metrics keep accepting appends at the metric cap.
+    TEST_ASSERT_TRUE(storage.storeSensorReading("metric_0", 200, 2.0f));
+}
+
 }  // namespace
 
 void run_data_storage_tests(void)
@@ -248,4 +380,10 @@ void run_data_storage_tests(void)
     RUN_TEST(test_unsafe_metric_names_rejected);
     RUN_TEST(test_mock_holds_range_query_contract);
     RUN_TEST(test_mock_holds_bounds_and_event_contract);
+    // T019 — bounding: sealing, ring eviction, retention, endurance, cap.
+    RUN_TEST(test_chunk_seals_at_1024_records);
+    RUN_TEST(test_ring_evicts_oldest_chunk);
+    RUN_TEST(test_retention_30_days_at_default_interval);
+    RUN_TEST(test_endurance_ten_times_the_bound);
+    RUN_TEST(test_eleventh_distinct_metric_rejected);
 }
