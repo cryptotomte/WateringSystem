@@ -14,9 +14,9 @@
 
 **Purpose**: Branch baseline and component scaffolding
 
-- [ ] T001 Merge current `origin/main` into `003-nvs-littlefs-storage` — PR-02 (#7) must be merged to main first (research D10). If #7 is still open: STOP and surface to Paul; the D10 fallback (create scaffolding here, reconcile at merge) requires his explicit approval. Then verify both target builds green per quickstart.md
-- [ ] T002 Create `storage` component skeleton: `firmware/components/storage/CMakeLists.txt` with REQUIRES nvs_flash + interfaces, and the littlefs REQUIRES + `src/StorageMount.cpp` wrapped in `if(NOT ${IDF_TARGET} STREQUAL "linux")` (esp_littlefs has no linux port — research D4 mechanism); empty include/src tree per plan.md structure
-- [ ] T003 [P] Create committed littlefs seed directory `firmware/storage_image/` (a single `README` placeholder file explaining the image's role)
+- [x] T001 Merge current `origin/main` into `003-nvs-littlefs-storage` — PR-02 (#7) must be merged to main first (research D10). If #7 is still open: STOP and surface to Paul; the D10 fallback (create scaffolding here, reconcile at merge) requires his explicit approval. Then verify both target builds green per quickstart.md
+- [x] T002 Create `storage` component skeleton: `firmware/components/storage/CMakeLists.txt` with REQUIRES nvs_flash + interfaces, and the littlefs REQUIRES + `src/StorageMount.cpp` wrapped in `if(NOT ${IDF_TARGET} STREQUAL "linux")` (esp_littlefs has no linux port — research D4 mechanism); empty include/src tree per plan.md structure
+- [x] T003 [P] Create committed littlefs seed directory `firmware/storage_image/` (a single `README` placeholder file explaining the image's role)
 
 ---
 
@@ -26,8 +26,8 @@
 
 **⚠️ CRITICAL**: Blocks all user stories
 
-- [ ] T004 Extend host test app for NVS on linux: add `nvs_flash` to REQUIRES in `firmware/test_apps/host/main/CMakeLists.txt`, add `firmware/test_apps/host/partitions_host.csv` with an `nvs` partition, set `CONFIG_PARTITION_TABLE_CUSTOM` in `firmware/test_apps/host/sdkconfig.defaults` (research D3; IDF's nvs_flash/host_test is the reference pattern)
-- [ ] T005 Register two empty Unity suites `firmware/test_apps/host/main/test_config_store.cpp` and `firmware/test_apps/host/main/test_data_storage.cpp` in the host app build; verify the host app still builds and runs (exit 0) on the linux target
+- [x] T004 Extend host test app for NVS on linux: add `nvs_flash` to REQUIRES in `firmware/test_apps/host/main/CMakeLists.txt`, add `firmware/test_apps/host/partitions_host.csv` with an `nvs` partition, set `CONFIG_PARTITION_TABLE_CUSTOM` in `firmware/test_apps/host/sdkconfig.defaults` (research D3; IDF's nvs_flash/host_test is the reference pattern)
+- [x] T005 Register two empty Unity suites `firmware/test_apps/host/main/test_config_store.cpp` and `firmware/test_apps/host/main/test_data_storage.cpp` in the host app build; verify the host app still builds and runs (exit 0) on the linux target
 
 **Checkpoint**: Host harness ready — story implementation can begin
 

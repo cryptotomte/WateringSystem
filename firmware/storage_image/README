@@ -1,0 +1,13 @@
+This directory is the committed seed for the littlefs image of the
+`storage` partition (0x310000, 960 KiB — see firmware/partitions.csv).
+
+`littlefs_create_partition_image(storage ../storage_image FLASH_IN_PROJECT)`
+in firmware/main/CMakeLists.txt (user story 4 of feature
+003-nvs-littlefs-storage) packs the contents of this directory into
+build/storage.bin on every build, so a fresh flash boots with a
+deterministic, already-formatted filesystem (research.md D1; CI verifies
+the file exists).
+
+The firmware creates its own directories (/storage/hist/, /storage/events/)
+at runtime — no seed content is required beyond this README, which also
+ends up in the image and documents its origin.
