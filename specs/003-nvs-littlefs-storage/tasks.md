@@ -111,7 +111,7 @@
 
 **Goal**: Safe cross-task use without polluting the unsynchronized base implementations (research D9, PR-02 CP3 precedent)
 
-- [ ] T026 [P] Header-only `LockedConfigStore` decorator over `IConfigStore` in `firmware/components/storage/include/storage/LockedConfigStore.h`
+- [x] T026 [P] Header-only `LockedConfigStore` decorator over `IConfigStore` in `firmware/components/storage/include/storage/LockedConfigStore.h`
 - [ ] T027 [P] Header-only `LockedDataStorage` decorator over `IDataStorage` in `firmware/components/storage/include/storage/LockedDataStorage.h`
 - [ ] T028 Concurrency host tests (delegation correctness for every method; mutex-held invariants per the mechanism PR-02's `LockedWaterPump` tests established) in `firmware/test_apps/host/main/test_data_storage.cpp` and `test_config_store.cpp`; suites green
 
