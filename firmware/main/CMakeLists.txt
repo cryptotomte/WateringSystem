@@ -3,3 +3,14 @@ idf_component_register(
     PRIV_REQUIRES board esp_driver_gpio esp_app_format
                   actuators interfaces console esp_timer
 )
+
+# Build-time littlefs image of the committed seed directory
+# (firmware/storage_image), flashed to the `storage` partition — research.md
+# D1. The function comes from the managed joltwallet/littlefs component's
+# project_include.cmake and registers an ALL target, so build/storage.bin is
+# produced on every `idf.py build` (CI verifies the file exists);
+# FLASH_IN_PROJECT attaches the image to `idf.py flash` for a deterministic
+# fresh-flash filesystem. Canonical placement per the component's example:
+# a component CMakeLists, after idf_component_register (the relative path
+# resolves against this directory).
+littlefs_create_partition_image(storage ../storage_image FLASH_IN_PROJECT)

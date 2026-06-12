@@ -126,7 +126,7 @@
 ### Implementation for User Story 4
 
 - [x] T029 [P] [US4] Target-only `StorageMount` (esp_vfs_littlefs_register with `partition_label="storage"`, `base_path="/storage"`, `format_if_mount_failed=true`; `esp_littlefs_info` stats provider wired into `LittleFsDataStorage`) in `firmware/components/storage/include/storage/StorageMount.h` + `firmware/components/storage/src/StorageMount.cpp` (research D2/D4; excluded from linux build per T002)
-- [ ] T030 [P] [US4] Partition image in build: `littlefs_create_partition_image(storage ../storage_image FLASH_IN_PROJECT)` in `firmware/main/CMakeLists.txt` (research D1)
+- [x] T030 [P] [US4] Partition image in build: `littlefs_create_partition_image(storage ../storage_image FLASH_IN_PROJECT)` in `firmware/main/CMakeLists.txt` (research D1)
 - [ ] T031 [US4] Boot wiring in `firmware/main/`: NVS init (with the standard erase-on-`NO_FREE_PAGES/NEW_VERSION` recovery), StorageMount at startup, one-line usage log (parity: serial status block) — keep ESP_LOG only, no business logic in main
 - [ ] T032 [US4] HIL verification path for config persistence and factory reset on the rig (follow the verification mechanism PR-02 established for its HIL pass — extend it, don't invent a parallel one) in `firmware/main/` or the PR-02 test console location
 - [ ] T033 [US4] CI: add `test -f firmware/build/storage.bin` to the verify-binaries step in `.github/workflows/firmware-build.yml`; confirm host-test job picks up the new suites; both target builds + host job green in CI
