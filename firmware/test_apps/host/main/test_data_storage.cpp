@@ -10,7 +10,7 @@
  * the same contract invariants (FR-012).
  *
  * Coverage maps to specs/003-nvs-littlefs-storage/contracts/IDataStorage.md
- * and the data-model.md history layout (tasks T018-T020).
+ * and the data-model.md history and event layouts (tasks T018-T020, T023).
  */
 
 #include <dirent.h>
@@ -432,6 +432,369 @@ void test_torn_tail_repaired_before_append(void)
     TEST_ASSERT_EQUAL_FLOAT(3.0f, all[2].value);
 }
 
+// --- T023: event log (FR-011, storeEvent/getEvents contract) -------------
+
+std::string eventFileOf(const TempDir& dir, int index)
+{
+    return dir.path() + "/events/" + std::to_string(index) + ".log";
+}
+
+std::vector<uint8_t> readAll(const std::string& path)
+{
+    std::vector<uint8_t> bytes;
+    FILE* file = std::fopen(path.c_str(), "rb");
+    TEST_ASSERT_NOT_NULL_MESSAGE(file, path.c_str());
+    uint8_t buf[256];
+    std::size_t n = 0;
+    while ((n = std::fread(buf, 1, sizeof(buf), file)) > 0) {
+        bytes.insert(bytes.end(), buf, buf + n);
+    }
+    TEST_ASSERT_EQUAL_INT(0, std::fclose(file));
+    return bytes;
+}
+
+void appendBytes(const std::string& path, const uint8_t* bytes,
+                 std::size_t count)
+{
+    FILE* file = std::fopen(path.c_str(), "ab");
+    TEST_ASSERT_NOT_NULL(file);
+    TEST_ASSERT_EQUAL_size_t(count, std::fwrite(bytes, 1, count, file));
+    TEST_ASSERT_EQUAL_INT(0, std::fclose(file));
+}
+
+/// 9-byte detail encoding `index`: every framed record is then exactly
+/// 16 bytes, so one event file holds exactly 1024 records and the
+/// rotation boundary lands on a precise event index.
+constexpr std::size_t kFixedDetailBytes = 9;
+constexpr std::size_t kFixedRecordBytes =
+    LittleFsDataStorage::kEventHeaderBytes + kFixedDetailBytes;  // 16
+constexpr std::size_t kEventsPerFile =
+    LittleFsDataStorage::kEventFileMaxBytes / kFixedRecordBytes;  // 1024
+static_assert(kEventsPerFile * kFixedRecordBytes ==
+                  LittleFsDataStorage::kEventFileMaxBytes,
+              "fixed-size events must fill an event file exactly");
+
+std::string fixedDetail(std::size_t index)
+{
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "%09lu",
+                  static_cast<unsigned long>(index));
+    return std::string(buf, kFixedDetailBytes);
+}
+
+/// Append fixed-size events with epoch = firstEpoch + index and detail =
+/// fixedDetail(index), for index in [firstIndex, firstIndex + count).
+/// Asserts once on the aggregate failure count (per-append asserts would
+/// dominate the rotation/burst runtime).
+void appendEvents(LittleFsDataStorage& storage, uint32_t firstEpoch,
+                  std::size_t firstIndex, std::size_t count)
+{
+    std::size_t failures = 0;
+    for (std::size_t i = firstIndex; i < firstIndex + count; ++i) {
+        if (!storage.storeEvent(firstEpoch + static_cast<uint32_t>(i),
+                                IDataStorage::kCategoryPump, fixedDetail(i))) {
+            ++failures;
+        }
+    }
+    TEST_ASSERT_EQUAL_size_t(0, failures);
+}
+
+void test_event_framing_round_trip(void)
+{
+    TempDir dir;
+    LittleFsDataStorage storage(dir.path());
+
+    TEST_ASSERT_TRUE(storage.storeEvent(
+        0x11223344u, IDataStorage::kCategoryConnectivity, "abc"));
+
+    // On-disk frame (data-model.md): marker 0xE7, uint32 LE epoch,
+    // uint8 category, uint8 detail_len, detail bytes. Fresh log -> 0.log.
+    const auto raw = readAll(eventFileOf(dir, 0));
+    const uint8_t expected[] = {0xE7, 0x44, 0x33, 0x22, 0x11,
+                                0x03, 0x03, 'a',  'b',  'c'};
+    TEST_ASSERT_EQUAL_size_t(sizeof(expected), raw.size());
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, raw.data(), sizeof(expected));
+
+    const auto events = storage.getEvents(10);
+    TEST_ASSERT_EQUAL_size_t(1, events.size());
+    TEST_ASSERT_EQUAL_UINT32(0x11223344u, events[0].epoch);
+    TEST_ASSERT_EQUAL_UINT8(IDataStorage::kCategoryConnectivity,
+                            events[0].category);
+    TEST_ASSERT_EQUAL_STRING("abc", events[0].detail.c_str());
+}
+
+void test_get_events_newest_first_with_max_count(void)
+{
+    TempDir dir;
+    LittleFsDataStorage storage(dir.path());
+
+    // No data at all (not even the /events directory) -> empty, no error.
+    TEST_ASSERT_TRUE(storage.getEvents(10).empty());
+
+    TEST_ASSERT_TRUE(storage.storeEvent(100, IDataStorage::kCategoryPump, "a"));
+    TEST_ASSERT_TRUE(
+        storage.storeEvent(200, IDataStorage::kCategoryFailsafe, "b"));
+    TEST_ASSERT_TRUE(
+        storage.storeEvent(300, IDataStorage::kCategoryConnectivity, "c"));
+    TEST_ASSERT_TRUE(storage.storeEvent(400, IDataStorage::kCategoryOta, "d"));
+    TEST_ASSERT_TRUE(
+        storage.storeEvent(500, IDataStorage::kCategoryReset, "e"));
+
+    const auto top = storage.getEvents(3);
+    TEST_ASSERT_EQUAL_size_t(3, top.size());
+    TEST_ASSERT_EQUAL_UINT32(500, top[0].epoch);
+    TEST_ASSERT_EQUAL_UINT8(IDataStorage::kCategoryReset, top[0].category);
+    TEST_ASSERT_EQUAL_STRING("e", top[0].detail.c_str());
+    TEST_ASSERT_EQUAL_UINT32(400, top[1].epoch);
+    TEST_ASSERT_EQUAL_UINT32(300, top[2].epoch);
+
+    const auto all = storage.getEvents(100);
+    TEST_ASSERT_EQUAL_size_t(5, all.size());
+    for (std::size_t i = 1; i < all.size(); ++i) {
+        TEST_ASSERT_TRUE(all[i - 1].epoch > all[i].epoch);
+    }
+
+    TEST_ASSERT_TRUE(storage.getEvents(0).empty());
+}
+
+void test_event_detail_truncated_not_rejected(void)
+{
+    TempDir dir;
+    LittleFsDataStorage storage(dir.path());
+
+    // Over-long detail: truncated to 120 bytes, event still recorded.
+    const std::string longDetail(IDataStorage::kEventDetailMaxLen + 80, 'x');
+    TEST_ASSERT_TRUE(
+        storage.storeEvent(100, IDataStorage::kCategoryFailsafe, longDetail));
+
+    // The on-disk detail_len byte is the truncated length.
+    const auto raw = readAll(eventFileOf(dir, 0));
+    TEST_ASSERT_EQUAL_size_t(LittleFsDataStorage::kEventHeaderBytes +
+                                 IDataStorage::kEventDetailMaxLen,
+                             raw.size());
+    TEST_ASSERT_EQUAL_UINT8(IDataStorage::kEventDetailMaxLen, raw[6]);
+
+    // An exactly-120-byte detail is kept whole.
+    const std::string maxDetail(IDataStorage::kEventDetailMaxLen, 'y');
+    TEST_ASSERT_TRUE(
+        storage.storeEvent(200, IDataStorage::kCategoryPump, maxDetail));
+
+    const auto events = storage.getEvents(10);
+    TEST_ASSERT_EQUAL_size_t(2, events.size());
+    TEST_ASSERT_EQUAL_STRING(maxDetail.c_str(), events[0].detail.c_str());
+    TEST_ASSERT_EQUAL_size_t(IDataStorage::kEventDetailMaxLen,
+                             events[1].detail.size());
+    TEST_ASSERT_EQUAL_STRING(
+        longDetail.substr(0, IDataStorage::kEventDetailMaxLen).c_str(),
+        events[1].detail.c_str());
+}
+
+void test_unknown_event_category_passthrough(void)
+{
+    TempDir dir;
+    LittleFsDataStorage storage(dir.path());
+
+    // PR-08 may extend the enum: unknown values pass through verbatim.
+    TEST_ASSERT_TRUE(storage.storeEvent(100, 0xCC, "future"));
+    TEST_ASSERT_TRUE(storage.storeEvent(200, 0, "zero"));
+
+    const auto events = storage.getEvents(10);
+    TEST_ASSERT_EQUAL_size_t(2, events.size());
+    TEST_ASSERT_EQUAL_UINT8(0, events[0].category);
+    TEST_ASSERT_EQUAL_UINT8(0xCC, events[1].category);
+    TEST_ASSERT_EQUAL_STRING("future", events[1].detail.c_str());
+}
+
+void test_event_rotation_drops_oldest_never_newest(void)
+{
+    TempDir dir;
+    LittleFsDataStorage storage(dir.path());
+    const uint32_t base = 1000000;
+
+    // Fill 0.log exactly (1024 records x 16 bytes); 1.log not yet created.
+    appendEvents(storage, base, 0, kEventsPerFile);
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(LittleFsDataStorage::kEventFileMaxBytes),
+        static_cast<int>(sizeOf(eventFileOf(dir, 0))));
+    TEST_ASSERT_EQUAL_size_t(1, listDir(dir.path() + "/events").size());
+
+    // The next append would exceed the cap -> switches to 1.log; the full
+    // file is left intact (nothing dropped yet).
+    appendEvents(storage, base, kEventsPerFile, 1);
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(kFixedRecordBytes),
+                          static_cast<int>(sizeOf(eventFileOf(dir, 1))));
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(LittleFsDataStorage::kEventFileMaxBytes),
+        static_cast<int>(sizeOf(eventFileOf(dir, 0))));
+
+    // Fill 1.log; the following append truncates 0.log (the oldest half)
+    // and starts over there.
+    appendEvents(storage, base, kEventsPerFile + 1, kEventsPerFile - 1);
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(LittleFsDataStorage::kEventFileMaxBytes),
+        static_cast<int>(sizeOf(eventFileOf(dir, 1))));
+    appendEvents(storage, base, 2 * kEventsPerFile, 1);
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(kFixedRecordBytes),
+                          static_cast<int>(sizeOf(eventFileOf(dir, 0))));
+
+    // The oldest half (indices 0..1023) is gone; everything newer is
+    // intact and newest-first, the newest record always retained.
+    const auto events = storage.getEvents(4 * kEventsPerFile);
+    TEST_ASSERT_EQUAL_size_t(kEventsPerFile + 1, events.size());
+    TEST_ASSERT_EQUAL_UINT32(base + 2 * static_cast<uint32_t>(kEventsPerFile),
+                             events.front().epoch);
+    TEST_ASSERT_EQUAL_UINT32(base + static_cast<uint32_t>(kEventsPerFile),
+                             events.back().epoch);
+    for (std::size_t i = 1; i < events.size(); ++i) {
+        TEST_ASSERT_TRUE(events[i - 1].epoch > events[i].epoch);
+    }
+}
+
+void test_event_burst_stays_within_budget(void)
+{
+    TempDir dir;
+    LittleFsDataStorage storage(dir.path());
+    const uint32_t base = 2000;
+
+    // Burst of 3000 events with every detail length 0..120: several
+    // rotations; no append may fail (contract: never rejected at the
+    // bound) and the two files stay within the 32 KiB total budget.
+    constexpr std::size_t kBurst = 3000;
+    std::size_t failures = 0;
+    for (std::size_t i = 0; i < kBurst; ++i) {
+        const std::string detail(i % (IDataStorage::kEventDetailMaxLen + 1),
+                                 'e');
+        if (!storage.storeEvent(base + static_cast<uint32_t>(i),
+                                IDataStorage::kCategoryPump, detail)) {
+            ++failures;
+        }
+    }
+    TEST_ASSERT_EQUAL_size_t(0, failures);
+
+    const long size0 = sizeOf(eventFileOf(dir, 0));
+    const long size1 = sizeOf(eventFileOf(dir, 1));
+    TEST_ASSERT_TRUE(
+        size0 <= static_cast<long>(LittleFsDataStorage::kEventFileMaxBytes));
+    TEST_ASSERT_TRUE(
+        size1 <= static_cast<long>(LittleFsDataStorage::kEventFileMaxBytes));
+    TEST_ASSERT_TRUE(
+        size0 + size1 <=
+        2 * static_cast<long>(LittleFsDataStorage::kEventFileMaxBytes));
+
+    // The newest record survived every rotation.
+    const auto newest = storage.getEvents(1);
+    TEST_ASSERT_EQUAL_size_t(1, newest.size());
+    TEST_ASSERT_EQUAL_UINT32(base + static_cast<uint32_t>(kBurst) - 1,
+                             newest[0].epoch);
+}
+
+void test_event_torn_tail_skipped_and_repaired(void)
+{
+    TempDir dir;
+    LittleFsDataStorage storage(dir.path());
+
+    TEST_ASSERT_TRUE(storage.storeEvent(100, IDataStorage::kCategoryPump,
+                                        "one"));
+    TEST_ASSERT_TRUE(storage.storeEvent(200, IDataStorage::kCategoryReset,
+                                        "two"));
+    const std::string active = eventFileOf(dir, 0);
+    const long valid = sizeOf(active);
+
+    // Power loss mid-append: marker written, rest of the header torn off.
+    const uint8_t torn[] = {LittleFsDataStorage::kEventMarker, 0xAA, 0xBB};
+    appendBytes(active, torn, sizeof(torn));
+
+    auto events = storage.getEvents(10);
+    TEST_ASSERT_EQUAL_size_t(2, events.size());
+    TEST_ASSERT_EQUAL_UINT32(200, events[0].epoch);
+    TEST_ASSERT_EQUAL_UINT32(100, events[1].epoch);
+
+    // The next append repairs the tail: the file is the valid prefix plus
+    // the new frame, and every record parses.
+    TEST_ASSERT_TRUE(storage.storeEvent(300, IDataStorage::kCategoryOta,
+                                        "three"));
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(valid + LittleFsDataStorage::kEventHeaderBytes + 5),
+        static_cast<int>(sizeOf(active)));
+    events = storage.getEvents(10);
+    TEST_ASSERT_EQUAL_size_t(3, events.size());
+    TEST_ASSERT_EQUAL_UINT32(300, events[0].epoch);
+    TEST_ASSERT_EQUAL_STRING("three", events[0].detail.c_str());
+    TEST_ASSERT_EQUAL_UINT32(100, events[2].epoch);
+}
+
+void test_event_torn_detail_length_mismatch_skipped(void)
+{
+    TempDir dir;
+    LittleFsDataStorage storage(dir.path());
+
+    TEST_ASSERT_TRUE(storage.storeEvent(100, IDataStorage::kCategoryPump,
+                                        "ok"));
+
+    // Complete header claiming 9 detail bytes, but only 3 present
+    // (length mismatch at the end of the file).
+    const uint8_t torn[] = {LittleFsDataStorage::kEventMarker,
+                            0x01, 0x00, 0x00, 0x00,
+                            IDataStorage::kCategoryPump, 9,
+                            'a', 'b', 'c'};
+    appendBytes(eventFileOf(dir, 0), torn, sizeof(torn));
+
+    const auto events = storage.getEvents(10);
+    TEST_ASSERT_EQUAL_size_t(1, events.size());
+    TEST_ASSERT_EQUAL_UINT32(100, events[0].epoch);
+    TEST_ASSERT_EQUAL_STRING("ok", events[0].detail.c_str());
+}
+
+void test_event_active_file_detected_after_restart(void)
+{
+    TempDir dir;
+    const uint32_t base = 5000000;
+
+    {
+        // First life: rotate into 1.log and leave 5 records there.
+        LittleFsDataStorage first(dir.path());
+        appendEvents(first, base, 0, kEventsPerFile + 5);
+    }
+
+    // Restart: a new instance must derive the active file (1.log) from
+    // the files alone and append there — no spurious rotation that would
+    // truncate the full 0.log.
+    LittleFsDataStorage second(dir.path());
+    appendEvents(second, base, kEventsPerFile + 5, 1);
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(LittleFsDataStorage::kEventFileMaxBytes),
+        static_cast<int>(sizeOf(eventFileOf(dir, 0))));
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(6 * kFixedRecordBytes),
+                          static_cast<int>(sizeOf(eventFileOf(dir, 1))));
+
+    const auto events = second.getEvents(2);
+    TEST_ASSERT_EQUAL_size_t(2, events.size());
+    TEST_ASSERT_EQUAL_UINT32(
+        base + static_cast<uint32_t>(kEventsPerFile) + 5, events[0].epoch);
+    TEST_ASSERT_EQUAL_UINT32(
+        base + static_cast<uint32_t>(kEventsPerFile) + 4, events[1].epoch);
+}
+
+void test_mock_event_bound_and_category_passthrough(void)
+{
+    MockDataStorage mock;
+
+    // Unknown category passes through the mock verbatim too.
+    TEST_ASSERT_TRUE(mock.storeEvent(1, 0xCC, "future"));
+    TEST_ASSERT_EQUAL_UINT8(0xCC, mock.getEvents(1)[0].category);
+
+    // At the bound the mock evicts oldest and always keeps the newest.
+    for (std::size_t i = 0; i < MockDataStorage::kMaxEvents + 8; ++i) {
+        TEST_ASSERT_TRUE(mock.storeEvent(100 + static_cast<uint32_t>(i),
+                                         IDataStorage::kCategoryPump, "e"));
+    }
+    TEST_ASSERT_EQUAL_size_t(MockDataStorage::kMaxEvents, mock.events.size());
+    const auto newest = mock.getEvents(1);
+    TEST_ASSERT_EQUAL_size_t(1, newest.size());
+    TEST_ASSERT_EQUAL_UINT32(100 + MockDataStorage::kMaxEvents + 7,
+                             newest[0].epoch);
+}
+
 }  // namespace
 
 void run_data_storage_tests(void)
@@ -451,4 +814,15 @@ void run_data_storage_tests(void)
     // T020 — torn-tail handling.
     RUN_TEST(test_torn_tail_truncated_on_read);
     RUN_TEST(test_torn_tail_repaired_before_append);
+    // T023 — event log: framing, retrieval, rotation, budget, torn tails.
+    RUN_TEST(test_event_framing_round_trip);
+    RUN_TEST(test_get_events_newest_first_with_max_count);
+    RUN_TEST(test_event_detail_truncated_not_rejected);
+    RUN_TEST(test_unknown_event_category_passthrough);
+    RUN_TEST(test_event_rotation_drops_oldest_never_newest);
+    RUN_TEST(test_event_burst_stays_within_budget);
+    RUN_TEST(test_event_torn_tail_skipped_and_repaired);
+    RUN_TEST(test_event_torn_detail_length_mismatch_skipped);
+    RUN_TEST(test_event_active_file_detected_after_restart);
+    RUN_TEST(test_mock_event_bound_and_category_passthrough);
 }

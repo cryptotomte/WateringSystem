@@ -96,7 +96,7 @@
 
 ### Tests for User Story 3 (write first, must fail)
 
-- [ ] T023 [P] [US3] Event tests: framed record round-trip, newest-first retrieval with maxCount, rotation truncates oldest half and never the newest, burst stays within 32 KiB budget, torn-tail marker/length detection, unknown-category passthrough, >120-byte detail truncated-not-rejected in `firmware/test_apps/host/main/test_data_storage.cpp`
+- [x] T023 [P] [US3] Event tests: framed record round-trip, newest-first retrieval with maxCount, rotation truncates oldest half and never the newest, burst stays within 32 KiB budget, torn-tail marker/length detection, unknown-category passthrough, >120-byte detail truncated-not-rejected in `firmware/test_apps/host/main/test_data_storage.cpp`
 
 ### Implementation for User Story 3
 
