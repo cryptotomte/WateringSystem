@@ -53,6 +53,7 @@ firmware/managed_components/
 # Session dialog documents (not part of any PR)
 docs/phase0-plan.md
 docs/phase0-review.md
+docs/checkpoints/
 
 # Claude Code
 .claude/

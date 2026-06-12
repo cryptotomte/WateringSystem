@@ -40,6 +40,44 @@ Pin mappings and board feature flags live in
 `components/board/include/board/board.h` behind
 `CONFIG_BOARD_REV1_DEVKIT` / `CONFIG_BOARD_REV2`.
 
+## Host tests (no hardware needed)
+
+The pump enforcement logic (timed runs, hard 300 s max-runtime cap, runtime
+statistics) is pure C++ and is unit-tested natively on the ESP-IDF **linux
+preview target** with the IDF-bundled Unity framework. From the repository:
+
+```bash
+cd firmware/test_apps/host
+docker run --rm -v "$PWD":/project -w /project espressif/idf:v6.0.1 bash -c \
+  "idf.py --preview set-target linux && idf.py build && ./build/pump_host_tests.elf"
+echo $?   # 0 = all tests pass; >0 = number of failures
+```
+
+> **Note (macOS/OneDrive):** copy the tree to `/tmp` before mounting in
+> Docker — the OneDrive path cannot be docker-mounted.
+
+Coverage: max-runtime enforcement, duration self-stop, rejected starts
+(0 s, > 300 s, already running), stop-when-stopped no-op, paired output
+transitions and runtime statistics — all on a deterministic fake clock
+(no sleeps). CI runs the same suite in the `host-test` job; the executable's
+exit code equals the Unity failure count.
+
+## Serial diagnostic console
+
+The firmware starts an `esp_console` REPL on UART0 (same port as the logs,
+115200 baud, prompt `ws>`) for bench-rig testing:
+
+```
+pump <plant|reservoir> start <seconds>   # timed run; 1..300
+pump <plant|reservoir> stop
+pump <plant|reservoir> status
+pump status                              # both pumps
+```
+
+`help` lists all commands. Exact response formats are specified in
+`specs/002-pump-gpio-board/contracts/serial-diagnostic.md`; the HIL
+acceptance checklist is `specs/002-pump-gpio-board/checklists/hil.md`.
+
 ## Flash and monitor (initial bring-up only)
 
 Routine updates will be delivered via OTA (phase 5). For initial bring-up,
