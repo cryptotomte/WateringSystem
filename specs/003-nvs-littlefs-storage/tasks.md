@@ -70,7 +70,7 @@
 ### Contract & skeleton for User Story 2
 
 - [x] T015 [P] [US2] `IDataStorage` interface header (SensorReading/EventRecord/StorageStats types, full contract per contracts/IDataStorage.md) in `firmware/components/interfaces/include/interfaces/IDataStorage.h`
-- [ ] T016 [P] [US2] Header-only `MockDataStorage` in `firmware/components/storage/include/storage/testing/MockDataStorage.h`
+- [x] T016 [P] [US2] Header-only `MockDataStorage` in `firmware/components/storage/include/storage/testing/MockDataStorage.h`
 - [ ] T017 [US2] `LittleFsDataStorage` declaration + stub (injectable base path + stats provider, compiles) in `firmware/components/storage/include/storage/LittleFsDataStorage.h` + `firmware/components/storage/src/LittleFsDataStorage.cpp`
 
 ### Tests for User Story 2 (write against the stub, must fail)
