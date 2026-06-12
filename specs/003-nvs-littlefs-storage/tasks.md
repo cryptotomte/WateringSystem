@@ -41,21 +41,21 @@
 
 ### Contract & skeleton for User Story 1
 
-- [ ] T006 [P] [US1] `IConfigStore` interface header per contracts/IConfigStore.md in `firmware/components/interfaces/include/interfaces/IConfigStore.h` (host-includable, no IDF includes; documents contract + divergences from legacy)
-- [ ] T007 [P] [US1] Header-only `MockConfigStore` in `firmware/components/storage/include/storage/testing/MockConfigStore.h` (in-memory, instrumented; never compiled into target builds)
-- [ ] T008 [US1] `NvsConfigStore` declaration + stub (compiles, all methods fail/return defaults) in `firmware/components/storage/include/storage/NvsConfigStore.h` + `firmware/components/storage/src/NvsConfigStore.cpp`
+- [x] T006 [P] [US1] `IConfigStore` interface header per contracts/IConfigStore.md in `firmware/components/interfaces/include/interfaces/IConfigStore.h` (host-includable, no IDF includes; documents contract + divergences from legacy)
+- [x] T007 [P] [US1] Header-only `MockConfigStore` in `firmware/components/storage/include/storage/testing/MockConfigStore.h` (in-memory, instrumented; never compiled into target builds)
+- [x] T008 [US1] `NvsConfigStore` declaration + stub (compiles, all methods fail/return defaults) in `firmware/components/storage/include/storage/NvsConfigStore.h` + `firmware/components/storage/src/NvsConfigStore.cpp`
 
 ### Tests for User Story 1 (write against the stub, must fail)
 
-- [ ] T009 [P] [US1] Default-on-erased-NVS tests (every item from data-model.md table) in `firmware/test_apps/host/main/test_config_store.cpp`
-- [ ] T010 [P] [US1] Round-trip + persistence-across-reinit tests per item in `firmware/test_apps/host/main/test_config_store.cpp`
-- [ ] T011 [P] [US1] Out-of-range write rejection (every documented bound) and out-of-range *stored* value shadowing (US1 scenario 3) in `firmware/test_apps/host/main/test_config_store.cpp`
-- [ ] T012 [P] [US1] Factory reset semantics + credential set/clear/never-logged tests, plus `MockConfigStore` contract-conformance cases (same invariants as the real store — FR-012) in `firmware/test_apps/host/main/test_config_store.cpp`
+- [x] T009 [P] [US1] Default-on-erased-NVS tests (every item from data-model.md table) in `firmware/test_apps/host/main/test_config_store.cpp`
+- [x] T010 [P] [US1] Round-trip + persistence-across-reinit tests per item in `firmware/test_apps/host/main/test_config_store.cpp`
+- [x] T011 [P] [US1] Out-of-range write rejection (every documented bound) and out-of-range *stored* value shadowing (US1 scenario 3) in `firmware/test_apps/host/main/test_config_store.cpp`
+- [x] T012 [P] [US1] Factory reset semantics + credential set/clear/never-logged tests, plus `MockConfigStore` contract-conformance cases (same invariants as the real store — FR-012) in `firmware/test_apps/host/main/test_config_store.cpp`
 
 ### Implementation for User Story 1
 
-- [ ] T013 [US1] Implement `NvsConfigStore` per data-model.md NVS schema (namespace `wscfg`, per-item entries, float-as-u32-bits, defaults/range constants, factory reset via `nvs_flash_erase_partition` + re-init) in `firmware/components/storage/src/NvsConfigStore.cpp`
-- [ ] T014 [US1] Run US1 suites green on linux target; fix until exit 0
+- [x] T013 [US1] Implement `NvsConfigStore` per data-model.md NVS schema (namespace `wscfg`, per-item entries, float-as-u32-bits, defaults/range constants, factory reset via `nvs_flash_erase_partition` + re-init) in `firmware/components/storage/src/NvsConfigStore.cpp`
+- [ ] T014 [US1] Run US1 suites green on linux target; fix until exit 0 — NOTE: execution deferred to the main session (implementer agent does not run docker builds)
 
 **Checkpoint**: Config layer fully verified on host — MVP of this feature
 
