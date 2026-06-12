@@ -30,6 +30,7 @@
 #include "nvs_flash.h"
 
 #include "interfaces/IConfigStore.h"
+#include "storage/LockedConfigStore.h"
 #include "storage/NvsConfigStore.h"
 #include "storage/testing/MockConfigStore.h"
 
@@ -490,6 +491,67 @@ static void test_mock_shadowing_factory_reset_and_fail_writes(void)
     TEST_ASSERT_EQUAL_UINT32(45, store.getWateringDurationS());
 }
 
+// ---------------------------------------------------------------------------
+// T028 — LockedConfigStore decorator delegates the full contract path
+// unchanged (the wrapper adds task-level mutex serialization; see
+// LockedConfigStore.h — same mechanism PR-02's LockedWaterPump test
+// established). The instrumented mock proves every call reached the
+// wrapped store.
+// ---------------------------------------------------------------------------
+static void test_locked_config_store_delegates_full_contract(void)
+{
+    MockConfigStore inner;
+    LockedConfigStore store(inner);
+
+    // Factory state and every accepted write pass through unchanged.
+    assertAllDefaults(store);
+    setAllNonDefaults(store);
+    assertAllNonDefaults(store);
+    TEST_ASSERT_EQUAL(8, inner.acceptedWrites);  // setAllNonDefaults calls
+
+    // Validation rejections behave identically through the wrapper and
+    // leave the stored values untouched.
+    TEST_ASSERT_FALSE(store.setMoistureThresholdLow(150.0f));
+    TEST_ASSERT_FALSE(store.setMoistureThresholdHigh(NAN));
+    TEST_ASSERT_FALSE(store.setWateringDurationS(0));
+    TEST_ASSERT_FALSE(store.setMinWateringIntervalS(0));
+    TEST_ASSERT_FALSE(store.setSensorReadIntervalMs(999));
+    TEST_ASSERT_FALSE(store.setDataLogIntervalMs(59999));
+    TEST_ASSERT_FALSE(store.setWifiCredentials(std::string(33, 's'), "ok"));
+    TEST_ASSERT_EQUAL(7, inner.rejectedWrites);
+    assertAllNonDefaults(store);
+
+    // Credential clear and factory reset delegate too.
+    TEST_ASSERT_TRUE(store.clearWifiCredentials());
+    TEST_ASSERT_EQUAL_STRING("", store.getWifiSsid().c_str());
+    TEST_ASSERT_EQUAL_STRING("", store.getWifiPassword().c_str());
+    TEST_ASSERT_TRUE(store.factoryReset());
+    TEST_ASSERT_EQUAL(1, inner.factoryResets);
+    assertAllDefaults(store);
+
+    // A persistence failure surfaces through the wrapper unchanged.
+    inner.failWrites = true;
+    TEST_ASSERT_FALSE(store.setWateringEnabled(false));
+    TEST_ASSERT_FALSE(store.factoryReset());
+}
+
+// ---------------------------------------------------------------------------
+// T028 — the wrapped NvsConfigStore keeps its contract behind the wrapper
+// (real-store spot check: round-trip + factory reset through the mutex).
+// ---------------------------------------------------------------------------
+static void test_locked_config_store_over_real_store(void)
+{
+    resetNvs();
+    NvsConfigStore inner;
+    LockedConfigStore store(inner);
+
+    assertAllDefaults(store);
+    setAllNonDefaults(store);
+    assertAllNonDefaults(store);
+    TEST_ASSERT_TRUE(store.factoryReset());
+    assertAllDefaults(store);
+}
+
 void run_config_store_tests(void)
 {
     RUN_TEST(test_defaults_on_erased_nvs);
@@ -504,4 +566,7 @@ void run_config_store_tests(void)
     RUN_TEST(test_credentials_never_logged);
     RUN_TEST(test_mock_defaults_roundtrip_rejection);
     RUN_TEST(test_mock_shadowing_factory_reset_and_fail_writes);
+    // T028 — Locked* decorator (FR-013).
+    RUN_TEST(test_locked_config_store_delegates_full_contract);
+    RUN_TEST(test_locked_config_store_over_real_store);
 }

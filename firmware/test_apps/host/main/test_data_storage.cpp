@@ -27,6 +27,7 @@
 
 #include "interfaces/IDataStorage.h"
 #include "storage/LittleFsDataStorage.h"
+#include "storage/LockedDataStorage.h"
 #include "storage/testing/MockDataStorage.h"
 
 namespace {
@@ -795,6 +796,83 @@ void test_mock_event_bound_and_category_passthrough(void)
                              newest[0].epoch);
 }
 
+// --- T028: LockedDataStorage decorator (FR-013) --------------------------
+// Delegates the full contract path unchanged (the wrapper adds task-level
+// mutex serialization; see LockedDataStorage.h — same mechanism PR-02's
+// LockedWaterPump test established). The instrumented mock proves every
+// call reached the wrapped storage.
+
+void test_locked_data_storage_delegates_full_contract(void)
+{
+    MockDataStorage inner;
+    inner.stats = StorageStats{983040, 12288};
+    LockedDataStorage storage(inner);
+
+    // storeSensorReading: accepted appends and the rejection paths pass
+    // through unchanged.
+    TEST_ASSERT_TRUE(storage.storeSensorReading("soil_moisture", 100, 1.0f));
+    TEST_ASSERT_TRUE(storage.storeSensorReading("soil_moisture", 200, 2.0f));
+    TEST_ASSERT_TRUE(storage.storeSensorReading("soil_moisture", 300, 3.0f));
+    TEST_ASSERT_FALSE(storage.storeSensorReading("bad/metric", 400, 4.0f));
+    TEST_ASSERT_EQUAL(3, inner.acceptedWrites);
+    TEST_ASSERT_EQUAL(1, inner.rejectedWrites);
+
+    // getSensorReadings: inclusive chronological range, empty on t0 > t1.
+    const auto mid = storage.getSensorReadings("soil_moisture", 200, 300);
+    TEST_ASSERT_EQUAL_size_t(2, mid.size());
+    TEST_ASSERT_EQUAL_UINT32(200, mid[0].epoch);
+    TEST_ASSERT_EQUAL_UINT32(300, mid[1].epoch);
+    TEST_ASSERT_TRUE(storage.getSensorReadings("soil_moisture", 300, 200).empty());
+
+    // storeEvent: detail truncation happens behind the wrapper.
+    const std::string longDetail(IDataStorage::kEventDetailMaxLen + 30, 'd');
+    TEST_ASSERT_TRUE(storage.storeEvent(500, IDataStorage::kCategoryPump,
+                                        "pump started"));
+    TEST_ASSERT_TRUE(storage.storeEvent(600, IDataStorage::kCategoryFailsafe,
+                                        longDetail));
+
+    // getEvents: newest-first with maxCount.
+    const auto events = storage.getEvents(2);
+    TEST_ASSERT_EQUAL_size_t(2, events.size());
+    TEST_ASSERT_EQUAL_UINT32(600, events[0].epoch);
+    TEST_ASSERT_EQUAL_size_t(IDataStorage::kEventDetailMaxLen,
+                             events[0].detail.size());
+    TEST_ASSERT_EQUAL_UINT32(500, events[1].epoch);
+    TEST_ASSERT_EQUAL_STRING("pump started", events[1].detail.c_str());
+
+    // getStorageStats: injected stats come back verbatim.
+    const StorageStats stats = storage.getStorageStats();
+    TEST_ASSERT_EQUAL_UINT32(983040, stats.totalBytes);
+    TEST_ASSERT_EQUAL_UINT32(12288, stats.usedBytes);
+
+    // A persistence failure surfaces through the wrapper unchanged.
+    inner.failWrites = true;
+    TEST_ASSERT_FALSE(storage.storeSensorReading("soil_moisture", 700, 7.0f));
+    TEST_ASSERT_FALSE(storage.storeEvent(700, IDataStorage::kCategoryPump, "x"));
+}
+
+// The wrapped LittleFsDataStorage keeps its contract behind the wrapper
+// (real-store spot check: on-disk round-trip through the mutex).
+void test_locked_data_storage_over_real_storage(void)
+{
+    TempDir dir;
+    LittleFsDataStorage inner(dir.path());
+    LockedDataStorage storage(inner);
+
+    TEST_ASSERT_TRUE(storage.storeSensorReading("env_temperature", 100, 21.5f));
+    TEST_ASSERT_TRUE(storage.storeEvent(200, IDataStorage::kCategoryReset,
+                                        "boot"));
+
+    const auto readings =
+        storage.getSensorReadings("env_temperature", 0, UINT32_MAX);
+    TEST_ASSERT_EQUAL_size_t(1, readings.size());
+    TEST_ASSERT_EQUAL_FLOAT(21.5f, readings[0].value);
+
+    const auto events = storage.getEvents(10);
+    TEST_ASSERT_EQUAL_size_t(1, events.size());
+    TEST_ASSERT_EQUAL_STRING("boot", events[0].detail.c_str());
+}
+
 }  // namespace
 
 void run_data_storage_tests(void)
@@ -825,4 +903,7 @@ void run_data_storage_tests(void)
     RUN_TEST(test_event_torn_detail_length_mismatch_skipped);
     RUN_TEST(test_event_active_file_detected_after_restart);
     RUN_TEST(test_mock_event_bound_and_category_passthrough);
+    // T028 — Locked* decorator (FR-013).
+    RUN_TEST(test_locked_data_storage_delegates_full_contract);
+    RUN_TEST(test_locked_data_storage_over_real_storage);
 }
