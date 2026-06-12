@@ -90,7 +90,9 @@ private:
     std::string eventPath(int index) const;
 
     /// Which of the two event files appends are directed to, derived
-    /// from the files (fullness, then newest-last-record fallback).
+    /// from the files alone: the file whose last valid record has the
+    /// newest epoch (ties broken toward the smaller file; both empty
+    /// -> 0). Full rationale at the definition.
     int activeEventIndex() const;
 
     std::string basePath_;

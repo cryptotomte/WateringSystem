@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * @file LittleFsDataStorage.cpp
- * @brief IDataStorage over POSIX file I/O (history; events follow in T024).
+ * @brief IDataStorage over POSIX file I/O (sensor history + event log).
  *
  * POSIX stdio only, no esp_littlefs/IDF includes: the identical code runs
  * against the /storage littlefs VFS mount on target and a temp directory
@@ -154,6 +154,56 @@ float decodeFloatLe(const uint8_t* bytes)
     return value;
 }
 
+// Event-log codec: 0xE7-framed records {marker, uint32 LE epoch,
+// uint8 category, uint8 detail_len, detail bytes} (data-model.md).
+
+/// Valid framed prefix of one event file: records in append order plus
+/// the byte length of the parseable prefix. A torn tail — bad marker or
+/// a frame shorter than its declared length, i.e. a power loss
+/// mid-append — ends the prefix; everything before it stays usable
+/// (contract invariant 2). An absent file is an empty log.
+struct ParsedEventFile {
+    std::vector<EventRecord> records;
+    long validBytes = 0;
+};
+
+ParsedEventFile parseEventFile(const std::string& path)
+{
+    ParsedEventFile parsed;
+    FILE* file = std::fopen(path.c_str(), "rb");
+    if (file == nullptr) {
+        return parsed;
+    }
+    uint8_t header[LittleFsDataStorage::kEventHeaderBytes];
+    char detail[UINT8_MAX];  // detail_len is one byte
+    for (;;) {
+        if (std::fread(header, 1, sizeof(header), file) != sizeof(header) ||
+            header[0] != LittleFsDataStorage::kEventMarker) {
+            break;  // torn/absent frame header: end of the valid prefix
+        }
+        const std::size_t detailLen = header[6];
+        if (std::fread(detail, 1, detailLen, file) != detailLen) {
+            break;  // declared length exceeds the file: torn detail
+        }
+        parsed.records.push_back(EventRecord{
+            decodeU32Le(header + 1), header[5], std::string(detail, detailLen)});
+        parsed.validBytes += static_cast<long>(sizeof(header) + detailLen);
+    }
+    std::fclose(file);
+    return parsed;
+}
+
+/// Create-or-empty a file: rotation truncates the standby event file
+/// before switching appends to it (::truncate cannot create).
+bool truncateToEmpty(const std::string& path)
+{
+    FILE* file = std::fopen(path.c_str(), "wb");
+    if (file == nullptr) {
+        return false;
+    }
+    return std::fclose(file) == 0;
+}
+
 }  // namespace
 
 LittleFsDataStorage::LittleFsDataStorage(std::string basePath,
@@ -265,18 +315,81 @@ std::vector<SensorReading> LittleFsDataStorage::getSensorReadings(
     return result;
 }
 
-bool LittleFsDataStorage::storeEvent(uint32_t /*epoch*/, uint8_t /*category*/,
-                                     const std::string& /*detail*/)
+bool LittleFsDataStorage::storeEvent(uint32_t epoch, uint8_t category,
+                                     const std::string& detail)
 {
-    // T024 (user story 3): event log not implemented yet.
-    return false;
+    if (!ensureDir(basePath_) || !ensureDir(eventsDir())) {
+        return false;
+    }
+    // Contract: an over-long detail is silently truncated — the event
+    // itself is always recorded, never rejected for length.
+    const std::size_t detailLen = std::min(detail.size(), kEventDetailMaxLen);
+    const std::size_t recordBytes = kEventHeaderBytes + detailLen;
+
+    int active = activeEventIndex();
+    std::string path = eventPath(active);
+    const ParsedEventFile parsed = parseEventFile(path);
+    if (fileSize(path) > parsed.validBytes) {
+        // Repair a torn tail (power loss mid-append) so the new record
+        // lands on a frame boundary and the whole file stays parseable.
+        if (::truncate(path.c_str(), parsed.validBytes) != 0) {
+            return false;
+        }
+    }
+    if (parsed.validBytes + static_cast<long>(recordBytes) >
+        static_cast<long>(kEventFileMaxBytes)) {
+        // Rotation (data-model.md): the append would exceed the 16 KiB
+        // cap, so truncate the standby file and switch appends to it —
+        // the oldest half is dropped, the newest records always kept.
+        active = 1 - active;
+        path = eventPath(active);
+        if (!truncateToEmpty(path)) {
+            return false;
+        }
+    }
+
+    uint8_t header[kEventHeaderBytes];
+    header[0] = kEventMarker;
+    for (int i = 0; i < 4; ++i) {
+        header[1 + i] = static_cast<uint8_t>((epoch >> (8 * i)) & 0xFF);
+    }
+    header[5] = category;
+    header[6] = static_cast<uint8_t>(detailLen);
+
+    FILE* file = std::fopen(path.c_str(), "ab");
+    if (file == nullptr) {
+        return false;
+    }
+    // Durable once true is returned: flush stdio, then sync to flash.
+    bool ok = std::fwrite(header, 1, sizeof(header), file) == sizeof(header) &&
+              std::fwrite(detail.data(), 1, detailLen, file) == detailLen &&
+              std::fflush(file) == 0 && ::fsync(fileno(file)) == 0;
+    ok = (std::fclose(file) == 0) && ok;
+    return ok;
 }
 
 std::vector<EventRecord> LittleFsDataStorage::getEvents(
-    std::size_t /*maxCount*/) const
+    std::size_t maxCount) const
 {
-    // T024 (user story 3): event log not implemented yet.
-    return {};
+    // Each file holds records in append order; the active file's records
+    // are all newer than the standby's (rotation empties the file it
+    // switches to). Newest-first therefore = active reversed, then
+    // standby reversed. Files are <= 16 KiB and event rates are low, so
+    // re-parsing per call keeps this stateless across restarts.
+    const int active = activeEventIndex();
+    const ParsedEventFile newer = parseEventFile(eventPath(active));
+    const ParsedEventFile older = parseEventFile(eventPath(1 - active));
+
+    std::vector<EventRecord> result;
+    result.reserve(
+        std::min(maxCount, newer.records.size() + older.records.size()));
+    for (const ParsedEventFile* file : {&newer, &older}) {
+        for (auto it = file->records.rbegin();
+             it != file->records.rend() && result.size() < maxCount; ++it) {
+            result.push_back(*it);
+        }
+    }
+    return result;
 }
 
 StorageStats LittleFsDataStorage::getStorageStats() const
@@ -312,6 +425,31 @@ std::string LittleFsDataStorage::eventPath(int index) const
 
 int LittleFsDataStorage::activeEventIndex() const
 {
-    // T024 (user story 3): event log not implemented yet.
-    return 0;
+    // Restart-recovery rule, derived from the files alone (stateless):
+    // the file whose last valid record carries the newest epoch is the
+    // active one — appends always extend the newest end of the log. A
+    // file without valid records cannot hold the newest half; both
+    // empty/absent means a fresh log starting at 0. Equal last epochs
+    // (several events within one second around a rotation) break the
+    // tie toward the smaller file: right after a rotation the active
+    // file is the freshly truncated, smaller one while the sealed
+    // standby sits near the 16 KiB cap. A full file picked as active
+    // self-corrects on the next append (rotation switches away from
+    // it), so a wrong pick cannot wedge the log. Epoch ordering assumes
+    // the caller's clock — time correctness is the caller's concern
+    // (parity checklist 184).
+    const ParsedEventFile file0 = parseEventFile(eventPath(0));
+    const ParsedEventFile file1 = parseEventFile(eventPath(1));
+    if (file1.records.empty()) {
+        return 0;  // covers both-empty: a fresh log starts at 0
+    }
+    if (file0.records.empty()) {
+        return 1;
+    }
+    const uint32_t last0 = file0.records.back().epoch;
+    const uint32_t last1 = file1.records.back().epoch;
+    if (last0 != last1) {
+        return last0 > last1 ? 0 : 1;
+    }
+    return file0.validBytes <= file1.validBytes ? 0 : 1;
 }
