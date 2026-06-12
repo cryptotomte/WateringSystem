@@ -15,12 +15,17 @@ if(${IDF_TARGET} STREQUAL "linux")
         REQUIRES nvs_flash interfaces
     )
 else()
-    # User story 4 adds "src/StorageMount.cpp" to SRCS and littlefs to
-    # REQUIRES in this branch only — never for linux.
+    # Target build only: the littlefs mount/format/stats wrapper. littlefs
+    # is the managed joltwallet/littlefs component (pinned in
+    # main/idf_component.yml + dependencies.lock; registered under its
+    # namespaced component name). PRIV: littlefs headers appear only in
+    # src/StorageMount.cpp, never in this component's public headers.
     idf_component_register(
         SRCS "src/NvsConfigStore.cpp"
              "src/LittleFsDataStorage.cpp"
+             "src/StorageMount.cpp"
         INCLUDE_DIRS "include"
         REQUIRES nvs_flash interfaces
+        PRIV_REQUIRES joltwallet__littlefs
     )
 endif()
