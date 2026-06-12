@@ -10,6 +10,7 @@
 if(${IDF_TARGET} STREQUAL "linux")
     idf_component_register(
         SRCS "src/NvsConfigStore.cpp"
+             "src/LittleFsDataStorage.cpp"
         INCLUDE_DIRS "include"
         REQUIRES nvs_flash interfaces
     )
@@ -18,6 +19,7 @@ else()
     # REQUIRES in this branch only — never for linux.
     idf_component_register(
         SRCS "src/NvsConfigStore.cpp"
+             "src/LittleFsDataStorage.cpp"
         INCLUDE_DIRS "include"
         REQUIRES nvs_flash interfaces
     )
