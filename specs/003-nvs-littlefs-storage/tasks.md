@@ -81,8 +81,8 @@
 
 ### Implementation for User Story 2
 
-- [ ] T021 [US2] Implement history part of `LittleFsDataStorage` per data-model.md (8-byte LE records, `/hist/<metric>/<first_epoch>.dat` chunks, fsync-per-append, ring eviction, 10-metric cap) in `firmware/components/storage/src/LittleFsDataStorage.cpp`
-- [ ] T022 [US2] Run US2 suites green on linux target
+- [x] T021 [US2] Implement history part of `LittleFsDataStorage` per data-model.md (8-byte LE records, `/hist/<metric>/<first_epoch>.dat` chunks, fsync-per-append, ring eviction, 10-metric cap) in `firmware/components/storage/src/LittleFsDataStorage.cpp`
+- [ ] T022 [US2] Run US2 suites green on linux target — NOTE: execution deferred to the main session (implementer agent does not run docker builds)
 
 **Checkpoint**: History storage verified independently of US1
 
