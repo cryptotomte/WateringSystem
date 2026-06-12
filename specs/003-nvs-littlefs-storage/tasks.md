@@ -75,7 +75,7 @@
 
 ### Tests for User Story 2 (write against the stub, must fail)
 
-- [ ] T018 [P] [US2] Range-query tests: chronological order, inclusive bounds, empty result on no-data/unknown-metric/t0>t1 (FR-009, edge cases), plus `MockDataStorage` contract-conformance cases (FR-012) in `firmware/test_apps/host/main/test_data_storage.cpp`
+- [x] T018 [P] [US2] Range-query tests: chronological order, inclusive bounds, empty result on no-data/unknown-metric/t0>t1 (FR-009, edge cases), plus `MockDataStorage` contract-conformance cases (FR-012) in `firmware/test_apps/host/main/test_data_storage.cpp`
 - [ ] T019 [P] [US2] Bounding tests: chunk sealing at 8 KiB, eviction at 11th chunk, ≥30-day retention guarantee at default interval, SC-004 10×-bound endurance, 11th-distinct-metric rejection in `firmware/test_apps/host/main/test_data_storage.cpp`
 - [ ] T020 [P] [US2] Torn-tail tests: file size % 8 ≠ 0 → truncate-on-read, earlier records intact (research D5) in `firmware/test_apps/host/main/test_data_storage.cpp`
 
