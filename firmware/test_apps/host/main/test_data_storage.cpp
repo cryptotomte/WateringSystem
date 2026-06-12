@@ -370,6 +370,68 @@ void test_eleventh_distinct_metric_rejected(void)
     TEST_ASSERT_TRUE(storage.storeSensorReading("metric_0", 200, 2.0f));
 }
 
+// --- T020: torn tails (research D5, contract invariant 2) ----------------
+
+/// Path of the single chunk file of `metric` (asserts exactly one exists).
+std::string singleChunkPath(const TempDir& dir, const std::string& metric)
+{
+    const std::string metricDir = metricDirOf(dir, metric);
+    const auto chunks = listDir(metricDir);
+    TEST_ASSERT_EQUAL_size_t(1, chunks.size());
+    return metricDir + "/" + chunks[0];
+}
+
+void test_torn_tail_truncated_on_read(void)
+{
+    TempDir dir;
+    LittleFsDataStorage storage(dir.path());
+    const std::string metric = "soil_moisture";
+
+    TEST_ASSERT_TRUE(storage.storeSensorReading(metric, 100, 1.0f));
+    TEST_ASSERT_TRUE(storage.storeSensorReading(metric, 200, 2.0f));
+    TEST_ASSERT_TRUE(storage.storeSensorReading(metric, 300, 3.0f));
+
+    // Simulate a power loss mid-append: a partial trailing record.
+    const std::string chunk = singleChunkPath(dir, metric);
+    appendGarbage(chunk, 5);
+    TEST_ASSERT_EQUAL_INT(
+        5, static_cast<int>(
+               sizeOf(chunk) % LittleFsDataStorage::kHistoryRecordBytes));
+
+    // The torn tail is logically truncated; earlier records are intact.
+    const auto all = storage.getSensorReadings(metric, 0, UINT32_MAX);
+    TEST_ASSERT_EQUAL_size_t(3, all.size());
+    TEST_ASSERT_EQUAL_UINT32(100, all[0].epoch);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, all[0].value);
+    TEST_ASSERT_EQUAL_UINT32(300, all[2].epoch);
+    TEST_ASSERT_EQUAL_FLOAT(3.0f, all[2].value);
+}
+
+void test_torn_tail_repaired_before_append(void)
+{
+    TempDir dir;
+    LittleFsDataStorage storage(dir.path());
+    const std::string metric = "soil_moisture";
+
+    TEST_ASSERT_TRUE(storage.storeSensorReading(metric, 100, 1.0f));
+    TEST_ASSERT_TRUE(storage.storeSensorReading(metric, 200, 2.0f));
+    const std::string chunk = singleChunkPath(dir, metric);
+    appendGarbage(chunk, 3);
+
+    // The next append truncates the torn tail so committed records stay
+    // 8-byte aligned and parseable.
+    TEST_ASSERT_TRUE(storage.storeSensorReading(metric, 300, 3.0f));
+    TEST_ASSERT_EQUAL_INT(
+        0, static_cast<int>(
+               sizeOf(chunk) % LittleFsDataStorage::kHistoryRecordBytes));
+
+    const auto all = storage.getSensorReadings(metric, 0, UINT32_MAX);
+    TEST_ASSERT_EQUAL_size_t(3, all.size());
+    TEST_ASSERT_EQUAL_UINT32(200, all[1].epoch);
+    TEST_ASSERT_EQUAL_UINT32(300, all[2].epoch);
+    TEST_ASSERT_EQUAL_FLOAT(3.0f, all[2].value);
+}
+
 }  // namespace
 
 void run_data_storage_tests(void)
@@ -386,4 +448,7 @@ void run_data_storage_tests(void)
     RUN_TEST(test_retention_30_days_at_default_interval);
     RUN_TEST(test_endurance_ten_times_the_bound);
     RUN_TEST(test_eleventh_distinct_metric_rejected);
+    // T020 — torn-tail handling.
+    RUN_TEST(test_torn_tail_truncated_on_read);
+    RUN_TEST(test_torn_tail_repaired_before_append);
 }
