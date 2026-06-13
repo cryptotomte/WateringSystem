@@ -1,0 +1,10 @@
+# Partition table for the host test app (linux preview target).
+#
+# The linux esp_partition emulation builds its file-backed flash from this
+# table, which lets the REAL nvs_flash implementation run in host tests
+# (research.md D3; reference pattern: IDF components/nvs_flash/host_test).
+# Only `nvs` is used; phy_init/factory keep the layout valid.
+# Name,    Type, SubType, Offset,  Size,   Flags
+nvs,       data, nvs,     0x9000,  0x6000,
+phy_init,  data, phy,     0xf000,  0x1000,
+factory,   app,  factory, 0x10000, 1M,

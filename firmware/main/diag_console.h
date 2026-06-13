@@ -12,6 +12,8 @@
 #define WATERINGSYSTEM_MAIN_DIAG_CONSOLE_H
 
 #include "esp_err.h"
+#include "interfaces/IConfigStore.h"
+#include "interfaces/IDataStorage.h"
 #include "interfaces/IWaterPump.h"
 
 /**
@@ -23,7 +25,18 @@
 void diag_console_register_pumps(IWaterPump& plant, IWaterPump& reservoir);
 
 /**
- * @brief Start the UART REPL (prompt "ws>") and register the pump command.
+ * @brief Register the storage instances the `config`/`storage` commands
+ *        operate on (HIL verification path for feature 003).
+ *
+ * Pass the Locked* decorators, never the raw stores — the console handlers
+ * run on the REPL task, concurrently with the main task (FR-013). Must be
+ * called before diag_console_start(); plain pointer registration.
+ */
+void diag_console_register_storage(IConfigStore& config,
+                                   IDataStorage& storage);
+
+/**
+ * @brief Start the UART REPL (prompt "ws>") and register the commands.
  *
  * @return ESP_OK on success, the failing esp_err_t otherwise.
  */

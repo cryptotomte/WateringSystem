@@ -6,14 +6,14 @@
  *
  * Tests the REAL enforcement logic (WaterPump base class) via
  * MockWaterPump (records applyOutput transitions) and FakeTimeProvider
- * (manual clock). Plain Unity runner: the process exit code equals the
- * failure count and is the CI gate.
+ * (manual clock). Registered via run_water_pump_tests() from the shared
+ * Unity runner (test_main.cpp); the process exit code equals the failure
+ * count and is the CI gate.
  *
  * Coverage maps to the invariants in
  * specs/002-pump-gpio-board/contracts/iwaterpump.md.
  */
 
-#include <cstdlib>
 #include <vector>
 
 #include "unity.h"
@@ -21,10 +21,6 @@
 #include "actuators/LockedWaterPump.h"
 #include "actuators/testing/FakeTimeProvider.h"
 #include "actuators/testing/MockWaterPump.h"
-
-// Unity requires setUp/tearDown definitions.
-extern "C" void setUp(void) {}
-extern "C" void tearDown(void) {}
 
 namespace {
 
@@ -249,9 +245,8 @@ static void test_locked_wrapper_delegates_full_cycle(void)
     TEST_ASSERT_TRUE(inner.outputCalls == expected);
 }
 
-extern "C" void app_main(void)
+void run_water_pump_tests(void)
 {
-    UNITY_BEGIN();
     RUN_TEST(test_duration_self_stop_at_exact_boundary);
     RUN_TEST(test_max_runtime_forced_stop);
     RUN_TEST(test_reject_zero_duration);
@@ -262,5 +257,4 @@ extern "C" void app_main(void)
     RUN_TEST(test_accumulated_runtime_across_runs);
     RUN_TEST(test_enforcement_within_one_poll);
     RUN_TEST(test_locked_wrapper_delegates_full_cycle);
-    std::exit(UNITY_END());
 }

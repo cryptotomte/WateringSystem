@@ -172,6 +172,50 @@ Route list extracted from `src/communication/WateringSystemWebServer.cpp:83-321`
 - [ ] `[HOST]` Pruning of old readings exists in the storage API but is **never called** by the application — history grows until reads start failing on the 16 KB JSON parse buffer (`src/storage/LittleFSStorage.cpp:374-440`, buffer `:237`, `:298`). Target: equivalent or better retention behavior with explicit bounding (new storage design may differ internally; behavior coverage = history endpoint keeps working over time)
 - [ ] `[HOST]` Storage stats (total/used bytes) available and reported in `/status` and serial status (`src/storage/LittleFSStorage.cpp:442-459`)
 
+### Deliberate divergences in the ESP-IDF port (feature 003, PR-06)
+
+These are intentional behavior/format changes from the Arduino storage layer,
+not parity targets. The master PRD authorizes a clean redesign (no migration);
+each item below is the new contract behavior, host-tested in
+`firmware/test_apps/host/`.
+
+- [ ] `[HOST]` **Configuration moves from `/config.json` to NVS** (namespace
+  `wscfg`, one typed entry per item). The legacy string-keyed JSON blob is
+  gone; defaults are compiled in and applied on missing/erased/out-of-range
+  entries (FR-002/FR-013). Factory reset = erase the `nvs` partition. The seven
+  watering items keep their legacy defaults and ranges (section 1); divergence:
+  `sensorReadInterval`/`dataLogInterval` are now first-class settable items
+  (legacy persisted them but exposed no setter) with new lower bounds (≥1 s /
+  ≥1 min) to prevent log-storm misconfiguration.
+- [ ] `[HOST]` **WiFi "unconfigured" representation changes**: legacy used the
+  sentinel SSID `CONFIGURE_ME` in `/wifi_config.json`; the port stores
+  credentials in NVS and represents unconfigured as an **empty SSID string**
+  (factory state). PR-07 reads this for its AP-fallback decision; the legacy
+  password is never reused.
+- [ ] `[HOST]` **Sensor history format redesigned and explicitly bounded**:
+  per-metric append-only chunk files of fixed 8-byte records
+  (`/storage/hist/<metric>/<first_epoch>.dat`, 8 KiB chunks, max 10 chunks per
+  metric, oldest-chunk eviction), replacing the unbounded JSON arrays. Resolves
+  the legacy defect at line 172 (history grew until the 16 KB parse buffer
+  failed). Retention target ≥30 days for all metrics at the default log
+  interval; max 10 distinct metrics (sized to the legacy metric set), an 11th
+  is rejected. Range-query behavior (inclusive filter, empty result on
+  no-data/error) is preserved.
+- [ ] `[HOST]` **Event log is new surface** (no legacy equivalent): rotating
+  two-file log (`/storage/events/0.log`+`1.log`, 16 KiB each, oldest-half
+  rotation, newest always retained) for pump/fail-safe/connectivity/OTA/reset
+  events. Satisfies the constitution's "safety-relevant events MUST be
+  persisted"; producers are wired in PR-08.
+- [ ] `[HOST]` **Interface split**: the legacy single `IDataStorage`
+  (config + history + stats, Arduino `String`) is redesigned into `IConfigStore`
+  + `IDataStorage` (history + events + stats, `std::string`). The two
+  never-called legacy methods (`getLastSensorReading`, `pruneOldReadings`) are
+  dropped; bounded retention is an internal guarantee, not a caller obligation.
+- [ ] `[HOST]` Reservoir feature flags remain **not persisted** in this PR
+  (unchanged from legacy, line 171); the NVS-persistence decision is deferred to
+  PR-05 (reservoir board flag). The config store is extensible per-key so PR-05
+  can add them without a contract change.
+
 ## 7. WiFi / network / time
 
 - [ ] `[HIL]` STA connect at boot using saved credentials: STA mode, auto-reconnect off (handled manually), WiFi modem sleep disabled, clean disconnect first, **60 s** connect timeout with LED toggling every 500 ms (`src/main.cpp:46`, `168-212`)

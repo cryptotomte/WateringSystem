@@ -25,10 +25,16 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "nvs_flash.h"
 
 #include "actuators/EspTimeProvider.h"
 #include "actuators/GpioWaterPump.h"
 #include "actuators/LockedWaterPump.h"
+#include "storage/LittleFsDataStorage.h"
+#include "storage/LockedConfigStore.h"
+#include "storage/LockedDataStorage.h"
+#include "storage/NvsConfigStore.h"
+#include "storage/StorageMount.h"
 
 #include "diag_console.h"
 
@@ -116,8 +122,57 @@ extern "C" void app_main(void)
         abort();
     }
 
+    // Persistent storage. Not safety-critical: any failure below is logged
+    // and the system keeps running — config reads fall back to compiled-in
+    // defaults and data-storage operations fail gracefully (the pump
+    // safety loop never depends on storage).
+    //
+    // NVS init with the standard recovery: a full page-less partition or a
+    // newer NVS format version is erased and re-initialized (factory-state
+    // config, by design old-or-new never torn — research.md D5).
+    esp_err_t nvs_err = nvs_flash_init();
+    if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES ||
+        nvs_err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_LOGW(TAG, "NVS needs erase (%s), recovering",
+                 esp_err_to_name(nvs_err));
+        nvs_err = nvs_flash_erase();
+        if (nvs_err == ESP_OK) {
+            nvs_err = nvs_flash_init();
+        }
+    }
+    if (nvs_err != ESP_OK) {
+        ESP_LOGE(TAG, "NVS init failed: %s (config falls back to defaults)",
+                 esp_err_to_name(nvs_err));
+    }
+
+    // littlefs mount-or-format of the `storage` partition at /storage
+    // (FR-007; a corrupted filesystem is reformatted, never bricks).
+    const esp_err_t mount_err = StorageMount::mount();
+    if (mount_err != ESP_OK) {
+        ESP_LOGE(TAG, "storage mount failed: %s (data storage unavailable)",
+                 esp_err_to_name(mount_err));
+    }
+
+    // Storage instances — function-local statics after pumps_force_off()
+    // (boot fail-safe rule), wrapped in the mutex-serializing decorators:
+    // accessed from this task and the console REPL task, so EVERY access
+    // from here on goes through the wrappers (FR-013).
+    static NvsConfigStore config_store;
+    static LittleFsDataStorage data_storage(StorageMount::kBasePath,
+                                            StorageMount::statsProvider());
+    static LockedConfigStore config(config_store);
+    static LockedDataStorage storage(data_storage);
+
+    // One-line usage report (parity: storage usage in the serial status
+    // block; FR-008).
+    const StorageStats stats = storage.getStorageStats();
+    ESP_LOGI(TAG, "Storage: %lu/%lu KiB used",
+             static_cast<unsigned long>(stats.usedBytes / 1024),
+             static_cast<unsigned long>(stats.totalBytes / 1024));
+
     // Serial diagnostic REPL (rig testing; contracts/serial-diagnostic.md).
     diag_console_register_pumps(plant, reservoir);
+    diag_console_register_storage(config, storage);
     esp_err_t err = diag_console_start();
     if (err != ESP_OK) {
         // Console is a diagnostic aid, not a safety function: log and keep

@@ -1,1 +1,7 @@
-# Host test app (linux preview target) — IDF defaults are sufficient.
+# Host test app (linux preview target).
+#
+# A custom partition table provides the `nvs` partition that the linux
+# esp_partition emulation exposes to the real nvs_flash implementation
+# (research.md D3 of 003-nvs-littlefs-storage).
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_host.csv"
