@@ -139,7 +139,7 @@
 
 - [x] T034 [P] Update `docs/parity-checklist.md` §6: bounded history format (D6), settable interval items, dropped `getLastSensorReading`/`pruneOldReadings`, redesigned split contracts, event log as new surface, WiFi-unconfigured representation change (legacy `CONFIGURE_ME` sentinel in `/wifi_config.json` → empty-string NVS factory state) — each marked as deliberate divergence with rationale (spec FR-010/FR-012/FR-014)
 - [x] T035 [P] Update `firmware/CLAUDE.md` component list with the `storage` component and host-test pointers
-- [ ] T036 Run full quickstart.md validation (both target builds + storage.bin check + host suite) in the pinned container; deliver test checklist incl. HIL items for Checkpoint 3
+- [x] T036 Run full quickstart.md validation (both target builds + storage.bin check + host suite) in the pinned container; deliver test checklist incl. HIL items for Checkpoint 3
 
 ---
 
