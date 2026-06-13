@@ -239,6 +239,30 @@ void test_mock_holds_bounds_and_event_contract(void)
     TEST_ASSERT_FALSE(mock.storeEvent(30, IDataStorage::kCategoryReset, "c"));
 }
 
+// --- getStorageStats provider paths (FR-008) -----------------------------
+
+void test_storage_stats_provider_paths(void)
+{
+    TempDir dir;
+
+    // No provider injected -> zeros (the absent/failing-provider contract).
+    LittleFsDataStorage noProvider(dir.path());
+    const StorageStats none = noProvider.getStorageStats();
+    TEST_ASSERT_EQUAL_UINT32(0, none.totalBytes);
+    TEST_ASSERT_EQUAL_UINT32(0, none.usedBytes);
+
+    // Provider returning known total/used -> those values verbatim.
+    LittleFsDataStorage withProvider(
+        dir.path(), [](uint32_t& total, uint32_t& used) {
+            total = 983040;
+            used = 12288;
+            return true;
+        });
+    const StorageStats stats = withProvider.getStorageStats();
+    TEST_ASSERT_EQUAL_UINT32(983040, stats.totalBytes);
+    TEST_ASSERT_EQUAL_UINT32(12288, stats.usedBytes);
+}
+
 // --- T019: bounding (FR-010, SC-004) -------------------------------------
 
 /// Append `count` records spaced `stepS` seconds from `firstEpoch`,
@@ -277,6 +301,37 @@ void test_chunk_seals_at_1024_records(void)
     const auto all = storage.getSensorReadings(metric, 0, UINT32_MAX);
     TEST_ASSERT_EQUAL_size_t(kRecordsPerChunk + 1, all.size());
     TEST_ASSERT_EQUAL_FLOAT(9.0f, all.back().value);
+}
+
+void test_non_monotonic_epoch_bumps_chunk_name(void)
+{
+    TempDir dir;
+    LittleFsDataStorage storage(dir.path());
+    const std::string metric = "soil_moisture";
+    const uint32_t base = 1000;
+
+    // Seal the first chunk (1024 records) so a second chunk is opened by
+    // the next append; the sealed chunk's first epoch is `base`.
+    appendSeries(storage, metric, base, kRecordsPerChunk, 1);
+    TEST_ASSERT_EQUAL_size_t(1, listDir(metricDirOf(dir, metric)).size());
+
+    // The successor chunk's name = its first record's epoch. Feed an epoch
+    // EARLIER than the sealed chunk's first epoch: the chunk name must be
+    // bumped past the sealed one (LittleFsDataStorage.cpp:268-272) so names
+    // stay strictly increasing — no collision with the existing chunk.
+    const uint32_t earlier = base - 500;
+    TEST_ASSERT_TRUE(storage.storeSensorReading(metric, earlier, 7.0f));
+
+    // Exactly two distinct chunk files exist (no name collision).
+    const auto chunks = listDir(metricDirOf(dir, metric));
+    TEST_ASSERT_EQUAL_size_t(2, chunks.size());
+    TEST_ASSERT_TRUE(chunks[0] != chunks[1]);
+
+    // The earlier-epoch record is still retrievable over a range covering it.
+    const auto hit = storage.getSensorReadings(metric, 0, base - 1);
+    TEST_ASSERT_EQUAL_size_t(1, hit.size());
+    TEST_ASSERT_EQUAL_UINT32(earlier, hit[0].epoch);
+    TEST_ASSERT_EQUAL_FLOAT(7.0f, hit[0].value);
 }
 
 void test_ring_evicts_oldest_chunk(void)
@@ -883,8 +938,10 @@ void run_data_storage_tests(void)
     RUN_TEST(test_unsafe_metric_names_rejected);
     RUN_TEST(test_mock_holds_range_query_contract);
     RUN_TEST(test_mock_holds_bounds_and_event_contract);
+    RUN_TEST(test_storage_stats_provider_paths);
     // T019 — bounding: sealing, ring eviction, retention, endurance, cap.
     RUN_TEST(test_chunk_seals_at_1024_records);
+    RUN_TEST(test_non_monotonic_epoch_bumps_chunk_name);
     RUN_TEST(test_ring_evicts_oldest_chunk);
     RUN_TEST(test_retention_30_days_at_default_interval);
     RUN_TEST(test_endurance_ten_times_the_bound);

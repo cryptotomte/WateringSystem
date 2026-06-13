@@ -153,6 +153,13 @@ public:
      * Afterwards every item reads its factory default and the credentials
      * are removed (FR-005). The store remains usable without
      * re-construction.
+     *
+     * WARNING: the NvsConfigStore implementation erases the ENTIRE default
+     * NVS partition (nvs_flash_erase_partition), not just the `wscfg`
+     * namespace. Any other namespace's data in that partition (future
+     * provisioning/OTA state, etc.) is therefore also cleared. This
+     * whole-partition erase is the documented data-model decision
+     * (data-model.md "Factory reset"), not an implementation accident.
      */
     virtual bool factoryReset() = 0;
 };

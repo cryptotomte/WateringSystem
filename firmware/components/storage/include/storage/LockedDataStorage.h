@@ -21,6 +21,12 @@
  * registration, loggers, ...) goes through the LockedDataStorage, never
  * through the wrapped object directly.
  *
+ * SCOPE: this decorator provides PER-CALL atomicity only, not cross-call.
+ * A read-modify-write sequence spanning two calls (e.g. getSensorReadings
+ * then storeSensorReading) is NOT protected against an interleaving writer
+ * between the two — another task may append in between. Such sequences need
+ * higher-level coordination (a caller-held lock or single-owner task).
+ *
  * Pure C++ (<mutex> is available via pthread on ESP-IDF and on the linux
  * preview target), so the decorator is host-testable.
  */

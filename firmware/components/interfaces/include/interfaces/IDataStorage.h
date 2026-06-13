@@ -120,7 +120,10 @@ public:
     /**
      * @brief Newest-first events, at most maxCount.
      *
-     * Empty vector on no data or read error.
+     * Empty vector on no data or read error. "Newest-first" assumes
+     * monotonic caller-supplied epochs; under a non-monotonic clock the
+     * ordering degrades to active-file-first (time correctness is the
+     * caller's concern, parity checklist 184).
      */
     virtual std::vector<EventRecord> getEvents(std::size_t maxCount) const = 0;
 

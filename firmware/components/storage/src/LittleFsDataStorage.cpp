@@ -329,7 +329,15 @@ bool LittleFsDataStorage::storeEvent(uint32_t epoch, uint8_t category,
     int active = activeEventIndex();
     std::string path = eventPath(active);
     const ParsedEventFile parsed = parseEventFile(path);
-    if (fileSize(path) > parsed.validBytes) {
+    const long size = fileSize(path);
+    // An absent file (size < 0, validBytes 0) is a not-yet-created event
+    // log, not an error: the append below creates it. A stat failure on a
+    // file that does hold valid bytes is a real error — append anyway would
+    // corrupt the frame boundary, so refuse it (mirrors the history path).
+    if (size < 0 && parsed.validBytes > 0) {
+        return false;
+    }
+    if (size > parsed.validBytes) {
         // Repair a torn tail (power loss mid-append) so the new record
         // lands on a frame boundary and the whole file stays parseable.
         if (::truncate(path.c_str(), parsed.validBytes) != 0) {
