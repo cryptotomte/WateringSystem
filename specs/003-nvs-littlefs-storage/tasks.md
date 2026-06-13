@@ -129,7 +129,7 @@
 - [x] T030 [P] [US4] Partition image in build: `littlefs_create_partition_image(storage ../storage_image FLASH_IN_PROJECT)` in `firmware/main/CMakeLists.txt` (research D1)
 - [x] T031 [US4] Boot wiring in `firmware/main/`: NVS init (with the standard erase-on-`NO_FREE_PAGES/NEW_VERSION` recovery), StorageMount at startup, one-line usage log (parity: serial status block) — keep ESP_LOG only, no business logic in main
 - [x] T032 [US4] HIL verification path for config persistence and factory reset on the rig (follow the verification mechanism PR-02 established for its HIL pass — extend it, don't invent a parallel one) in `firmware/main/` or the PR-02 test console location
-- [ ] T033 [US4] CI: add `test -f firmware/build/storage.bin` to the verify-binaries step in `.github/workflows/firmware-build.yml`; confirm host-test job picks up the new suites; both target builds + host job green in CI
+- [x] T033 [US4] CI: add `test -f firmware/build/storage.bin` to the verify-binaries step in `.github/workflows/firmware-build.yml`; confirm host-test job picks up the new suites; both target builds + host job green in CI
 
 **Checkpoint**: Feature complete pending HIL sign-off at Checkpoint 3
 
@@ -137,8 +137,8 @@
 
 ## Phase 8: Polish & Cross-Cutting
 
-- [ ] T034 [P] Update `docs/parity-checklist.md` §6: bounded history format (D6), settable interval items, dropped `getLastSensorReading`/`pruneOldReadings`, redesigned split contracts, event log as new surface, WiFi-unconfigured representation change (legacy `CONFIGURE_ME` sentinel in `/wifi_config.json` → empty-string NVS factory state) — each marked as deliberate divergence with rationale (spec FR-010/FR-012/FR-014)
-- [ ] T035 [P] Update `firmware/CLAUDE.md` component list with the `storage` component and host-test pointers
+- [x] T034 [P] Update `docs/parity-checklist.md` §6: bounded history format (D6), settable interval items, dropped `getLastSensorReading`/`pruneOldReadings`, redesigned split contracts, event log as new surface, WiFi-unconfigured representation change (legacy `CONFIGURE_ME` sentinel in `/wifi_config.json` → empty-string NVS factory state) — each marked as deliberate divergence with rationale (spec FR-010/FR-012/FR-014)
+- [x] T035 [P] Update `firmware/CLAUDE.md` component list with the `storage` component and host-test pointers
 - [ ] T036 Run full quickstart.md validation (both target builds + storage.bin check + host suite) in the pinned container; deliver test checklist incl. HIL items for Checkpoint 3
 
 ---

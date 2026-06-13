@@ -46,13 +46,16 @@ jobs:
 
       # if-no-files-found: error only fires when ZERO files match, so a
       # partial match could silently upload an incomplete artifact set.
-      # Verify all three binaries exist before uploading.
+      # Verify all binaries exist before uploading.
       - name: Verify all binaries exist
         run: |
           test -f firmware/build/wateringsystem.bin
           test -f firmware/build/bootloader/bootloader.bin
           test -f firmware/build/partition_table/partition-table.bin
           test -f firmware/build/ota_data_initial.bin
+          # littlefs image for the `storage` partition, built by
+          # littlefs_create_partition_image() (feature 003, FR-007/SC-006).
+          test -f firmware/build/storage.bin
 
       - name: Upload binaries
         uses: actions/upload-artifact@v4

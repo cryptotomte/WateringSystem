@@ -58,14 +58,23 @@ firmware/
 │   ├── board/                  # Board abstraction (header-only)
 │   │   └── include/board/board.h
 │   ├── interfaces/             # Header-only, NO IDF deps (host-includable)
-│   │   └── include/interfaces/ # IActuator, IWaterPump, ITimeProvider
-│   └── actuators/              # Pump drivers
-│       ├── include/actuators/  # WaterPump (pure C++ logic), GpioWaterPump,
-│       │                       # EspTimeProvider (esp32-only header),
-│       │                       # testing/ (MockWaterPump, FakeTimeProvider)
-│       └── src/                # GpioWaterPump.cpp excluded on linux target
+│   │   └── include/interfaces/ # IActuator, IWaterPump, ITimeProvider,
+│   │                           # IConfigStore, IDataStorage
+│   ├── actuators/              # Pump drivers
+│   │   ├── include/actuators/  # WaterPump (pure C++ logic), GpioWaterPump,
+│   │   │                       # EspTimeProvider (esp32-only header),
+│   │   │                       # testing/ (MockWaterPump, FakeTimeProvider)
+│   │   └── src/                # GpioWaterPump.cpp excluded on linux target
+│   └── storage/                # Config + data persistence (feature 003)
+│       ├── include/storage/    # NvsConfigStore, LittleFsDataStorage (POSIX,
+│       │                       # host-runnable), StorageMount (esp32-only),
+│       │                       # LockedConfigStore/LockedDataStorage,
+│       │                       # testing/ (MockConfigStore, MockDataStorage)
+│       └── src/                # StorageMount.cpp + littlefs REQUIRES excluded
+│                               # on linux target (esp_littlefs has no port)
 └── test_apps/
-    └── host/                   # Host test app (linux preview target, Unity)
+    └── host/                   # Host test app (linux preview target, Unity):
+                                # pump + config store + data storage suites
 ```
 
 Future components (drivers, controllers, web server) are added as siblings
@@ -96,6 +105,46 @@ pump <plant|reservoir> stop
 pump <plant|reservoir> status
 pump status                              # both pumps
 ```
+
+Feature 003 adds `config` and `storage` subcommands (HIL verification path; the
+handlers are thin interface calls, no logic). Credential values are never echoed
+(FR-004):
+
+```
+config get | set <item> <value> | wifi <ssid> <password> | wifi-clear | factory-reset
+storage stats | log <metric> <value> | query <metric> [t0 t1] | event <category> <detail> | events [n]
+```
+
+## Storage (config + data persistence)
+
+Feature 003 (PR-06). Two redesigned, host-includable interfaces in
+`components/interfaces/`:
+
+- **`IConfigStore`** → `NvsConfigStore`: typed configuration in the `nvs`
+  partition (namespace `wscfg`, one entry per item), compiled-in factory
+  defaults applied on missing/erased/out-of-range entries (FR-013), explicit
+  `factoryReset()` (erases the partition). NVS runs natively on the linux
+  target, so the real store is host-tested — no mock skew.
+- **`IDataStorage`** → `LittleFsDataStorage`: bounded sensor history
+  (per-metric 8-byte-record chunk files, ring eviction, ≥30-day retention, max
+  10 metrics), a rotating event log (two 16 KiB files, newest always retained),
+  and filesystem usage stats. Implemented over **POSIX stdio with an injectable
+  base path**, so it builds and runs on the linux host; only `StorageMount`
+  (mount-or-format of the `storage` partition at `/storage`, `esp_littlefs_info`
+  stats) is esp32-only and excluded from the linux build via the component
+  CMakeLists `if(NOT ${IDF_TARGET} STREQUAL "linux")` guard.
+
+Concurrency: both base implementations are unsynchronized; anything accessed
+from more than one task (main loop + console REPL) is wrapped in
+`LockedConfigStore`/`LockedDataStorage` and accessed only through the wrapper —
+the same pattern as `LockedWaterPump`. A committed seed directory
+(`firmware/storage_image/`) feeds `littlefs_create_partition_image()`, which
+emits `build/storage.bin` on every build (CI verifies it exists). No Arduino
+data is migrated; on-disk formats diverge from legacy by design — see
+`docs/parity-checklist.md` §6 "Deliberate divergences".
+
+The diagnostic console (`ws>`) exposes `config` and `storage` subcommands for
+the HIL verification path (see below).
 
 ## Board abstraction
 
