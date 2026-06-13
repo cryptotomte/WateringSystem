@@ -172,6 +172,7 @@ extern "C" void app_main(void)
 
     // Serial diagnostic REPL (rig testing; contracts/serial-diagnostic.md).
     diag_console_register_pumps(plant, reservoir);
+    diag_console_register_storage(config, storage);
     esp_err_t err = diag_console_start();
     if (err != ESP_OK) {
         // Console is a diagnostic aid, not a safety function: log and keep
