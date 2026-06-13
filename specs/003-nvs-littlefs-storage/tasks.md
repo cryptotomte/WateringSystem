@@ -101,7 +101,7 @@
 ### Implementation for User Story 3
 
 - [x] T024 [US3] Implement event-log part of `LittleFsDataStorage` per data-model.md (`/events/0.log`+`1.log`, 0xE7-framed records, 16 KiB cap, truncate-and-switch rotation, 120-byte detail truncation) in `firmware/components/storage/src/LittleFsDataStorage.cpp`
-- [ ] T025 [US3] Run US3 suite green on linux target — NOTE: execution deferred to the main session (implementer agent does not run docker builds)
+- [x] T025 [US3] Run US3 suite green on linux target — NOTE: execution deferred to the main session (implementer agent does not run docker builds)
 
 **Checkpoint**: All host-testable behavior (US1–US3) green
 
