@@ -51,17 +51,25 @@ int map_esp_err(esp_err_t err)
     }
 }
 
+/**
+ * @brief mbc_master_delete with a logged (never discarded) failure; nulls
+ * the handle. Shared by the initialize() failure paths and the destructor.
+ */
+void delete_master_logged(void*& handle)
+{
+    const esp_err_t err = mbc_master_delete(handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "mbc_master_delete failed: %s", esp_err_to_name(err));
+    }
+    handle = nullptr;
+}
+
 }  // namespace
 
 EspModbusClient::~EspModbusClient()
 {
     if (mbHandle_ != nullptr) {
-        const esp_err_t err = mbc_master_delete(mbHandle_);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "mbc_master_delete failed: %s",
-                     esp_err_to_name(err));
-        }
-        mbHandle_ = nullptr;
+        delete_master_logged(mbHandle_);
     }
 }
 
@@ -106,8 +114,7 @@ bool EspModbusClient::initialize()
                        UART_PIN_NO_CHANGE);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "uart_set_pin failed: %s", esp_err_to_name(err));
-        mbc_master_delete(mbHandle_);
-        mbHandle_ = nullptr;
+        delete_master_logged(mbHandle_);
         lastError_ = 1;
         return false;
     }
@@ -115,8 +122,7 @@ bool EspModbusClient::initialize()
     err = mbc_master_start(mbHandle_);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "mbc_master_start failed: %s", esp_err_to_name(err));
-        mbc_master_delete(mbHandle_);
-        mbHandle_ = nullptr;
+        delete_master_logged(mbHandle_);
         lastError_ = 1;
         return false;
     }
@@ -126,14 +132,13 @@ bool EspModbusClient::initialize()
     // THVD1426 TX echo (RE̅ grounded, receiver always on): echo bytes are
     // physically simultaneous with transmission and never reach the driver.
     // The esp-modbus RTU T3.5 frame resynchronization is the fallback for
-    // residual tail bytes. Electrically verified on rev2 at PR-14.
+    // residual tail bytes. To be electrically verified on rev2 (HIL, PR-14).
     err = uart_set_mode(static_cast<uart_port_t>(BOARD_RS485_UART_PORT),
                         UART_MODE_RS485_HALF_DUPLEX);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "uart_set_mode(RS485 half-duplex) failed: %s",
                  esp_err_to_name(err));
-        mbc_master_delete(mbHandle_);
-        mbHandle_ = nullptr;
+        delete_master_logged(mbHandle_);
         lastError_ = 1;
         return false;
     }
@@ -146,8 +151,7 @@ bool EspModbusClient::initialize()
     err = gpio_pullup_en(static_cast<gpio_num_t>(BOARD_PIN_RS485_RX));
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "gpio_pullup_en(RX) failed: %s", esp_err_to_name(err));
-        mbc_master_delete(mbHandle_);
-        mbHandle_ = nullptr;
+        delete_master_logged(mbHandle_);
         lastError_ = 1;
         return false;
     }
@@ -210,8 +214,13 @@ bool EspModbusClient::writeSingleRegister(uint8_t deviceAddress,
                                           uint16_t registerAddress,
                                           uint16_t value)
 {
-    // Modbus function 0x06: the esp-modbus master verifies the slave's
-    // echo response internally — ESP_OK means the write was acknowledged.
+    // parity divergence (write-echo): esp-modbus 2.1.2 validates the FC06
+    // response framing (length/address/function/CRC) but performs NO
+    // comparison of the echoed register/value against the request. The
+    // legacy client verified the full 8-byte echo
+    // (src/communication/SP3485ModbusClient.cpp:266-355,
+    // docs/parity-checklist.md §5). Same mechanism as R6 above: the gap is
+    // inside mbc_master_send_request, documented rather than patched.
     uint16_t writeValue = value;
     return sendRequest(deviceAddress, 0x06, registerAddress, 1, &writeValue);
 }

@@ -160,6 +160,13 @@ esp_littlefs (research R7).
 5. **rev2 echo behavior unverifiable until PR-14** — accepted per spec assumption;
    T3.5 resync is the fallback layer. rev2 target build verified green with
    `CONFIG_BOARD_REV2=y` and no DE-pin reference (compile-time proof, T020).
+6. **Write-echo verification (FC06)** — CONFIRMED DIVERGENCE (same mechanism as
+   R6): 2.1.2 `mbc_master_send_request` validates the FC06 response framing
+   (length/address/function/CRC) but performs no comparison of the echoed
+   register/value against the request; the legacy client verified the full
+   8-byte echo (`src/communication/SP3485ModbusClient.cpp:266-355`,
+   `docs/parity-checklist.md` §5). Documented in EspModbusClient.cpp and the
+   interface contract (writeSingleRegister doc softened accordingly).
 
 Additional parity fact confirmed during the port (also corrected in
 data-model.md): the legacy read path never applies the moisture calibration

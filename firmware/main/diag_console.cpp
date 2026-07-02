@@ -28,7 +28,9 @@
  *   storage events [n]                  # newest-first, default 10
  *
  * Soil sensor commands (HIL verification path for feature 004; console
- * contract in specs/004-modbus-soil-sensor/contracts/interfaces.md):
+ * contract in specs/004-modbus-soil-sensor/contracts/interfaces.md — the
+ * calibration commands print no factor value: no factor getter exists,
+ * see cmd_soil_calibrate):
  *
  *   soil                                # one read(); 7 values or error
  *   rs485test                           # raw 1-register probe + statistics
@@ -44,6 +46,7 @@
 
 #include "diag_console.h"
 
+#include <cmath>
 #include <ctime>
 #include <cstdint>
 #include <cstdio>
@@ -214,12 +217,13 @@ bool parse_u32(const char *arg, uint32_t &out)
     return true;
 }
 
-/// Strict float parse; false on garbage (range checks are the store's job).
+/// Strict float parse; false on garbage or non-finite input — nan/inf never
+/// reach a float consumer (finite range checks are the consumer's job).
 bool parse_float(const char *arg, float &out)
 {
     char *end = nullptr;
     out = strtof(arg, &end);
-    return end != arg && *end == '\0';
+    return end != arg && *end == '\0' && std::isfinite(out);
 }
 
 void print_config(const IConfigStore &config)
@@ -470,8 +474,11 @@ const char *soil_error_str(int error)
 /// `soil`: one read() through the locked sensor; all 7 values or the error.
 int soil_cmd(int argc, char **argv)
 {
-    (void)argc;
     (void)argv;
+    if (argc != 1) {
+        printf("ERR usage: soil\n");
+        return 1;
+    }
     if (s_soil == nullptr) {
         printf("ERR soil sensor not available\n");
         return 1;
@@ -496,10 +503,18 @@ int soil_cmd(int argc, char **argv)
 
 /// `rs485test`: one raw 1-register probe (slave 0x01, register 0x0000 —
 /// the parity availability probe) + cumulative transaction statistics.
+///
+/// TODO(PR-11): this drives the raw, unsynchronized EspModbusClient BELOW
+/// LockedSoilSensor's mutex; once PR-11 adds the main-loop reader this
+/// becomes a cross-task race — route it through a locked client wrapper
+/// (or through the sensor) then.
 int rs485test_cmd(int argc, char **argv)
 {
-    (void)argc;
     (void)argv;
+    if (argc != 1) {
+        printf("ERR usage: rs485test\n");
+        return 1;
+    }
     if (s_modbus == nullptr) {
         printf("ERR modbus client not available\n");
         return 1;
@@ -526,7 +541,7 @@ int rs485test_cmd(int argc, char **argv)
 
 /// Shared `soil_cal_*` flow: one calibrate*() call through the locked
 /// sensor. ModbusSoilSensor exposes no factor getter (factors are private,
-/// RAM-only in this PR), so the output reports success/failure plus the
+/// RAM-only for now), so the output reports success/failure plus the
 /// legacy write-result semantics: a true return with a non-zero last error
 /// means the factor is applied locally but the best-effort write to the
 /// sensor's calibration register failed (NON-FATAL, parity).

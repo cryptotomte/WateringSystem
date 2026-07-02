@@ -18,9 +18,11 @@
  * place there (research.md R2).
  *
  * Concurrency: unsynchronized, like every base implementation in this
- * codebase. In this PR the client is only reached from the console REPL
- * task (directly by `rs485test` and through LockedSoilSensor by `soil`);
- * a second consumer task would need a locking wrapper.
+ * codebase. As of feature 004 the client is only reached from the console
+ * REPL task (directly by `rs485test` and through LockedSoilSensor by
+ * `soil`); a second consumer task would need a locking wrapper. PR-11's
+ * main-loop reader adds exactly that second task — `rs485test`'s raw access
+ * must be routed through a locked client wrapper (or the sensor) then.
  */
 
 #ifndef WATERINGSYSTEM_SENSORS_ESPMODBUSCLIENT_H

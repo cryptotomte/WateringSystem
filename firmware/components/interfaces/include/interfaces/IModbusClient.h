@@ -14,11 +14,16 @@
  *
  *   0      OK
  *   1      not initialized
- *   2      bus/communication error (CRC, framing, truncated response)
+ *   2      bus/communication error (CRC, framing, truncated response; also
+ *          covers slave exceptions collapsed by implementations that cannot
+ *          surface the exception number — see 100+n)
  *   3      timeout (no response within the configured timeout)
  *   5      range validation failed — set by the sensor layer on top of this
  *          interface, never by IModbusClient implementations themselves
- *   100+n  Modbus slave exception n
+ *   100+n  Modbus slave exception n (when the implementation can surface it
+ *          — EspModbusClient collapses slave exceptions onto code 2,
+ *          research.md R6; only test mocks emit 100+n today; consumers must
+ *          not branch on 100+n)
  *
  * Part of the header-only `interfaces` component: no IDF includes allowed.
  */
@@ -63,14 +68,18 @@ public:
     /**
      * @brief Write a single holding register (Modbus function 0x06).
      *
-     * Exactly one bus attempt, no retry (parity). Success requires the
-     * slave's echo response to be received and verified — a sent-but-not-
-     * acknowledged write reports false.
+     * Exactly one bus attempt, no retry (parity). Success means the
+     * addressed slave returned a well-formed FC06 response (address,
+     * function and CRC validated) — a sent-but-not-acknowledged write
+     * reports false. Implementations are NOT required to compare the echoed
+     * register/value byte-for-byte against the request (the legacy client
+     * did; see the parity-divergence note in EspModbusClient.cpp).
      *
      * @param deviceAddress Modbus slave address.
      * @param registerAddress Holding register address.
      * @param value Value to write.
-     * @return true if the write was echoed back by the slave.
+     * @return true if the slave acknowledged the write with a well-formed
+     *         response.
      */
     virtual bool writeSingleRegister(uint8_t deviceAddress, uint16_t registerAddress,
                                      uint16_t value) = 0;
@@ -84,6 +93,8 @@ public:
      * @brief Set the response timeout for subsequent transfers.
      *
      * Parity default is 3000 ms (docs/parity-checklist.md §5).
+     * Implementations may apply the value at initialize() time only
+     * (EspModbusClient does — research.md R5).
      *
      * @param timeoutMs Timeout in milliseconds.
      */

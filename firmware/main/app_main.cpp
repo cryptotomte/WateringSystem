@@ -179,8 +179,9 @@ extern "C" void app_main(void)
     // Function-local statics after pumps_force_off() (boot fail-safe rule),
     // sensor wrapped in the mutex-serializing decorator: accessed from the
     // console REPL task now and the main-loop controller in PR-11, so EVERY
-    // sensor access goes through the wrapper. No periodic read task in this
-    // PR (PR-11) — reads happen on console command only.
+    // sensor access goes through the wrapper. No periodic read task in
+    // feature 004 (arrives with PR-11) — reads happen on console command
+    // only.
     static EspModbusClient modbus_client;
     static ModbusSoilSensor soil_sensor_raw(modbus_client);
     static LockedSoilSensor soil_sensor(soil_sensor_raw);

@@ -37,6 +37,8 @@
 
 #include "sensors/ModbusSoilSensor.h"
 
+#include <cmath>
+
 #include "esp_log.h"
 
 static const char *TAG = "soilsensor";
@@ -217,11 +219,22 @@ float ModbusSoilSensor::getPotassium()
 }
 
 // Calibration — faithful port of legacy :207-322 (three identical flows
-// folded into one helper). Host tests land in phase 6 (tasks.md T021).
+// folded into one helper). Host-tested in test_soil_sensor.cpp (calibration
+// suite).
 bool ModbusSoilSensor::calibrate(uint16_t rawRegister, float rawScale,
                                  uint16_t calibRegister, float& factor,
                                  float referenceValue, const char* quantity)
 {
+    // Input hygiene, not parity: legacy accepted any float here. A NaN/inf
+    // or non-positive reference would poison the factor (and NaN silently
+    // passes every < comparison below), so reject it up front.
+    if (!std::isfinite(referenceValue) || referenceValue <= 0.0f) {
+        lastError_ = 5;
+        ESP_LOGW(TAG, "calibrate %s failed: invalid reference %.3f",
+                 quantity, static_cast<double>(referenceValue));
+        return false;
+    }
+
     // Lazy initialization (legacy :209-213).
     if (!initialized_ && !initialize()) {
         return false;
@@ -250,7 +263,20 @@ bool ModbusSoilSensor::calibrate(uint16_t rawRegister, float rawScale,
         return false;
     }
 
-    factor = referenceValue / currentRawValue;
+    const float newFactor = referenceValue / currentRawValue;
+
+    // Input hygiene, not parity: legacy static_cast this product straight to
+    // uint16_t (UB for values outside 0..65535). A factor that large is
+    // physically absurd, so reject it BEFORE it is stored or encoded (the
+    // reference guard above makes negative factors unreachable).
+    if (newFactor * 100.0f > 65535.0f) {
+        lastError_ = 5;
+        ESP_LOGW(TAG, "calibrate %s failed: factor %.3f out of encodable "
+                 "range", quantity, static_cast<double>(newFactor));
+        return false;
+    }
+
+    factor = newFactor;
 
     // Best-effort factor write (×100) to the sensor's calibration register
     // — NON-FATAL on failure: the factor is still used locally (parity,

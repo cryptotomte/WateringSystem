@@ -221,7 +221,9 @@ must fit in 1.5MB per slot.
   logging. Check IDF errors with `ESP_ERROR_CHECK` or explicit handling.
 - **Include guards:** `WATERINGSYSTEM_PATH_FILE_H`
   (e.g. `WATERINGSYSTEM_BOARD_BOARD_H`).
-- **Managed dependencies** are pinned exactly in `main/idf_component.yml`;
+- **Managed dependencies** are pinned exactly in `main/idf_component.yml`
+  AND `components/sensors/idf_component.yml` (esp-modbus is pinned `==2.1.2`
+  in both — bump the two in lockstep or the resolver conflicts);
   `dependencies.lock` is committed, `managed_components/` is not.
 
 ## Testing strategy

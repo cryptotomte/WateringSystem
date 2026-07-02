@@ -24,6 +24,7 @@
  * the FACTORED values.
  */
 
+#include <cmath>
 #include <vector>
 
 #include "unity.h"
@@ -228,6 +229,82 @@ static void test_out_of_range_ph_rejected_all_or_nothing(void)
 }
 
 // --------------------------------------------------------------------------
+// Range validation: temperature > 80 °C (raw 850 = 85.0 °C) → error 5,
+// nothing published (upper bound of the parity temperature range)
+// --------------------------------------------------------------------------
+static void test_out_of_range_high_temperature_rejected_error5(void)
+{
+    Fixture f(goodPayload());
+    TEST_ASSERT_TRUE(f.sensor.read());
+
+    f.mock.setRegisters(kAddr, kStartReg, {550, 850, 800, 68, 1, 2, 3, 0, 0});
+    TEST_ASSERT_FALSE(f.sensor.read());
+    TEST_ASSERT_EQUAL_INT(5, f.sensor.getLastError());
+
+    TEST_ASSERT_EQUAL_FLOAT(23.5f, f.sensor.getTemperature());
+}
+
+// --------------------------------------------------------------------------
+// Range validation: pH < 3 (raw 25 = 2.5) → error 5, nothing published
+// (lower bound of the parity pH range)
+// --------------------------------------------------------------------------
+static void test_out_of_range_low_ph_rejected_error5(void)
+{
+    Fixture f(goodPayload());
+    TEST_ASSERT_TRUE(f.sensor.read());
+
+    f.mock.setRegisters(kAddr, kStartReg, {550, 235, 800, 25, 1, 2, 3, 0, 0});
+    TEST_ASSERT_FALSE(f.sensor.read());
+    TEST_ASSERT_EQUAL_INT(5, f.sensor.getLastError());
+
+    TEST_ASSERT_EQUAL_FLOAT(6.8f, f.sensor.getPH());
+}
+
+// --------------------------------------------------------------------------
+// Boundary inclusivity: the parity range limits themselves are VALID —
+// moisture 100.0 % (raw 1000), temperature -40.0 °C (raw 0xFE70 = -400)
+// and pH 3.0 (raw 30) in one payload; pH 9.0 (raw 90) too. One step past
+// the limit (moisture 100.1 %, raw 1001) is invalid with error 5.
+// --------------------------------------------------------------------------
+static void test_range_boundaries_are_inclusive(void)
+{
+    Fixture f({1000, 0xFE70, 800, 30, 1, 2, 3, 0, 0});
+
+    TEST_ASSERT_TRUE(f.sensor.read());
+    TEST_ASSERT_EQUAL_INT(0, f.sensor.getLastError());
+    TEST_ASSERT_EQUAL_FLOAT(100.0f, f.sensor.getMoisture());
+    TEST_ASSERT_EQUAL_FLOAT(-40.0f, f.sensor.getTemperature());
+    TEST_ASSERT_EQUAL_FLOAT(3.0f, f.sensor.getPH());
+
+    // Upper pH bound (9.0) is valid too.
+    f.mock.setRegisters(kAddr, kStartReg, {1000, 0xFE70, 800, 90, 1, 2, 3, 0, 0});
+    TEST_ASSERT_TRUE(f.sensor.read());
+    TEST_ASSERT_EQUAL_FLOAT(9.0f, f.sensor.getPH());
+
+    // One step past the moisture limit: 100.1 % → error 5.
+    f.mock.setRegisters(kAddr, kStartReg, {1001, 0xFE70, 800, 90, 1, 2, 3, 0, 0});
+    TEST_ASSERT_FALSE(f.sensor.read());
+    TEST_ASSERT_EQUAL_INT(5, f.sensor.getLastError());
+    TEST_ASSERT_EQUAL_FLOAT(100.0f, f.sensor.getMoisture());
+}
+
+// --------------------------------------------------------------------------
+// EC/N/P/K are NOT range-enforced on read (parity, FR-004 second sentence):
+// extreme values — up to the uint16 maximum — are published as valid
+// --------------------------------------------------------------------------
+static void test_ec_npk_not_range_enforced(void)
+{
+    Fixture f({550, 235, 65535, 68, 65535, 65535, 65535, 0, 0});
+
+    TEST_ASSERT_TRUE(f.sensor.read());
+    TEST_ASSERT_EQUAL_INT(0, f.sensor.getLastError());
+    TEST_ASSERT_EQUAL_FLOAT(65535.0f, f.sensor.getEC());
+    TEST_ASSERT_EQUAL_FLOAT(65535.0f, f.sensor.getNitrogen());
+    TEST_ASSERT_EQUAL_FLOAT(65535.0f, f.sensor.getPhosphorus());
+    TEST_ASSERT_EQUAL_FLOAT(65535.0f, f.sensor.getPotassium());
+}
+
+// --------------------------------------------------------------------------
 // Modbus slave exception: the sensor layer propagates the client's error
 // code VERBATIM (here 100+2 = 102). The real EspModbusClient coarsens
 // exceptions to code 2 (esp-modbus 2.1.2 hides the exception number —
@@ -335,6 +412,11 @@ static void test_is_available_performs_real_probe_every_call(void)
     f.mock.queueOutcome(MockModbusClient::kErrTimeout);
     TEST_ASSERT_FALSE(f.sensor.isAvailable());
     TEST_ASSERT_EQUAL(2, f.mock.calls.size());
+
+    // ...without clobbering getLastError(): the probe result is carried by
+    // the return value only — the fixture's error state (0 after the init)
+    // is UNCHANGED by the failed probe (read() owns the reading's error).
+    TEST_ASSERT_EQUAL_INT(0, f.sensor.getLastError());
 
     // ...and the next call recovers implicitly (no failure latch).
     TEST_ASSERT_TRUE(f.sensor.isAvailable());
@@ -594,6 +676,85 @@ static void test_calibration_factor_subject_to_range_validation(void)
     TEST_ASSERT_EQUAL_FLOAT(55.0f, f.sensor.getMoisture());
 }
 
+// --------------------------------------------------------------------------
+// Failed calibration raw READ is fatal: calibrate*() fails with the
+// client's error verbatim, exactly one bus attempt (the raw read), no
+// factor write, and the next read() still publishes UNfactored values
+// --------------------------------------------------------------------------
+static void test_calibrate_raw_read_failure_error_propagated_no_write(void)
+{
+    Fixture f(goodPayload());
+    TEST_ASSERT_TRUE(f.sensor.read());
+    f.mock.calls.clear();
+
+    f.mock.queueOutcome(MockModbusClient::kErrTimeout);  // hits the raw read
+    TEST_ASSERT_FALSE(f.sensor.calibratePH(7.0f));
+    TEST_ASSERT_EQUAL_INT(MockModbusClient::kErrTimeout,
+                          f.sensor.getLastError());
+
+    // Exactly the one failed raw read — no factor write attempted.
+    TEST_ASSERT_EQUAL(1, f.mock.calls.size());
+    TEST_ASSERT_EQUAL(static_cast<int>(MockModbusClient::Call::Type::Read),
+                      static_cast<int>(f.mock.calls.front().type));
+    TEST_ASSERT_FALSE(f.mock.calls.front().succeeded);
+
+    // Factor unchanged: the next read still publishes the unfactored 6.8.
+    TEST_ASSERT_TRUE(f.sensor.read());
+    TEST_ASSERT_EQUAL_FLOAT(6.8f, f.sensor.getPH());
+}
+
+// --------------------------------------------------------------------------
+// Input-hygiene guard (not parity): a non-finite or non-positive reference
+// is rejected up front with error 5 — no bus transaction, no factor write,
+// factor unchanged
+// --------------------------------------------------------------------------
+static void test_calibrate_rejects_invalid_reference(void)
+{
+    Fixture f(goodPayload());
+    TEST_ASSERT_TRUE(f.sensor.read());
+    f.mock.calls.clear();
+
+    TEST_ASSERT_FALSE(f.sensor.calibratePH(NAN));
+    TEST_ASSERT_EQUAL_INT(5, f.sensor.getLastError());
+    TEST_ASSERT_EQUAL(0, f.mock.calls.size());  // guard fires before the bus
+
+    TEST_ASSERT_FALSE(f.sensor.calibratePH(-1.0f));
+    TEST_ASSERT_EQUAL_INT(5, f.sensor.getLastError());
+    TEST_ASSERT_EQUAL(0, f.mock.calls.size());
+
+    // Factor unchanged: the next read still publishes the unfactored 6.8.
+    TEST_ASSERT_TRUE(f.sensor.read());
+    TEST_ASSERT_EQUAL_FLOAT(6.8f, f.sensor.getPH());
+}
+
+// --------------------------------------------------------------------------
+// Input-hygiene guard (not parity): a factor whose ×100 register encoding
+// would exceed uint16 (float→uint16 overflow was UB in the legacy cast) is
+// rejected with error 5 BEFORE being stored — no write, factor unchanged.
+// Raw pH 1 → 0.1 (passes the raw-too-low guard); reference 7000 → factor
+// 70000 → ×100 = 7,000,000 > 65535.
+// --------------------------------------------------------------------------
+static void test_calibrate_factor_overflow_rejected_error5(void)
+{
+    Fixture f(goodPayload());
+    TEST_ASSERT_TRUE(f.sensor.read());
+    f.mock.calls.clear();
+
+    f.mock.setRegisters(kAddr, kRegPh, {1});
+    TEST_ASSERT_FALSE(f.sensor.calibratePH(7000.0f));
+    TEST_ASSERT_EQUAL_INT(5, f.sensor.getLastError());
+
+    // Only the raw read reached the bus — the overflowing factor was never
+    // written.
+    TEST_ASSERT_EQUAL(1, f.mock.calls.size());
+    TEST_ASSERT_EQUAL(static_cast<int>(MockModbusClient::Call::Type::Read),
+                      static_cast<int>(f.mock.calls.front().type));
+
+    // Factor NOT applied: the next read still publishes the unfactored 6.8.
+    TEST_ASSERT_TRUE(f.sensor.read());
+    TEST_ASSERT_EQUAL_FLOAT(6.8f, f.sensor.getPH());
+}
+
 void run_soil_sensor_tests(void)
 {
     RUN_TEST(test_decode_known_payload_negative_temperature);
@@ -604,6 +765,10 @@ void run_soil_sensor_tests(void)
     RUN_TEST(test_out_of_range_moisture_rejected_error5);
     RUN_TEST(test_out_of_range_temperature_rejected_error5);
     RUN_TEST(test_out_of_range_ph_rejected_all_or_nothing);
+    RUN_TEST(test_out_of_range_high_temperature_rejected_error5);
+    RUN_TEST(test_out_of_range_low_ph_rejected_error5);
+    RUN_TEST(test_range_boundaries_are_inclusive);
+    RUN_TEST(test_ec_npk_not_range_enforced);
     RUN_TEST(test_modbus_exception_propagates_verbatim);
     RUN_TEST(test_failed_read_is_single_bus_attempt);
     RUN_TEST(test_read_recovers_after_failure_without_reinit);
@@ -618,4 +783,7 @@ void run_soil_sensor_tests(void)
     RUN_TEST(test_calibrate_write_failure_nonfatal_factor_applied);
     RUN_TEST(test_calibrate_raw_too_low_error5_no_write);
     RUN_TEST(test_calibration_factor_subject_to_range_validation);
+    RUN_TEST(test_calibrate_raw_read_failure_error_propagated_no_write);
+    RUN_TEST(test_calibrate_rejects_invalid_reference);
+    RUN_TEST(test_calibrate_factor_overflow_rejected_error5);
 }

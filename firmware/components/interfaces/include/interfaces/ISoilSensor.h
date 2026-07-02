@@ -36,7 +36,9 @@ public:
 
     /**
      * @brief Prepare the sensor (brings up the underlying Modbus client if
-     * needed). Must precede read()/isAvailable().
+     * needed). Implementations may initialize lazily — read()/isAvailable()/
+     * calibrate*() attempt initialization themselves when it has not
+     * happened yet — so calling this first is recommended, not required.
      */
     virtual bool initialize() = 0;
 
@@ -65,16 +67,23 @@ public:
     virtual bool isAvailable() = 0;
 
     /**
-     * @brief Error code of the most recent operation (0 = OK).
+     * @brief Error code of the most recent read()/initialize()/calibrate*()
+     * (0 = OK).
      *
-     * Same table as IModbusClient plus code 5 (range validation failed);
-     * see specs/004-modbus-soil-sensor/data-model.md.
+     * isAvailable() never touches this code. Note that a calibrate*()
+     * returning true may still leave a nonzero code from the non-fatal
+     * calibration-register write (see the calibration block below).
+     *
+     * Same table as IModbusClient; code 5 (range validation failed) is
+     * produced by this layer, never by the client. See
+     * specs/004-modbus-soil-sensor/data-model.md.
      */
     virtual int getLastError() = 0;
 
-    // Values from the most recent successful read(). After a failed read()
-    // they still hold the previous good reading — check the read() result
-    // before treating them as fresh.
+    // Values from the most recent successful read(). Before the FIRST
+    // successful read() they are meaningless placeholders, and after a
+    // failed read() they still hold the previous good reading — consumers
+    // gate on the read() result, never on the values.
 
     /// Soil moisture in percent (0–100).
     virtual float getMoisture() = 0;
@@ -109,8 +118,9 @@ public:
     // local correction factor (reference / current raw reading), applies it
     // to every subsequent read, and best-effort writes the factor to the
     // sensor's calibration register (0x0100/0x0101/0x0102) — a failed
-    // sensor-register write is NON-FATAL and does not fail the call.
-    // Factors are RAM-only in this PR (persistence arrives in PR-09/PR-11).
+    // sensor-register write is NON-FATAL and does not fail the call: the
+    // call returns true while getLastError() reports the write error.
+    // Factors are RAM-only for now; persistence wired in PR-09/PR-11.
 
     /// Calibrate moisture against a reference value in percent.
     virtual bool calibrateMoisture(float referenceValue) = 0;

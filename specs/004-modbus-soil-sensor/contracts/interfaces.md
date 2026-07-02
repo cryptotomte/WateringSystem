@@ -25,7 +25,11 @@ public:
 Contract notes:
 - `readHoldingRegisters`/`writeSingleRegister` perform exactly ONE bus attempt;
   false ⇒ `getLastError()` is set. No internal retry (parity).
-- `writeSingleRegister` verifies the slave's echo response (parity).
+- `writeSingleRegister` success means the addressed slave returned a well-formed
+  FC06 response (address/function/CRC validated); implementations are NOT required
+  to compare the echoed register/value byte-for-byte against the request (the
+  legacy client did — documented parity divergence, see EspModbusClient.cpp and
+  plan.md Risks item 6).
 - Statistics: every call increments exactly one of success/error.
 
 ## interfaces/ISoilSensor.h
@@ -69,4 +73,4 @@ Contract notes:
 |---|---|
 | `soil` | One `read()`; prints all 7 values or error code + name |
 | `rs485test` | Raw 1-register probe; prints outcome + success/error counters |
-| `soil_cal_moisture <ref>` / `soil_cal_ph <ref>` / `soil_cal_ec <ref>` | Runs calibration; prints new factor and whether the sensor-register write succeeded |
+| `soil_cal_moisture <ref>` / `soil_cal_ph <ref>` / `soil_cal_ec <ref>` | Runs calibration; prints success/error plus whether the non-fatal sensor-register write succeeded (no factor value — factors are private, deliberate) |

@@ -109,7 +109,9 @@ rev2 bring-up (PR-14) is a validation exercise, not a rewrite.
 
 **Independent Test**: Build both board variants in CI; verify the rev1 binary
 configures the direction pin and the rev2 binary does not; verify by host test that
-echo bytes preceding a reply are discarded.
+exactly one well-formed reply is parsed per transaction (single-reply parsing via
+the mock — echo suppression itself is hardware receive-gating, verified
+electrically at PR-14 per plan decision R3/FR-014).
 
 **Acceptance Scenarios**:
 
@@ -120,8 +122,11 @@ echo bytes preceding a reply are discarded.
    is configured or touched (the pin macro does not even exist — compile-time
    guarantee).
 3. **Given** a rev2 build, **When** a request frame is transmitted, **Then** the echo
-   of that frame received on the RX line is discarded and only the sensor's reply is
-   parsed.
+   of that frame never reaches the reply parser and only the sensor's reply is
+   parsed — echo suppression is hardware receive-gating (RS485 half-duplex TX
+   gating, plan decision R3), verified electrically at PR-14; host tests verify
+   single-reply parsing (exactly one well-formed reply per transaction) via the
+   mock (FR-014).
 4. **Given** a rev2 board with the sensor power domain switched off, **When** the
    receive line would otherwise float, **Then** the internal pull-up on the RX pin
    keeps the line idle-high so no garbage bytes accumulate.
@@ -132,7 +137,7 @@ echo bytes preceding a reply are discarded.
 
 An AI developer changes decode, validation or error-handling logic and runs the host
 test suite in CI. Register decoding (including signed temperature), range validation,
-invalid-on-timeout behavior and echo discarding are verified against mock
+invalid-on-timeout behavior and single-reply parsing are verified against mock
 implementations — no devkit, no sensor, failures block the merge.
 
 **Why this priority**: Constitution principle II (Host-Testability). The mock soil
@@ -265,9 +270,10 @@ decode/validation/timeout tests pass deterministically.
 - **SC-003**: Disconnecting the A/B pair produces flagged-invalid readings and logged
   errors with zero crashes or watchdog resets; reconnection recovers automatically on
   a subsequent read with no operator action (HIL checklist).
-- **SC-004**: Host test suite covering decode, validation, timeout and echo handling
-  runs in CI with zero hardware dependencies and passes deterministically (no flaky
-  reruns).
+- **SC-004**: Host test suite covering decode, validation, timeout and single-reply
+  parsing (echo suppression itself is hardware receive-gating, verified
+  electrically at PR-14 per plan decision R3/FR-014) runs in CI with zero hardware
+  dependencies and passes deterministically (no flaky reruns).
 - **SC-005**: Operator can run the bus diagnostic and soil reading commands on the
   first attempt using documented commands, and the output is sufficient to distinguish
   wiring faults from sensor faults (HIL checklist).

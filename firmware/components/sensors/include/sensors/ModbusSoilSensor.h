@@ -71,8 +71,8 @@ public:
     float getPhosphorus() override;
     float getPotassium() override;
 
-    // Calibration (legacy-exact port, research.md R8); host tests for these
-    // paths land in phase 6 (tasks.md T021).
+    // Calibration (legacy-exact port, research.md R8); host-tested in
+    // test_soil_sensor.cpp (calibration suite).
     bool calibrateMoisture(float referenceValue) override;
     bool calibratePH(float referenceValue) override;
     bool calibrateEC(float referenceValue) override;
@@ -133,7 +133,8 @@ private:
     float phosphorus_ = 0.0f;
     float potassium_ = 0.0f;
 
-    // Calibration factors (RAM-only in this PR; persistence PR-09/PR-11).
+    // Calibration factors (RAM-only for now; persistence wired in
+    // PR-09/PR-11).
     float moistureCalibrationFactor_ = 1.0f;
     float phCalibrationFactor_ = 1.0f;
     float ecCalibrationFactor_ = 1.0f;
