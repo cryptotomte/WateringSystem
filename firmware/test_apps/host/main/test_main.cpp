@@ -16,6 +16,7 @@
 void run_water_pump_tests(void);
 void run_config_store_tests(void);
 void run_data_storage_tests(void);
+void run_soil_sensor_tests(void);
 
 // Unity requires setUp/tearDown definitions (shared by all suites).
 extern "C" void setUp(void) {}
@@ -27,5 +28,6 @@ extern "C" void app_main(void)
     run_water_pump_tests();
     run_config_store_tests();
     run_data_storage_tests();
+    run_soil_sensor_tests();
     std::exit(UNITY_END());
 }

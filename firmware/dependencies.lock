@@ -27,6 +27,6 @@ direct_dependencies:
 - espressif/esp-modbus
 - idf
 - joltwallet/littlefs
-manifest_hash: e580dfb7518fc7d4915da3d29c857a79126d5584a4d47fdbbb6abf4a64e8b96e
+manifest_hash: a75946f2281bc7a0ba1812f2e56a4b4bed5255f5aeae0f1f46c455ecd24902e7
 target: esp32
 version: 3.0.0

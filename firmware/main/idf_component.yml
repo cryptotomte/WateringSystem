@@ -1,6 +1,7 @@
 # Managed dependencies (IDF Component Registry), pinned for reproducible builds.
-# Not yet used by app_main — pinned here so dependency resolution is validated
-# in CI from phase 0 onwards.
+# Used by app_main via components/sensors since feature 004. Keep the esp-modbus
+# version in lockstep with components/sensors/idf_component.yml (both pin
+# ==2.1.2; bump together or the resolver conflicts).
 dependencies:
   idf: ">=6.0.0"
   espressif/esp-modbus: "==2.1.2"

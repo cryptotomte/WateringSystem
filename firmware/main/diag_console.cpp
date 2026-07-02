@@ -27,6 +27,17 @@
  *   storage event <category> <detail>   # category = u8 (1..255)
  *   storage events [n]                  # newest-first, default 10
  *
+ * Soil sensor commands (HIL verification path for feature 004; console
+ * contract in specs/004-modbus-soil-sensor/contracts/interfaces.md — the
+ * calibration commands print no factor value: no factor getter exists,
+ * see cmd_soil_calibrate):
+ *
+ *   soil                                # one read(); 7 values or error
+ *   rs485test                           # raw 1-register probe + statistics
+ *   soil_cal_moisture <reference>       # calibrate against a reference
+ *   soil_cal_ph <reference>             #   value; a failed calibration-
+ *   soil_cal_ec <reference>             #   register write is NON-FATAL
+ *
  * Handler exit codes follow the esp_console convention: 0 on OK, 1 on ERR.
  *
  * State is plain pointers/PODs set from app_main — no non-trivial static
@@ -35,6 +46,7 @@
 
 #include "diag_console.h"
 
+#include <cmath>
 #include <ctime>
 #include <cstdint>
 #include <cstdio>
@@ -47,6 +59,8 @@
 
 #include "interfaces/IConfigStore.h"
 #include "interfaces/IDataStorage.h"
+#include "interfaces/IModbusClient.h"
+#include "interfaces/ISoilSensor.h"
 #include "interfaces/IWaterPump.h"
 
 namespace {
@@ -70,6 +84,11 @@ PumpSlot s_slots[2] = {
 // initialized pointers, same rule as s_slots.
 IConfigStore *s_config = nullptr;
 IDataStorage *s_storage = nullptr;
+
+// Soil sensor + Modbus client (set from app_main; the sensor is expected
+// to be the LockedSoilSensor decorator). Same trivial-initialization rule.
+ISoilSensor *s_soil = nullptr;
+IModbusClient *s_modbus = nullptr;
 
 const char *stop_reason_str(StopReason reason)
 {
@@ -198,12 +217,13 @@ bool parse_u32(const char *arg, uint32_t &out)
     return true;
 }
 
-/// Strict float parse; false on garbage (range checks are the store's job).
+/// Strict float parse; false on garbage or non-finite input — nan/inf never
+/// reach a float consumer (finite range checks are the consumer's job).
 bool parse_float(const char *arg, float &out)
 {
     char *end = nullptr;
     out = strtof(arg, &end);
-    return end != arg && *end == '\0';
+    return end != arg && *end == '\0' && std::isfinite(out);
 }
 
 void print_config(const IConfigStore &config)
@@ -430,6 +450,152 @@ int storage_cmd(int argc, char **argv)
     return print_storage_usage();
 }
 
+// --- soil / rs485test commands (feature 004 HIL verification path) ------
+
+/// Error-code names per the data-model.md error table (feature 004).
+const char *soil_error_str(int error)
+{
+    switch (error) {
+    case 0:
+        return "ok";
+    case 1:
+        return "not_initialized";
+    case 2:
+        return "bus_error";
+    case 3:
+        return "timeout";
+    case 5:
+        return "range_validation";
+    default:
+        return error >= 100 ? "slave_exception" : "unknown";
+    }
+}
+
+/// `soil`: one read() through the locked sensor; all 7 values or the error.
+int soil_cmd(int argc, char **argv)
+{
+    (void)argv;
+    if (argc != 1) {
+        printf("ERR usage: soil\n");
+        return 1;
+    }
+    if (s_soil == nullptr) {
+        printf("ERR soil sensor not available\n");
+        return 1;
+    }
+    if (!s_soil->read()) {
+        const int error = s_soil->getLastError();
+        printf("ERR read failed: error %d (%s)\n", error,
+               soil_error_str(error));
+        return 1;
+    }
+    printf("OK moisture=%.1f %% temp=%.1f C ec=%.0f uS/cm ph=%.1f "
+           "n=%.0f mg/kg p=%.0f mg/kg k=%.0f mg/kg\n",
+           static_cast<double>(s_soil->getMoisture()),
+           static_cast<double>(s_soil->getTemperature()),
+           static_cast<double>(s_soil->getEC()),
+           static_cast<double>(s_soil->getPH()),
+           static_cast<double>(s_soil->getNitrogen()),
+           static_cast<double>(s_soil->getPhosphorus()),
+           static_cast<double>(s_soil->getPotassium()));
+    return 0;
+}
+
+/// `rs485test`: one raw 1-register probe (slave 0x01, register 0x0000 —
+/// the parity availability probe) + cumulative transaction statistics.
+///
+/// TODO(PR-11): this drives the raw, unsynchronized EspModbusClient BELOW
+/// LockedSoilSensor's mutex; once PR-11 adds the main-loop reader this
+/// becomes a cross-task race — route it through a locked client wrapper
+/// (or through the sensor) then.
+int rs485test_cmd(int argc, char **argv)
+{
+    (void)argv;
+    if (argc != 1) {
+        printf("ERR usage: rs485test\n");
+        return 1;
+    }
+    if (s_modbus == nullptr) {
+        printf("ERR modbus client not available\n");
+        return 1;
+    }
+    uint16_t value = 0;
+    const bool ok = s_modbus->readHoldingRegisters(0x01, 0x0000, 1, &value);
+    uint32_t successCount = 0;
+    uint32_t errorCount = 0;
+    s_modbus->getStatistics(&successCount, &errorCount);
+    if (ok) {
+        printf("OK reg 0x0000 = %u, stats: success=%lu error=%lu\n",
+               static_cast<unsigned>(value),
+               static_cast<unsigned long>(successCount),
+               static_cast<unsigned long>(errorCount));
+        return 0;
+    }
+    const int error = s_modbus->getLastError();
+    printf("ERR probe failed: error %d (%s), stats: success=%lu error=%lu\n",
+           error, soil_error_str(error),
+           static_cast<unsigned long>(successCount),
+           static_cast<unsigned long>(errorCount));
+    return 1;
+}
+
+/// Shared `soil_cal_*` flow: one calibrate*() call through the locked
+/// sensor. ModbusSoilSensor exposes no factor getter (factors are private,
+/// RAM-only for now), so the output reports success/failure plus the
+/// legacy write-result semantics: a true return with a non-zero last error
+/// means the factor is applied locally but the best-effort write to the
+/// sensor's calibration register failed (NON-FATAL, parity).
+int cmd_soil_calibrate(int argc, char **argv, const char *name,
+                       bool (ISoilSensor::*calibrate)(float))
+{
+    if (s_soil == nullptr) {
+        printf("ERR soil sensor not available\n");
+        return 1;
+    }
+    if (argc != 2) {
+        printf("ERR usage: %s <reference-value>\n", name);
+        return 1;
+    }
+    float reference = 0.0f;
+    if (!parse_float(argv[1], reference)) {
+        printf("ERR reference-value: not a number\n");
+        return 1;
+    }
+    if (!(s_soil->*calibrate)(reference)) {
+        const int error = s_soil->getLastError();
+        printf("ERR calibration failed: error %d (%s)\n", error,
+               soil_error_str(error));
+        return 1;
+    }
+    const int error = s_soil->getLastError();
+    if (error != 0) {
+        printf("OK calibration applied (sensor register write failed, "
+               "non-fatal: error %d (%s))\n",
+               error, soil_error_str(error));
+    } else {
+        printf("OK calibration applied\n");
+    }
+    return 0;
+}
+
+int soil_cal_moisture_cmd(int argc, char **argv)
+{
+    return cmd_soil_calibrate(argc, argv, "soil_cal_moisture",
+                              &ISoilSensor::calibrateMoisture);
+}
+
+int soil_cal_ph_cmd(int argc, char **argv)
+{
+    return cmd_soil_calibrate(argc, argv, "soil_cal_ph",
+                              &ISoilSensor::calibratePH);
+}
+
+int soil_cal_ec_cmd(int argc, char **argv)
+{
+    return cmd_soil_calibrate(argc, argv, "soil_cal_ec",
+                              &ISoilSensor::calibrateEC);
+}
+
 }  // namespace
 
 void diag_console_register_pumps(IWaterPump& plant, IWaterPump& reservoir)
@@ -442,6 +608,12 @@ void diag_console_register_storage(IConfigStore& config, IDataStorage& storage)
 {
     s_config = &config;
     s_storage = &storage;
+}
+
+void diag_console_register_soil(ISoilSensor& sensor, IModbusClient& client)
+{
+    s_soil = &sensor;
+    s_modbus = &client;
 }
 
 esp_err_t diag_console_start(void)
@@ -500,6 +672,79 @@ esp_err_t diag_console_start(void)
         .context = nullptr,
     };
     err = esp_console_cmd_register(&cmd_storage);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    const esp_console_cmd_t cmd_soil = {
+        .command = "soil",
+        .help = "soil — one soil sensor read (7 values or error code)",
+        .hint = nullptr,
+        .func = &soil_cmd,
+        .argtable = nullptr,
+        .func_w_context = nullptr,
+        .context = nullptr,
+    };
+    err = esp_console_cmd_register(&cmd_soil);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    const esp_console_cmd_t cmd_rs485test = {
+        .command = "rs485test",
+        .help = "rs485test — raw 1-register Modbus probe + statistics",
+        .hint = nullptr,
+        .func = &rs485test_cmd,
+        .argtable = nullptr,
+        .func_w_context = nullptr,
+        .context = nullptr,
+    };
+    err = esp_console_cmd_register(&cmd_rs485test);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    const esp_console_cmd_t cmd_soil_cal_moisture = {
+        .command = "soil_cal_moisture",
+        .help = "soil_cal_moisture <reference-value> — calibrate moisture "
+                "against a reference in %",
+        .hint = nullptr,
+        .func = &soil_cal_moisture_cmd,
+        .argtable = nullptr,
+        .func_w_context = nullptr,
+        .context = nullptr,
+    };
+    err = esp_console_cmd_register(&cmd_soil_cal_moisture);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    const esp_console_cmd_t cmd_soil_cal_ph = {
+        .command = "soil_cal_ph",
+        .help = "soil_cal_ph <reference-value> — calibrate pH against a "
+                "reference",
+        .hint = nullptr,
+        .func = &soil_cal_ph_cmd,
+        .argtable = nullptr,
+        .func_w_context = nullptr,
+        .context = nullptr,
+    };
+    err = esp_console_cmd_register(&cmd_soil_cal_ph);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    const esp_console_cmd_t cmd_soil_cal_ec = {
+        .command = "soil_cal_ec",
+        .help = "soil_cal_ec <reference-value> — calibrate EC against a "
+                "reference in uS/cm",
+        .hint = nullptr,
+        .func = &soil_cal_ec_cmd,
+        .argtable = nullptr,
+        .func_w_context = nullptr,
+        .context = nullptr,
+    };
+    err = esp_console_cmd_register(&cmd_soil_cal_ec);
     if (err != ESP_OK) {
         return err;
     }
