@@ -14,6 +14,7 @@
 #include "esp_err.h"
 #include "interfaces/IConfigStore.h"
 #include "interfaces/IDataStorage.h"
+#include "interfaces/IEnvironmentalSensor.h"
 #include "interfaces/IModbusClient.h"
 #include "interfaces/ISoilSensor.h"
 #include "interfaces/IWaterPump.h"
@@ -48,6 +49,17 @@ void diag_console_register_storage(IConfigStore& config,
  * called before diag_console_start(); plain pointer registration.
  */
 void diag_console_register_soil(ISoilSensor& sensor, IModbusClient& client);
+
+/**
+ * @brief Register the environmental sensor the `env` command operates on
+ *        (HIL verification path for feature 005).
+ *
+ * Pass the LockedEnvironmentalSensor decorator, never the raw sensor — the
+ * console handler runs on the REPL task, concurrently with the 5 s sensor
+ * task. Must be called before diag_console_start(); plain pointer
+ * registration.
+ */
+void diag_console_register_env(IEnvironmentalSensor& sensor);
 
 /**
  * @brief Start the UART REPL (prompt "ws>") and register the commands.

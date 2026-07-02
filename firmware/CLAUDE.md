@@ -29,10 +29,13 @@ must stay green.
 ### Host tests (linux preview target)
 
 Logic is unit-tested natively, no ESP32 needed: pump enforcement, config
-store, data storage and the soil sensor decode/validation/calibration
-(`test_soil_sensor.cpp`, real `ModbusSoilSensor` over `MockModbusClient`).
-The test executable's exit code equals the Unity failure count (CI gate, job
-`host-test`):
+store, data storage, the soil sensor decode/validation/calibration
+(`test_soil_sensor.cpp`, real `ModbusSoilSensor` over `MockModbusClient`)
+and the BME280 probe/calibration/compensation logic (`test_bme280.cpp`,
+real `Bme280Sensor` over `MockI2cBus` — Bosch reference vectors, error
+paths, address variants, sensor-task log policy, `MockEnvironmentalSensor`
+consistency). The test executable's exit code equals the Unity failure
+count (CI gate, job `host-test`):
 
 ```bash
 cd firmware/test_apps/host
@@ -54,6 +57,7 @@ firmware/
 ├── main/
 │   ├── app_main.cpp            # Entry point — pumps forced OFF first, always
 │   ├── diag_console.cpp/.h     # esp_console UART REPL (prompt "ws>")
+│   ├── sensor_task.cpp/.h      # 5 s environmental poll task (feature 005)
 │   ├── Kconfig.projbuild       # Board revision choice
 │   └── idf_component.yml       # Pinned managed deps (esp-modbus, littlefs)
 ├── components/
@@ -62,17 +66,23 @@ firmware/
 │   ├── interfaces/             # Header-only, NO IDF deps (host-includable)
 │   │   └── include/interfaces/ # IActuator, IWaterPump, ITimeProvider,
 │   │                           # IConfigStore, IDataStorage,
-│   │                           # IModbusClient, ISoilSensor
+│   │                           # IModbusClient, ISoilSensor,
+│   │                           # IEnvironmentalSensor, II2cBus
 │   ├── actuators/              # Pump drivers
 │   │   ├── include/actuators/  # WaterPump (pure C++ logic), GpioWaterPump,
 │   │   │                       # EspTimeProvider (esp32-only header),
 │   │   │                       # testing/ (MockWaterPump, FakeTimeProvider)
 │   │   └── src/                # GpioWaterPump.cpp excluded on linux target
-│   ├── sensors/                # RS485 Modbus soil sensor (feature 004)
-│   │   ├── include/sensors/    # ModbusSoilSensor (pure C++ logic),
-│   │   │                       # EspModbusClient, LockedSoilSensor,
-│   │   │                       # testing/ (MockModbusClient, MockSoilSensor)
-│   │   └── src/                # EspModbusClient.cpp + esp-modbus dep
+│   ├── sensors/                # Soil sensor (feature 004) + BME280 (005)
+│   │   ├── include/sensors/    # ModbusSoilSensor, Bme280Sensor (pure C++
+│   │   │                       # logic), EspModbusClient, EspI2cBus,
+│   │   │                       # LockedSoilSensor,
+│   │   │                       # LockedEnvironmentalSensor,
+│   │   │                       # SensorTaskLogPolicy, testing/
+│   │   │                       # (MockModbusClient, MockSoilSensor,
+│   │   │                       # MockI2cBus, MockEnvironmentalSensor)
+│   │   └── src/                # EspModbusClient.cpp + esp-modbus dep and
+│   │                           # EspI2cBus.cpp + esp_driver_i2c dep
 │   │                           # excluded on linux target
 │   └── storage/                # Config + data persistence (feature 003)
 │       ├── include/storage/    # NvsConfigStore, LittleFsDataStorage (POSIX,
@@ -84,7 +94,8 @@ firmware/
 └── test_apps/
     └── host/                   # Host test app (linux preview target, Unity):
                                 # pump + config store + data storage +
-                                # soil sensor (test_soil_sensor.cpp) suites
+                                # soil sensor (test_soil_sensor.cpp) +
+                                # BME280 (test_bme280.cpp) suites
 ```
 
 Future components (drivers, controllers, web server) are added as siblings
@@ -133,6 +144,14 @@ non-fatal — legacy parity):
 soil                                     # one read(); 7 values or error code
 rs485test                                # raw 1-register Modbus probe + statistics
 soil_cal_moisture | soil_cal_ph | soil_cal_ec <reference-value>
+```
+
+Feature 005 adds the environmental sensor command (HIL verification path,
+one locked read; the failure hint distinguishes error 1 "sensor not found"
+from error 2 "read failed" — SC-006):
+
+```
+env                                      # one read(); T/RH/P with units or ERROR <code> (<hint>)
 ```
 
 ## Storage (config + data persistence)
@@ -192,6 +211,43 @@ All pins and polarity/feature flags come from `board/board.h`
 (`BOARD_PIN_*`, `BOARD_HAS_RS485_DE`, `BOARD_LEVEL_SENSOR_ACTIVE_LOW`,
 `BOARD_HAS_INA226`, `BOARD_NAME`). Never hard-code GPIO numbers elsewhere.
 Board-conditional code uses `#if CONFIG_BOARD_REV2` / `#if BOARD_HAS_INA226`.
+
+## BME280 environmental sensor (I2C)
+
+Feature 005 (PR-03). Same architecture split as the soil sensor, at the
+`II2cBus` interface: `Bme280Sensor` is pure C++ and holds ALL policy —
+0x76→0x77 address probing with chip-ID verification (0xD0 == 0x60,
+rejects e.g. a BMP280), calibration readout/parsing (incl. the
+split-nibble dig_H4/H5), the Bosch datasheet reference compensation
+(int32 T / int64 P / int32 H via t_fine, transcribed exactly — do not
+"clean up"), unit conversion (°C/%RH/hPa), error codes 0/1/2, lazy
+re-init and uninitialize-on-bus-error recovery (re-probes BOTH
+addresses). It is host-tested against `MockI2cBus`, including Bosch
+reference vectors. `EspI2cBus` is the only hardware touchpoint (the new
+`driver/i2c_master.h` API — never the legacy `driver/i2c.h` — 100 kHz,
+pins from `board/board.h`) and is excluded from the linux build.
+
+**Shared bus (PR-05):** `app_main` owns the single `EspI2cBus` instance
+(function-local static); PR-05's INA226 driver must receive the SAME
+instance — never create a second bus on these pins. Bus-level transaction
+safety comes from the i2c_master driver's bus lock; snapshot consistency
+comes from `LockedEnvironmentalSensor`, the mandatory wrapper for all
+cross-task access (sensor task + console REPL now; web PR-09, controller
+PR-11).
+
+**Sampling profile is parity** (like-for-like HIL comparison against the
+Arduino unit): NORMAL mode, oversampling T×2 / P×16 / H×1, IIR ×16,
+standby 500 ms — ctrl_hum written before ctrl_meas, then config.
+
+The `sensor_task` (main/, 4096 B stack, priority 1, `vTaskDelayUntil`
+5000 ms — parity parameters) polls the locked sensor, starts even when
+the sensor is absent (lazy re-init recovers later) and never exits. Its
+WARN/INFO/silence decisions live in the pure `SensorTaskLogPolicy`
+(host-tested): WARN once on the valid→invalid transition and on recovery,
+bounded repeats every 12th consecutive failure. Deliberate divergences
+from the legacy driver (address probing, last-good getters, live
+availability probe, locked access) are recorded in
+`docs/parity-checklist.md` §6.
 
 ## Partition layout (4MB flash)
 

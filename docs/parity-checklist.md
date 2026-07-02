@@ -216,6 +216,31 @@ each item below is the new contract behavior, host-tested in
   PR-05 (reservoir board flag). The config store is extensible per-key so PR-05
   can add them without a contract change.
 
+### Deliberate divergences in the ESP-IDF port (feature 005, PR-03)
+
+Intentional behavior changes from the Arduino BME280 driver (section 5), not
+parity targets; each is the new contract behavior, host-tested in
+`firmware/test_apps/host/main/test_bme280.cpp`.
+
+- [ ] `[HOST]` **I2C address probing 0x76→0x77 with chip-identity check**:
+  legacy hard-codes address 0x77 and never verifies the chip ID; the port
+  probes both addresses, accepts only a device whose register 0xD0 reads 0x60
+  (a BMP280/foreign device is logged distinctly and rejected), and re-probes
+  BOTH addresses on recovery after loss — a module swapped to the other
+  address while unplugged is picked up transparently (spec 005 US3/FR-004).
+- [ ] `[HOST]` **Last-good getter values after a failed read**: legacy left
+  NaN in the getters after a failed read; the port keeps the previous good
+  values and consumers gate on the read() result / getLastError() — aligned
+  with the soil-sensor contract (spec 005 FR-001/FR-007).
+- [ ] `[HOST]` **`isAvailable()` is a live chip-ID probe**: legacy caches
+  "available" forever after the first successful init and can report a dead
+  sensor as alive; the port performs a real chip-ID read on every call, so
+  the unplug/replug HIL criterion is observable (spec 005 FR-009).
+- [ ] `[HOST]` **Synchronized cross-task access via `LockedEnvironmentalSensor`**:
+  legacy has two unsynchronized readers on the same I2C device (main loop +
+  web server); the port serializes every interface call through the mutex
+  decorator — same pattern as the other Locked* wrappers (spec 005 FR-010).
+
 ## 7. WiFi / network / time
 
 - [ ] `[HIL]` STA connect at boot using saved credentials: STA mode, auto-reconnect off (handled manually), WiFi modem sleep disabled, clean disconnect first, **60 s** connect timeout with LED toggling every 500 ms (`src/main.cpp:46`, `168-212`)

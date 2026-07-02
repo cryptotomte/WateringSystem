@@ -38,6 +38,13 @@
  *   soil_cal_ph <reference>             #   value; a failed calibration-
  *   soil_cal_ec <reference>             #   register write is NON-FATAL
  *
+ * Environmental sensor command (HIL verification path for feature 005;
+ * console contract in specs/005-bme280-i2c/contracts/interfaces.md — the
+ * failure output distinguishes error 1, sensor not found, from error 2,
+ * read failed — SC-006):
+ *
+ *   env                                 # one read(); T/RH/P or ERROR <code>
+ *
  * Handler exit codes follow the esp_console convention: 0 on OK, 1 on ERR.
  *
  * State is plain pointers/PODs set from app_main — no non-trivial static
@@ -59,6 +66,7 @@
 
 #include "interfaces/IConfigStore.h"
 #include "interfaces/IDataStorage.h"
+#include "interfaces/IEnvironmentalSensor.h"
 #include "interfaces/IModbusClient.h"
 #include "interfaces/ISoilSensor.h"
 #include "interfaces/IWaterPump.h"
@@ -89,6 +97,10 @@ IDataStorage *s_storage = nullptr;
 // to be the LockedSoilSensor decorator). Same trivial-initialization rule.
 ISoilSensor *s_soil = nullptr;
 IModbusClient *s_modbus = nullptr;
+
+// Environmental sensor (set from app_main; expected to be the
+// LockedEnvironmentalSensor decorator). Same trivial-initialization rule.
+IEnvironmentalSensor *s_env = nullptr;
 
 const char *stop_reason_str(StopReason reason)
 {
@@ -596,6 +608,45 @@ int soil_cal_ec_cmd(int argc, char **argv)
                               &ISoilSensor::calibrateEC);
 }
 
+// --- env command (feature 005 HIL verification path) ---------------------
+
+/// `env`: one read() through the locked sensor; thin wrapper, no logic.
+/// Failure output is the binding contract format `ERROR <code>` with a
+/// hint distinguishing error 1 (sensor not found — check wiring/address)
+/// from error 2 (read failed — sensor present but communication or data
+/// broke) — SC-006.
+int env_cmd(int argc, char **argv)
+{
+    (void)argv;
+    if (argc != 1) {
+        printf("ERR usage: env\n");
+        return 1;
+    }
+    if (s_env == nullptr) {
+        printf("ERR environmental sensor not available\n");
+        return 1;
+    }
+    if (!s_env->read()) {
+        // read() and getLastError() are separate locked calls; a sensor-
+        // task poll interleaving between them can succeed and reset the
+        // error to 0 (benign cross-lock race, TODO(PR-11) snapshot helper
+        // in LockedEnvironmentalSensor.h) — hint accordingly.
+        const int error = s_env->getLastError();
+        const char *hint = (error == 1)   ? "sensor not found"
+                           : (error == 2) ? "read failed"
+                           : (error == 0)
+                               ? "state changed concurrently - retry"
+                               : "unknown error";
+        printf("ERROR %d (%s)\n", error, hint);
+        return 1;
+    }
+    printf("OK temperature=%.1f C humidity=%.1f %%RH pressure=%.1f hPa\n",
+           static_cast<double>(s_env->getTemperature()),
+           static_cast<double>(s_env->getHumidity()),
+           static_cast<double>(s_env->getPressure()));
+    return 0;
+}
+
 }  // namespace
 
 void diag_console_register_pumps(IWaterPump& plant, IWaterPump& reservoir)
@@ -614,6 +665,11 @@ void diag_console_register_soil(ISoilSensor& sensor, IModbusClient& client)
 {
     s_soil = &sensor;
     s_modbus = &client;
+}
+
+void diag_console_register_env(IEnvironmentalSensor& sensor)
+{
+    s_env = &sensor;
 }
 
 esp_err_t diag_console_start(void)
@@ -745,6 +801,20 @@ esp_err_t diag_console_start(void)
         .context = nullptr,
     };
     err = esp_console_cmd_register(&cmd_soil_cal_ec);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    const esp_console_cmd_t cmd_env = {
+        .command = "env",
+        .help = "env — one environmental sensor read (T/RH/P or error code)",
+        .hint = nullptr,
+        .func = &env_cmd,
+        .argtable = nullptr,
+        .func_w_context = nullptr,
+        .context = nullptr,
+    };
+    err = esp_console_cmd_register(&cmd_env);
     if (err != ESP_OK) {
         return err;
     }
