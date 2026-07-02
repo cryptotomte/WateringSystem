@@ -30,7 +30,10 @@
 #include "actuators/EspTimeProvider.h"
 #include "actuators/GpioWaterPump.h"
 #include "actuators/LockedWaterPump.h"
+#include "sensors/Bme280Sensor.h"
+#include "sensors/EspI2cBus.h"
 #include "sensors/EspModbusClient.h"
+#include "sensors/LockedEnvironmentalSensor.h"
 #include "sensors/LockedSoilSensor.h"
 #include "sensors/ModbusSoilSensor.h"
 #include "storage/LittleFsDataStorage.h"
@@ -40,6 +43,7 @@
 #include "storage/StorageMount.h"
 
 #include "diag_console.h"
+#include "sensor_task.h"
 
 static const char *TAG = "app_main";
 
@@ -195,10 +199,33 @@ extern "C" void app_main(void)
                  modbus_client.getLastError());
     }
 
+    // BME280 environmental sensor on the shared I2C bus (feature 005).
+    // Not safety-critical: a failed init is logged and the system keeps
+    // running — the sensor layer reports invalid data and the lazy re-init
+    // recovers on later polls (US2 semantics). Function-local statics after
+    // pumps_force_off() (boot fail-safe rule). The ONE EspI2cBus instance
+    // is the shared bus owner — PR-05's INA226 driver receives this same
+    // instance (FR-003); no second bus creation on these pins is permitted.
+    // The sensor is wrapped in the mutex-serializing decorator: accessed
+    // from the 5 s sensor task and the console REPL task, so EVERY sensor
+    // access goes through the wrapper.
+    static EspI2cBus i2c_bus;
+    static Bme280Sensor env_sensor_raw(i2c_bus);
+    static LockedEnvironmentalSensor env_sensor(env_sensor_raw);
+
+    if (env_sensor.initialize()) {
+        ESP_LOGI(TAG, "BME280 environmental sensor up");
+    } else {
+        ESP_LOGW(TAG, "BME280 init failed (error %d) — environmental "
+                 "readings unavailable until recovery",
+                 env_sensor.getLastError());
+    }
+
     // Serial diagnostic REPL (rig testing; contracts/serial-diagnostic.md).
     diag_console_register_pumps(plant, reservoir);
     diag_console_register_storage(config, storage);
     diag_console_register_soil(soil_sensor, modbus_client);
+    diag_console_register_env(env_sensor);
     esp_err_t err = diag_console_start();
     if (err != ESP_OK) {
         // Console is a diagnostic aid, not a safety function: log and keep
@@ -206,6 +233,10 @@ extern "C" void app_main(void)
         ESP_LOGE(TAG, "diag console failed to start: %s",
                  esp_err_to_name(err));
     }
+
+    // 5 s environmental poll task (feature 005). Started even when the
+    // sensor failed init above — lazy re-init recovers later (parity).
+    sensor_task_start(env_sensor);
 
     // Main loop: poll pump enforcement at 10 Hz. update() applies the timed
     // self-stop and the hard 300 s max-runtime cap.
