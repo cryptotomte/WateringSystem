@@ -70,7 +70,10 @@ scaling incl. signed temperature, console `soil`/`rs485test` output.
       `firmware/components/sensors/include/sensors/EspModbusClient.h` +
       `firmware/components/sensors/src/EspModbusClient.cpp`: R1 create/start sequence
       (`mbc_master_create_serial`, ser_opts 9600 8N1 `response_tout_ms=3000`, UART
-      port + pins from `board/board.h`), `uart_set_mode(UART_MODE_RS485_HALF_DUPLEX)`,
+      port + pins from `board/board.h` — add `BOARD_RS485_UART_PORT` (2, parity
+      UART2) to BOTH board profiles in
+      `firmware/components/board/include/board/board.h`, analyze finding I1),
+      `uart_set_mode(UART_MODE_RS485_HALF_DUPLEX)`,
       RTS = `BOARD_PIN_RS485_DE` under `#if BOARD_HAS_RS485_DE` else no RTS pin (R2),
       readHoldingRegisters/writeSingleRegister via `mbc_master_send_request`
       (commands 0x03/0x06), esp_err_t → error-code mapping per data-model.md (R6),
@@ -106,7 +109,9 @@ auto-recovery on next read.
       Modbus exception → distinct 100+n (or documented generic) code; exactly ONE
       client call per read() on failure (no retry — assert via mock call recording);
       recovery: failing mock then working mock → next read() true; statistics
-      increment correctness
+      increment correctness; isAvailable() performs a real 1-register bus read
+      (assert via mock call recording — FR-011, analyze C1); setTimeout() reaches
+      the client (mock passthrough assert — FR-006, analyze C2)
 - [ ] T015 [US2] Implement fault handling in
       `firmware/components/sensors/src/ModbusSoilSensor.cpp`: range validation per
       data-model table (fail read, error 5, EC/NPK unenforced per parity), validity

@@ -112,7 +112,7 @@ firmware/
 │   │   └── src/
 │   │       ├── ModbusSoilSensor.cpp
 │   │       └── EspModbusClient.cpp      # target-only
-│   └── board/include/board/board.h      # unchanged (already has RS485 pins/flag)
+│   └── board/include/board/board.h      # + BOARD_RS485_UART_PORT in both profiles (analyze I1)
 ├── main/
 │   ├── app_main.cpp                     # wire EspModbusClient + LockedSoilSensor
 │   └── diag_console.cpp                 # + soil, rs485test, soil_cal_* commands

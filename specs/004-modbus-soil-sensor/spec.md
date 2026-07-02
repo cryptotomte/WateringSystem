@@ -231,8 +231,11 @@ decode/validation/timeout tests pass deterministically.
   (parity) for troubleshooting.
 - **FR-014**: Mock implementations of the Modbus client and soil sensor MUST exist for
   host tests, sufficient to deterministically test register decoding (incl. signed
-  temperature), range validation, invalid-on-timeout, exception mapping and echo
-  discarding in CI.
+  temperature), range validation, invalid-on-timeout, exception mapping and
+  single-reply parsing (exactly one well-formed reply parsed per transaction — the
+  host-observable equivalent of rev2 echo discarding, which is resolved at the
+  hardware receive-gating layer per plan decision R3 and verified electrically at
+  PR-14) in CI.
 - **FR-015**: Both board targets MUST build green in CI — rev1 with the direction pin
   configured, rev2 without.
 
