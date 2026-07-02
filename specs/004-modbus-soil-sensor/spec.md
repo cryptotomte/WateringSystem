@@ -13,6 +13,17 @@ docs/prd/PR-04-modbus-soil-sensor.md (authoritative mini-PRD; ground truth for b
 docs/parity-checklist.md §5) plus hardware-driven requirements FW-2 and FW-4 from the rev2
 design review 2026-07-02."
 
+## Clarifications
+
+### Session 2026-07-02
+
+- Q: Are the legacy calibration commands (moisture/pH/EC factor from reference value,
+  best-effort write to sensor registers 0x0100–0x0102 via function 0x06) in scope for
+  PR-04, given the mini-PRD scope list omits them but `docs/parity-checklist.md` §5
+  lists them under this sensor? → A: Include with exact legacy semantics (option A);
+  factors held in memory this PR, store persistence wired when configuration
+  consumers land (PR-09/PR-11). Confirmed by Paul at Checkpoint 1.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Soil readings on the bench rig (Priority: P1)
@@ -260,13 +271,12 @@ decode/validation/timeout tests pass deterministically.
 
 ## Assumptions
 
-- **Calibration is in scope by parity, not by the mini-PRD's scope list**:
-  `docs/prd/PR-04-modbus-soil-sensor.md` does not name the calibration commands, but
-  `docs/parity-checklist.md` §5 lists them as `[HOST]` items under this sensor and no
-  other PR covers Modbus writes. Included here with exact legacy semantics (local
-  factor + best-effort sensor write). Calibration factors are held in memory in this
-  PR; persisting them via the configuration store is wired when configuration
-  consumers land (PR-09/PR-11), matching where the legacy firmware persists them.
+- **Calibration is in scope** (confirmed at Checkpoint 1, see Clarifications):
+  included with exact legacy semantics (local factor + best-effort sensor write) since
+  `docs/parity-checklist.md` §5 lists the calibration commands as `[HOST]` items under
+  this sensor and no other PR covers Modbus writes. Calibration factors are held in
+  memory in this PR; persisting them via the configuration store is wired when
+  configuration consumers land (PR-09/PR-11).
 - **Read cadence stays out of scope**: the legacy 5 s periodic read loop is
   controller-level behavior (PR-11). This PR delivers on-demand reads (console
   diagnostics + API for later PRs); no periodic task is added.

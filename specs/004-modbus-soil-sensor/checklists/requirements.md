@@ -37,7 +37,6 @@
   rev2 design review — they define WHAT the system must do, not HOW. References to
   esp-modbus/interface names appear only in the Input quote and in Assumptions
   (explicitly non-binding "who implements it" note).
-- One scope judgment call documented under Assumptions instead of a
-  [NEEDS CLARIFICATION] marker: calibration commands are included by parity-checklist
-  coverage even though the mini-PRD scope list omits them. Flag for confirmation at
-  Checkpoint 2.
+- Calibration scope was raised as the single clarification question at Checkpoint 1
+  and confirmed by Paul 2026-07-02 (include, exact legacy semantics) — recorded in
+  the spec's Clarifications section.
