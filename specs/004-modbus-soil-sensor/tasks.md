@@ -189,11 +189,11 @@ soil sensor PR-11 will consume; CI runs it all.
       Paul at Checkpoint 3
 - [x] T027 [P] Update `firmware/CLAUDE.md`: `sensors` component summary, esp-modbus
       pin, console command additions, host-test file list
-- [ ] T028 Record parity divergences (if any hit during implementation: exception-
+- [x] T028 Record parity divergences (if any hit during implementation: exception-
       code granularity R6, setTimeout runtime support R5, RTS-timing fallback R2)
       in code comments + `specs/004-modbus-soil-sensor/plan.md` Risks section
       updates
-- [ ] T029 [VERIFY-MAIN] Final clean-checkout verification: rsync fresh copy,
+- [x] T029 [VERIFY-MAIN] Final clean-checkout verification: rsync fresh copy,
       both board builds + host suite from scratch (quickstart §1+§2), commit
       `dependencies.lock` change deliberately (constitution III)
 
