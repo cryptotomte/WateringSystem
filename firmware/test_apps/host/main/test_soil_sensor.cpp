@@ -16,7 +16,12 @@
  * US2 fault paths — timeout, range validation (error 5, all-or-nothing
  * publish), exception propagation, no-retry, implicit recovery, lazy
  * (re)initialization, real-bus availability probe, statistics and the
- * setTimeout client contract. Calibration is phase 6 (T021).
+ * setTimeout client contract. T021 adds the calibration flows: factor
+ * computation from a fresh 1-register raw read, the ×100 best-effort
+ * calibration-register write (NON-FATAL on failure), read-path application
+ * for pH/EC (the moisture factor is stored/written but NOT applied — legacy
+ * parity), the raw-too-low guard (error 5) and range validation running on
+ * the FACTORED values.
  */
 
 #include <vector>
@@ -31,6 +36,15 @@ namespace {
 constexpr uint8_t kAddr = 0x01;
 constexpr uint16_t kStartReg = 0x0000;
 constexpr uint16_t kRegCount = 9;
+
+// Calibration raw-read registers (data-model.md; 1-register reads — a
+// distinct mock script key from the 9-register data payload above) and the
+// calibration factor registers written with factor ×100.
+constexpr uint16_t kRegEc = 0x0002;
+constexpr uint16_t kRegPh = 0x0003;
+constexpr uint16_t kRegMoistureCalib = 0x0100;
+constexpr uint16_t kRegPhCalib = 0x0101;
+constexpr uint16_t kRegEcCalib = 0x0102;
 
 /// Baseline valid payload: moisture 55.0 %, temperature 23.5 °C,
 /// EC 1200 µS/cm, pH 6.8, N 45, P 30, K 120 (+ salinity/TDS, unexposed).
@@ -396,6 +410,190 @@ static void test_lazy_init_probe_failure_then_recovery(void)
     TEST_ASSERT_EQUAL_INT(2, mock.initializeCalls);
 }
 
+// ==========================================================================
+// Calibration (T021, US3): factor computation + ×100 register write,
+// read-path application (pH/EC yes, moisture no — parity), non-fatal write
+// failure, raw-too-low guard, validation on factored values
+// ==========================================================================
+
+// --------------------------------------------------------------------------
+// calibratePH(): fresh 1-register raw read of 0x0003, factor =
+// reference / (raw / 10), factor ×100 written to 0x0101, and the factor IS
+// applied to every subsequent read()
+// --------------------------------------------------------------------------
+static void test_calibrate_ph_factor_write_and_read_effect(void)
+{
+    Fixture f(goodPayload());
+    TEST_ASSERT_TRUE(f.sensor.read());
+    TEST_ASSERT_EQUAL_FLOAT(6.8f, f.sensor.getPH());  // pre-calibration
+    f.mock.calls.clear();
+
+    // Raw pH register scripted as 68 → 6.8; reference 7.0 → factor 7.0/6.8.
+    f.mock.setRegisters(kAddr, kRegPh, {68});
+    TEST_ASSERT_TRUE(f.sensor.calibratePH(7.0f));
+    TEST_ASSERT_EQUAL_INT(0, f.sensor.getLastError());
+
+    // Exactly one 1-register raw read + one factor write (×100 truncated:
+    // 7.0/6.8 = 1.0294… → 102), already initialized so no extra probe.
+    TEST_ASSERT_EQUAL(2, f.mock.calls.size());
+    const MockModbusClient::Call &raw = f.mock.calls[0];
+    TEST_ASSERT_EQUAL(static_cast<int>(MockModbusClient::Call::Type::Read),
+                      static_cast<int>(raw.type));
+    TEST_ASSERT_EQUAL_UINT16(kRegPh, raw.startRegister);
+    TEST_ASSERT_EQUAL_UINT16(1, raw.count);
+    const MockModbusClient::Call &write = f.mock.calls[1];
+    TEST_ASSERT_EQUAL(static_cast<int>(MockModbusClient::Call::Type::Write),
+                      static_cast<int>(write.type));
+    TEST_ASSERT_EQUAL_UINT8(kAddr, write.deviceAddress);
+    TEST_ASSERT_EQUAL_UINT16(kRegPhCalib, write.startRegister);
+    TEST_ASSERT_EQUAL_UINT16(1, write.count);
+    TEST_ASSERT_EQUAL_UINT16(102, write.value);
+    TEST_ASSERT_TRUE(write.succeeded);
+
+    // Read-path effect: raw 68 → 6.8 × factor = 7.0.
+    TEST_ASSERT_TRUE(f.sensor.read());
+    TEST_ASSERT_EQUAL_FLOAT(7.0f, f.sensor.getPH());
+}
+
+// --------------------------------------------------------------------------
+// calibrateEC(): same flow with unscaled raw (0x0002, rawScale 1), factor
+// ×100 written to 0x0102, factor applied on subsequent reads
+// --------------------------------------------------------------------------
+static void test_calibrate_ec_factor_write_and_read_effect(void)
+{
+    Fixture f(goodPayload());
+    TEST_ASSERT_TRUE(f.sensor.read());
+    TEST_ASSERT_EQUAL_FLOAT(1200.0f, f.sensor.getEC());  // pre-calibration
+    f.mock.calls.clear();
+
+    // Raw EC register scripted as 1000 (unscaled); reference 1500 →
+    // factor 1.5, written as 150.
+    f.mock.setRegisters(kAddr, kRegEc, {1000});
+    TEST_ASSERT_TRUE(f.sensor.calibrateEC(1500.0f));
+    TEST_ASSERT_EQUAL_INT(0, f.sensor.getLastError());
+
+    TEST_ASSERT_EQUAL(2, f.mock.calls.size());
+    const MockModbusClient::Call &write = f.mock.calls[1];
+    TEST_ASSERT_EQUAL(static_cast<int>(MockModbusClient::Call::Type::Write),
+                      static_cast<int>(write.type));
+    TEST_ASSERT_EQUAL_UINT16(kRegEcCalib, write.startRegister);
+    TEST_ASSERT_EQUAL_UINT16(150, write.value);
+
+    // Read-path effect: 1200 × 1.5 = 1800.
+    TEST_ASSERT_TRUE(f.sensor.read());
+    TEST_ASSERT_EQUAL_FLOAT(1800.0f, f.sensor.getEC());
+}
+
+// --------------------------------------------------------------------------
+// calibrateMoisture(): the factor is computed and written to 0x0100 (×100)
+// but NOT applied in read() — legacy parity: read() publishes raw / 10 with
+// "No calibration factor for humidity yet" (see ModbusSoilSensor.cpp header)
+// --------------------------------------------------------------------------
+static void test_calibrate_moisture_factor_written_but_not_applied(void)
+{
+    Fixture f(goodPayload());
+    TEST_ASSERT_TRUE(f.sensor.read());
+    TEST_ASSERT_EQUAL_FLOAT(55.0f, f.sensor.getMoisture());
+    f.mock.calls.clear();
+
+    // Raw moisture register scripted as 500 → 50.0 %; reference 55.0 →
+    // factor 1.1, written as 110.
+    f.mock.setRegisters(kAddr, kStartReg, {500});  // 1-register key
+    TEST_ASSERT_TRUE(f.sensor.calibrateMoisture(55.0f));
+    TEST_ASSERT_EQUAL_INT(0, f.sensor.getLastError());
+
+    TEST_ASSERT_EQUAL(2, f.mock.calls.size());
+    const MockModbusClient::Call &write = f.mock.calls[1];
+    TEST_ASSERT_EQUAL(static_cast<int>(MockModbusClient::Call::Type::Write),
+                      static_cast<int>(write.type));
+    TEST_ASSERT_EQUAL_UINT16(kRegMoistureCalib, write.startRegister);
+    TEST_ASSERT_EQUAL_UINT16(110, write.value);
+
+    // NO read-path effect (parity): raw 550 still publishes 55.0, not 60.5.
+    TEST_ASSERT_TRUE(f.sensor.read());
+    TEST_ASSERT_EQUAL_FLOAT(55.0f, f.sensor.getMoisture());
+    TEST_ASSERT_EQUAL_FLOAT(55.0f, f.sensor.getHumidity());
+}
+
+// --------------------------------------------------------------------------
+// Failed calibration-register WRITE is NON-FATAL (parity): calibrate*()
+// still returns true, getLastError() carries the write error, and the
+// factor is applied locally on the next read()
+// --------------------------------------------------------------------------
+static void test_calibrate_write_failure_nonfatal_factor_applied(void)
+{
+    Fixture f(goodPayload());
+    TEST_ASSERT_TRUE(f.sensor.read());
+    f.mock.calls.clear();
+
+    f.mock.setRegisters(kAddr, kRegPh, {68});
+    f.mock.queueOutcome(MockModbusClient::kOk);      // raw read succeeds
+    f.mock.queueOutcome(MockModbusClient::kErrBus);  // factor write fails
+    TEST_ASSERT_TRUE(f.sensor.calibratePH(7.0f));    // still succeeds
+    TEST_ASSERT_EQUAL_INT(MockModbusClient::kErrBus, f.sensor.getLastError());
+
+    // The write WAS attempted (and failed) — best-effort, single attempt.
+    TEST_ASSERT_EQUAL(2, f.mock.calls.size());
+    const MockModbusClient::Call &write = f.mock.calls[1];
+    TEST_ASSERT_EQUAL(static_cast<int>(MockModbusClient::Call::Type::Write),
+                      static_cast<int>(write.type));
+    TEST_ASSERT_EQUAL_UINT16(kRegPhCalib, write.startRegister);
+    TEST_ASSERT_FALSE(write.succeeded);
+
+    // Factor kept locally despite the failed sensor-register write.
+    TEST_ASSERT_TRUE(f.sensor.read());
+    TEST_ASSERT_EQUAL_FLOAT(7.0f, f.sensor.getPH());
+    TEST_ASSERT_EQUAL_INT(0, f.sensor.getLastError());
+}
+
+// --------------------------------------------------------------------------
+// Raw value < 0.01 → calibration fails with error 5 (division-by-zero
+// guard, legacy codes 7/10/13 mapped onto 5), NO factor write, and the
+// previous factor (1.0) stays in effect
+// --------------------------------------------------------------------------
+static void test_calibrate_raw_too_low_error5_no_write(void)
+{
+    Fixture f(goodPayload());
+    TEST_ASSERT_TRUE(f.sensor.read());
+    f.mock.calls.clear();
+
+    f.mock.setRegisters(kAddr, kRegPh, {0});  // raw 0.0 < 0.01
+    TEST_ASSERT_FALSE(f.sensor.calibratePH(7.0f));
+    TEST_ASSERT_EQUAL_INT(5, f.sensor.getLastError());
+
+    // Only the 1-register raw read reached the bus — no write recorded.
+    TEST_ASSERT_EQUAL(1, f.mock.calls.size());
+    TEST_ASSERT_EQUAL(static_cast<int>(MockModbusClient::Call::Type::Read),
+                      static_cast<int>(f.mock.calls.front().type));
+
+    // Factor unchanged: the next read still publishes the unfactored 6.8.
+    TEST_ASSERT_TRUE(f.sensor.read());
+    TEST_ASSERT_EQUAL_FLOAT(6.8f, f.sensor.getPH());
+}
+
+// --------------------------------------------------------------------------
+// Validation runs on the FACTORED values (legacy validates after
+// multiplying): a factor that pushes pH out of the 3–9 parity range makes
+// the next read() fail with error 5 and publish nothing
+// --------------------------------------------------------------------------
+static void test_calibration_factor_subject_to_range_validation(void)
+{
+    Fixture f(goodPayload());
+    TEST_ASSERT_TRUE(f.sensor.read());
+    TEST_ASSERT_EQUAL_FLOAT(6.8f, f.sensor.getPH());
+
+    // Raw pH 30 → 3.0; reference 9.0 → factor 3.0 (write value 300).
+    f.mock.setRegisters(kAddr, kRegPh, {30});
+    TEST_ASSERT_TRUE(f.sensor.calibratePH(9.0f));
+
+    // Data payload pH 6.8 × 3.0 = 20.4 > 9 → range validation rejects the
+    // whole reading; the last-good (pre-calibration) values survive.
+    TEST_ASSERT_FALSE(f.sensor.read());
+    TEST_ASSERT_EQUAL_INT(5, f.sensor.getLastError());
+    TEST_ASSERT_EQUAL_FLOAT(6.8f, f.sensor.getPH());
+    TEST_ASSERT_EQUAL_FLOAT(55.0f, f.sensor.getMoisture());
+}
+
 void run_soil_sensor_tests(void)
 {
     RUN_TEST(test_decode_known_payload_negative_temperature);
@@ -414,4 +612,10 @@ void run_soil_sensor_tests(void)
     RUN_TEST(test_set_timeout_reaches_client);
     RUN_TEST(test_lazy_init_client_failure_then_recovery);
     RUN_TEST(test_lazy_init_probe_failure_then_recovery);
+    RUN_TEST(test_calibrate_ph_factor_write_and_read_effect);
+    RUN_TEST(test_calibrate_ec_factor_write_and_read_effect);
+    RUN_TEST(test_calibrate_moisture_factor_written_but_not_applied);
+    RUN_TEST(test_calibrate_write_failure_nonfatal_factor_applied);
+    RUN_TEST(test_calibrate_raw_too_low_error5_no_write);
+    RUN_TEST(test_calibration_factor_subject_to_range_validation);
 }

@@ -134,16 +134,16 @@ unaffected.
 **Independent test**: both targets build (quickstart §2); rev2 binary has no DE
 reference; pull-up call present.
 
-- [ ] T018 [US3] Add FW-2 RX pull-up in
+- [x] T018 [US3] Add FW-2 RX pull-up in
       `firmware/components/sensors/src/EspModbusClient.cpp`: after pin setup,
       `gpio_pullup_en(BOARD_PIN_RS485_RX)` unconditionally with comment referencing
       FW-2/THVD1426 SHDN̅–SENS_PWR_EN coupling (R4)
-- [ ] T019 [US3] Document FW-4 echo strategy in
+- [x] T019 [US3] Document FW-4 echo strategy in
       `firmware/components/sensors/src/EspModbusClient.cpp` (comment at
       uart_set_mode site): half-duplex RX gating suppresses THVD1426 echo on rev2,
       T3.5 resync as fallback, PR-14 HIL verifies (R3); confirm no rev1-only
       assumptions in the shared path
-- [ ] T020 [VERIFY-MAIN] [US3] Both board targets build green from clean config
+- [x] T020 [VERIFY-MAIN] [US3] Both board targets build green from clean config
       (quickstart §2) and `strings`/grep of rev2 build objects show no
       `BOARD_PIN_RS485_DE` usage compiled in (board.h sanity would have failed the
       build — record the check output)
@@ -158,24 +158,24 @@ soil sensor PR-11 will consume; CI runs it all.
 
 **Independent test**: full host suite green in CI on linux target.
 
-- [ ] T021 [P] [US4] Extend `firmware/test_apps/host/main/test_soil_sensor.cpp` with
+- [x] T021 [P] [US4] Extend `firmware/test_apps/host/main/test_soil_sensor.cpp` with
       calibration tests: factor = reference/raw from fresh read; factor applied to
       subsequent reads (EC, pH, moisture); best-effort write to 0x0100/0x0101/0x0102
       fn 0x06 with legacy ×100 encoding (assert via mock write log); write failure
       → calibrate returns success for local part + factor still applied (parity
       non-fatal)
-- [ ] T022 [US4] Implement calibration in
+- [x] T022 [US4] Implement calibration in
       `firmware/components/sensors/src/ModbusSoilSensor.cpp` +
       `ModbusSoilSensor.h`: `calibrateMoisture/PH/EC` porting the exact legacy
       formula from `src/sensors/ModbusSoilSensor.cpp:207-322` (READ-ONLY reference);
       factors RAM-only (R8)
-- [ ] T023 [P] [US4] Create `MockSoilSensor` in
+- [x] T023 [P] [US4] Create `MockSoilSensor` in
       `firmware/components/sensors/include/sensors/testing/MockSoilSensor.h`
       (settable values/validity/errors — the PR-11 consumer fixture)
-- [ ] T024 [US4] Add calibration console commands `soil_cal_moisture`,
+- [x] T024 [US4] Add calibration console commands `soil_cal_moisture`,
       `soil_cal_ph`, `soil_cal_ec` in `firmware/main/diag_console.cpp` per console
       contract (factor + write-result reporting)
-- [ ] T025 [VERIFY-MAIN] [US4] Full host suite green (all soil tests + existing 50
+- [x] T025 [VERIFY-MAIN] [US4] Full host suite green (all soil tests + existing 50
       tests, exit 0); confirm CI workflow needs no change beyond the new files
       (esp-idf-ci-action already runs `test_apps/host` with `target: linux`)
 
@@ -183,11 +183,11 @@ soil sensor PR-11 will consume; CI runs it all.
 
 ## Phase 7: Polish & cross-cutting
 
-- [ ] T026 [P] Write HIL checklist to
+- [x] T026 [P] Write HIL checklist to
       `specs/004-modbus-soil-sensor/checklists/hil.md` from quickstart §3 (steps,
       expected outcomes, sign-off boxes; note rev2 items deferred to PR-14) for
       Paul at Checkpoint 3
-- [ ] T027 [P] Update `firmware/CLAUDE.md`: `sensors` component summary, esp-modbus
+- [x] T027 [P] Update `firmware/CLAUDE.md`: `sensors` component summary, esp-modbus
       pin, console command additions, host-test file list
 - [ ] T028 Record parity divergences (if any hit during implementation: exception-
       code granularity R6, setTimeout runtime support R5, RTS-timing fallback R2)

@@ -28,8 +28,10 @@ must stay green.
 
 ### Host tests (linux preview target)
 
-Pump enforcement logic is unit-tested natively, no ESP32 needed. The test
-executable's exit code equals the Unity failure count (CI gate, job
+Logic is unit-tested natively, no ESP32 needed: pump enforcement, config
+store, data storage and the soil sensor decode/validation/calibration
+(`test_soil_sensor.cpp`, real `ModbusSoilSensor` over `MockModbusClient`).
+The test executable's exit code equals the Unity failure count (CI gate, job
 `host-test`):
 
 ```bash
@@ -59,12 +61,19 @@ firmware/
 │   │   └── include/board/board.h
 │   ├── interfaces/             # Header-only, NO IDF deps (host-includable)
 │   │   └── include/interfaces/ # IActuator, IWaterPump, ITimeProvider,
-│   │                           # IConfigStore, IDataStorage
+│   │                           # IConfigStore, IDataStorage,
+│   │                           # IModbusClient, ISoilSensor
 │   ├── actuators/              # Pump drivers
 │   │   ├── include/actuators/  # WaterPump (pure C++ logic), GpioWaterPump,
 │   │   │                       # EspTimeProvider (esp32-only header),
 │   │   │                       # testing/ (MockWaterPump, FakeTimeProvider)
 │   │   └── src/                # GpioWaterPump.cpp excluded on linux target
+│   ├── sensors/                # RS485 Modbus soil sensor (feature 004)
+│   │   ├── include/sensors/    # ModbusSoilSensor (pure C++ logic),
+│   │   │                       # EspModbusClient, LockedSoilSensor,
+│   │   │                       # testing/ (MockModbusClient, MockSoilSensor)
+│   │   └── src/                # EspModbusClient.cpp + esp-modbus dep
+│   │                           # excluded on linux target
 │   └── storage/                # Config + data persistence (feature 003)
 │       ├── include/storage/    # NvsConfigStore, LittleFsDataStorage (POSIX,
 │       │                       # host-runnable), StorageMount (esp32-only),
@@ -74,7 +83,8 @@ firmware/
 │                               # on linux target (esp_littlefs has no port)
 └── test_apps/
     └── host/                   # Host test app (linux preview target, Unity):
-                                # pump + config store + data storage suites
+                                # pump + config store + data storage +
+                                # soil sensor (test_soil_sensor.cpp) suites
 ```
 
 Future components (drivers, controllers, web server) are added as siblings
@@ -115,6 +125,16 @@ config get | set <item> <value> | wifi <ssid> <password> | wifi-clear | factory-
 storage stats | log <metric> <value> | query <metric> [t0 t1] | event <category> <detail> | events [n]
 ```
 
+Feature 004 adds the soil sensor commands (HIL verification path, same
+thin-wrapper rule; a failed calibration-register write is reported as
+non-fatal — legacy parity):
+
+```
+soil                                     # one read(); 7 values or error code
+rs485test                                # raw 1-register Modbus probe + statistics
+soil_cal_moisture | soil_cal_ph | soil_cal_ec <reference-value>
+```
+
 ## Storage (config + data persistence)
 
 Feature 003 (PR-06). Two redesigned, host-includable interfaces in
@@ -146,7 +166,19 @@ data is migrated; on-disk formats diverge from legacy by design — see
 The diagnostic console (`ws>`) exposes `config` and `storage` subcommands for
 the HIL verification path (see below).
 
-## Board abstraction
+## Soil sensor (RS485 Modbus)
+
+Feature 004 (PR-08). `components/sensors/` splits the driver at the
+`IModbusClient` interface: `ModbusSoilSensor` is pure C++
+(decode/scaling/validation/calibration, host-tested against
+`MockModbusClient`), `EspModbusClient` is the only hardware touchpoint
+(esp-modbus RTU master, UART RS485 half-duplex on both boards, RX pull-up
+for the rev2 SHDN̅/hi-Z case) and is excluded from the linux build. The
+**esp-modbus dependency is pinned `==2.1.2`** in the component's
+`idf_component.yml` and rule-gated to `target != linux`, keeping it out of
+the host-test dependency graph. Cross-task access goes through
+`LockedSoilSensor` (console REPL now, main-loop reader in PR-11) — same
+pattern as the other Locked* wrappers.
 
 Two board revisions exist, selected via Kconfig (`main/Kconfig.projbuild`):
 

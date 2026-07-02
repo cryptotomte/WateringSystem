@@ -141,18 +141,30 @@ esp_littlefs (research R7).
 | R8 | Calibration legacy-exact (CP1 answer A), RAM-only factors | FR-012 |
 | R9 | Console: `soil`, `rs485test`, `soil_cal_*` via LockedSoilSensor | FR-013 |
 
-## Risks & Open Items (carried to tasks/HIL)
+## Risks & Open Items (outcomes recorded during implementation, T028)
 
-1. **RTS timing vs TXS0108E margins (R2)** — HIL item on the rig; documented
-   fallback path that stays behind `IModbusClient`.
-2. **esp-modbus runtime timeout setter availability (R5)** — implementer verifies
-   against pinned 2.1.2; degrade `setTimeout` to init-time-only with doc note.
-3. **Exception-code granularity (R6)** — possible parity divergence (100+n → single
-   exception code); record in PR description like PR-06's divergences if hit.
-4. **Kconfig timeout clamp (R5)** — assert `CONFIG_FMB_MASTER_TIMEOUT_MS_RESPOND`
-   allows 3000 in both board sdkconfigs; CI-visible if violated.
+1. **RTS timing vs TXS0108E margins (R2)** — OPEN, HIL item C1/C2 in
+   `checklists/hil.md`; documented fallback (manual GPIO DE) stays behind
+   `IModbusClient`.
+2. **esp-modbus runtime timeout setter (R5)** — CONFIRMED DIVERGENCE: 2.1.2 takes
+   the timeout via `ser_opts.response_tout_ms` at create time; `setTimeout()`
+   applies at initialize() only (documented in code; no runtime caller exists).
+3. **Exception-code granularity (R6)** — CONFIRMED DIVERGENCE: 2.1.2
+   `mbc_master_send_request` does not surface the slave exception number; all
+   non-timeout failures map to bus error 2 (distinct-from-timeout holds, which is
+   the safety-bearing part of FR-010). The sensor layer propagates client codes
+   verbatim, so 100+n granularity returns automatically if a future client
+   surfaces it. Noted for the PR description.
+4. **Kconfig timeout clamp (R5)** — RESOLVED: `FMB_MASTER_TIMEOUT_MS_RESPOND`
+   range is 150–30000 ms (default 10000); 3000 fits, no override needed (T002).
 5. **rev2 echo behavior unverifiable until PR-14** — accepted per spec assumption;
-   T3.5 resync is the fallback layer.
+   T3.5 resync is the fallback layer. rev2 target build verified green with
+   `CONFIG_BOARD_REV2=y` and no DE-pin reference (compile-time proof, T020).
+
+Additional parity fact confirmed during the port (also corrected in
+data-model.md): the legacy read path never applies the moisture calibration
+factor (`calibrateMoisture` stores/writes it only); pH/EC are validated on
+factored values. Both ported as-is.
 
 ## Agent context update
 
