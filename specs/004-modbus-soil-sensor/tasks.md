@@ -103,7 +103,7 @@ auto-recovery on next read.
 
 **Independent test**: host tests for all fault paths green; HIL steps 4–5.
 
-- [ ] T014 [P] [US2] Extend `firmware/test_apps/host/main/test_soil_sensor.cpp` with
+- [x] T014 [P] [US2] Extend `firmware/test_apps/host/main/test_soil_sensor.cpp` with
       fault-path tests: timeout → read() false + timeout error + getters not
       presented as fresh; out-of-range moisture/temp/pH → validation error 5;
       Modbus exception → distinct 100+n (or documented generic) code; exactly ONE
@@ -112,17 +112,17 @@ auto-recovery on next read.
       increment correctness; isAvailable() performs a real 1-register bus read
       (assert via mock call recording — FR-011, analyze C1); setTimeout() reaches
       the client (mock passthrough assert — FR-006, analyze C2)
-- [ ] T015 [US2] Implement fault handling in
+- [x] T015 [US2] Implement fault handling in
       `firmware/components/sensors/src/ModbusSoilSensor.cpp`: range validation per
       data-model table (fail read, error 5, EC/NPK unenforced per parity), validity
       flag semantics, ESP_LOG error on every failed read (tag `soil_sensor`),
       no-retry invariant, lazy availability recovery (no permanent-failure state)
-- [ ] T016 [US2] Verify/complete error discrimination in
+- [x] T016 [US2] Verify/complete error discrimination in
       `firmware/components/sensors/src/EspModbusClient.cpp`: timeout vs invalid-
       response vs exception mapping (R6); if 2.1.2 hides the slave exception code,
       map to the single documented exception code and note the parity divergence in
       a code comment + PR notes
-- [ ] T017 [VERIFY-MAIN] [US2] Host suite green including all fault-path tests
+- [x] T017 [VERIFY-MAIN] [US2] Host suite green including all fault-path tests
 
 **Checkpoint**: fail-safe contract (FR-005/FR-006/FR-010) host-proven.
 

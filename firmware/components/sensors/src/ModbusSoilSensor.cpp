@@ -80,7 +80,8 @@ bool ModbusSoilSensor::initialize()
 
 bool ModbusSoilSensor::read()
 {
-    // Lazy initialization (legacy :77-81).
+    // Lazy initialization (legacy :77-81). A failure here is already
+    // logged inside initialize() (both exits) and lastError_ is set there.
     if (!initialized_ && !initialize()) {
         return false;
     }
@@ -158,8 +159,15 @@ bool ModbusSoilSensor::isAvailable()
     // legacy :140 — register 0x0000). Legacy passed nullptr as the buffer;
     // the new IModbusClient contract requires a caller-owned buffer.
     uint16_t testRegister = 0;
-    return client_.readHoldingRegisters(deviceAddress_, kRegHumidity, 1,
-                                        &testRegister);
+    const bool available = client_.readHoldingRegisters(
+        deviceAddress_, kRegHumidity, 1, &testRegister);
+    if (!available) {
+        // Probe failure is not latched (next call probes again) and does
+        // not touch lastError_ — read() owns the reading's error state.
+        ESP_LOGW(TAG, "availability probe failed: error %d",
+                 client_.getLastError());
+    }
+    return available;
 }
 
 int ModbusSoilSensor::getLastError()
