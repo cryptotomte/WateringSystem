@@ -162,7 +162,12 @@ bool EspI2cBus::readRegisters(uint8_t address7, uint8_t startReg,
     if (err != ESP_OK) {
         // NACK (device unplugged) stays at debug; a timeout/unexpected
         // error means a wedged bus and must be visible at default level.
-        if (err == ESP_ERR_NOT_FOUND) {
+        // On IDF v6 a device NACK during a transaction surfaces as
+        // ESP_ERR_INVALID_RESPONSE (i2c_master.h: "I2C master transmit
+        // receives NACK") — NOT ESP_ERR_NOT_FOUND, which only
+        // i2c_master_probe returns; the latter is kept in the debug set
+        // as harmless future-proofing.
+        if (err == ESP_ERR_INVALID_RESPONSE || err == ESP_ERR_NOT_FOUND) {
             ESP_LOGD(TAG, "readRegisters(0x%02x, 0x%02x, %u): %s", address7,
                      startReg, static_cast<unsigned>(len),
                      esp_err_to_name(err));
@@ -187,9 +192,10 @@ bool EspI2cBus::writeRegister(uint8_t address7, uint8_t reg, uint8_t value)
     const esp_err_t err =
         i2c_master_transmit(dev, payload, sizeof(payload), kTimeoutMs);
     if (err != ESP_OK) {
-        // Same classification as readRegisters(): expected NACK at debug,
+        // Same classification as readRegisters(): expected NACK
+        // (ESP_ERR_INVALID_RESPONSE on IDF v6 transactions) at debug,
         // timeout/unexpected errors at warning.
-        if (err == ESP_ERR_NOT_FOUND) {
+        if (err == ESP_ERR_INVALID_RESPONSE || err == ESP_ERR_NOT_FOUND) {
             ESP_LOGD(TAG, "writeRegister(0x%02x, 0x%02x, 0x%02x): %s",
                      address7, reg, value, esp_err_to_name(err));
         } else {

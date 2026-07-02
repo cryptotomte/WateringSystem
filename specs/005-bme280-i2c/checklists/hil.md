@@ -50,6 +50,11 @@
 - [ ] C5. Boot WITHOUT the sensor → normal startup (console up, pumps OFF),
       one invalid-reading WARN, no boot block; attach the sensor →
       readings start on a subsequent poll (lazy re-init)
+- [ ] C6. During C1/C2 (unplugged): the WARNs come from the driver/task
+      only (`bme280`, `sensor_task` tags) — no per-poll flood of
+      `esp_i2c_bus` WARNs (unplug-NACKs classify at debug level; only
+      timeouts/unexpected bus errors WARN — not host-testable, the bench
+      pins this classification)
 
 ## D. Address variant 0x76 (US3, SC-005)
 
