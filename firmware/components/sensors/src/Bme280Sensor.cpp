@@ -258,6 +258,11 @@ bool Bme280Sensor::read()
 bool Bme280Sensor::isAvailable()
 {
     // Lazy initialization doubles as the probe (parity, legacy :75-80).
+    // Note on the error contract: the availability PROBE below never
+    // touches lastError_, but this lazy path delegates to initialize(),
+    // which owns its own error reporting (1/2 on failure, 0 on success) —
+    // exactly the ModbusSoilSensor::isAvailable() convention the interface
+    // contract refers to.
     if (!initialized_) {
         return initialize();
     }

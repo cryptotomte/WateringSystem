@@ -79,15 +79,18 @@ public:
      * @brief Probe sensor presence with a REAL chip-ID read (FR-009).
      *
      * Every call performs an actual bus transaction — never cached state
-     * (deliberate divergence from the legacy cached availability). Does not
-     * modify getLastError(). Recovery from earlier failures is implicit: a
-     * sensor that identifies itself again is available again.
+     * (deliberate divergence from the legacy cached availability). The
+     * probe itself does not modify getLastError(); when it triggers a lazy
+     * (re-)initialization, that initialize() owns its own error reporting —
+     * the ISoilSensor convention. Recovery from earlier failures is
+     * implicit: a sensor that identifies itself again is available again.
      */
     virtual bool isAvailable() = 0;
 
     /**
      * @brief Error code of the most recent initialize()/read() (0 = OK;
-     * table in the class comment). isAvailable() never touches this code.
+     * table in the class comment). The isAvailable() probe never touches
+     * this code (its lazy-init path reports through initialize()).
      */
     virtual int getLastError() = 0;
 

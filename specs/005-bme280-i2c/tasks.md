@@ -13,7 +13,7 @@ surface and host-test harness this feature extends arrive with it.
 
 ## Phase 1: Setup
 
-- [ ] T001 Rebase/merge branch `005-bme280-i2c` onto origin/main AFTER PR #10 has merged; verify `firmware/components/sensors/`, `diag_console_register_soil` and `test_apps/host/main/test_soil_sensor.cpp` exist on the branch; verify both board targets and the host suite build green from clean checkout (baseline before any change)
+- [x] T001 Rebase/merge branch `005-bme280-i2c` onto origin/main AFTER PR #10 has merged; verify `firmware/components/sensors/`, `diag_console_register_soil` and `test_apps/host/main/test_soil_sensor.cpp` exist on the branch; verify both board targets and the host suite build green from clean checkout (baseline before any change)
 
 ## Phase 2: Foundational (blocking prerequisites for all user stories)
 
@@ -44,9 +44,9 @@ surface and host-test harness this feature extends arrive with it.
 
 **Independent Test**: unplug mid-run → invalid + warning, no crash; replug → recovery; boot sensorless → normal boot, later attach recovers.
 
-- [ ] T013 [US2] Harden `Bme280Sensor` failure semantics in `firmware/components/sensors/src/Bme280Sensor.cpp`: bus error during read → error 2, getters keep last-good values, driver marked uninitialized (next call re-probes — recovery path); failed probe/chip-ID → error 1; lazy re-init from read() AND isAvailable() when uninitialized; isAvailable() = real chip-ID read, never cached, never touches lastError (contracts/interfaces.md, data-model.md state machine)
-- [ ] T014 [P] [US2] Host tests for error paths in `firmware/test_apps/host/main/test_bme280.cpp`: absent sensor (probe NACK both addresses) → initialize false + error 1; mid-read bus error → read false + error 2 + last-good values intact + subsequent recovery re-probe succeeds; NaN-producing raw values → error 2; boot-sensorless then attach → lazy re-init delivers reading; isAvailable true/false against scripted bus, error code untouched
-- [ ] T015 [US2] Verify sensor-task logging discipline against a scripted failing/recovering sensor: WARN on transitions, bounded repeat cadence, no task exit — host-test the pure log-decision helper if extracted, otherwise verify by targeted code review note in the task (logging policy per research R7)
+- [x] T013 [US2] Harden `Bme280Sensor` failure semantics in `firmware/components/sensors/src/Bme280Sensor.cpp`: bus error during read → error 2, getters keep last-good values, driver marked uninitialized (next call re-probes — recovery path); failed probe/chip-ID → error 1; lazy re-init from read() AND isAvailable() when uninitialized; isAvailable() = real chip-ID read, never cached, never touches lastError (contracts/interfaces.md, data-model.md state machine)
+- [x] T014 [P] [US2] Host tests for error paths in `firmware/test_apps/host/main/test_bme280.cpp`: absent sensor (probe NACK both addresses) → initialize false + error 1; mid-read bus error → read false + error 2 + last-good values intact + subsequent recovery re-probe succeeds; NaN-producing raw values → error 2; boot-sensorless then attach → lazy re-init delivers reading; isAvailable true/false against scripted bus, error code untouched
+- [x] T015 [US2] Verify sensor-task logging discipline against a scripted failing/recovering sensor: WARN on transitions, bounded repeat cadence, no task exit — host-test the pure log-decision helper if extracted, otherwise verify by targeted code review note in the task (logging policy per research R7)
 
 ## Phase 5: User Story 3 — Works with both module address variants (P3)
 
@@ -54,8 +54,8 @@ surface and host-test harness this feature extends arrive with it.
 
 **Independent Test**: scripted buses with the device at each address; wrong-chip-ID device rejected (host); module swap on rig if hardware available.
 
-- [ ] T016 [US3] Verify/complete probing policy in `firmware/components/sensors/src/Bme280Sensor.cpp`: probe order 0x76 → 0x77, first ACK + correct chip-ID wins; ACK with wrong chip-ID logged distinctly and rejected (continues to next candidate, else error 1); recovery after loss re-probes BOTH addresses (covers swapped-address replug edge case)
-- [ ] T017 [P] [US3] Host tests for address handling in `firmware/test_apps/host/main/test_bme280.cpp`: device at 0x76 found; device at 0x77 found; wrong-chip-ID at 0x76 with real device at 0x77 → 0x77 chosen; wrong-chip-ID everywhere → error 1; loss then reappearance at the OTHER address → recovered
+- [x] T016 [US3] Verify/complete probing policy in `firmware/components/sensors/src/Bme280Sensor.cpp`: probe order 0x76 → 0x77, first ACK + correct chip-ID wins; ACK with wrong chip-ID logged distinctly and rejected (continues to next candidate, else error 1); recovery after loss re-probes BOTH addresses (covers swapped-address replug edge case)
+- [x] T017 [P] [US3] Host tests for address handling in `firmware/test_apps/host/main/test_bme280.cpp`: device at 0x76 found; device at 0x77 found; wrong-chip-ID at 0x76 with real device at 0x77 → 0x77 chosen; wrong-chip-ID everywhere → error 1; loss then reappearance at the OTHER address → recovered
 
 ## Phase 6: User Story 4 — Sensor behavior testable without hardware (P4)
 
@@ -63,17 +63,17 @@ surface and host-test harness this feature extends arrive with it.
 
 **Independent Test**: host suite passes on a hardware-less machine; CI job green.
 
-- [ ] T018 [US4] Add Bosch reference-vector tests in `firmware/test_apps/host/main/test_bme280.cpp`: fixed (calibration set, raw T/P/H) → expected compensated outputs from the Bosch datasheet reference implementation (int32 T, int64 P, int32 H), incl. the datasheet worked example, a negative-temperature vector and extreme-but-legal raws; each vector's derivation cited in a comment (research R8); float conversions (÷100, ÷256÷100, ÷1024) asserted
-- [ ] T019 [P] [US4] Create `MockEnvironmentalSensor` in `firmware/components/sensors/include/sensors/testing/MockEnvironmentalSensor.h` — scripted value/validity/error sequences WITH consistency helpers `scriptSuccessfulRead(t,h,p)` / `scriptFailedRead(error)` from the start (PR-04 lesson), for PR-11 consumer tests
-- [ ] T020 [P] [US4] Host tests for MockEnvironmentalSensor consistency in `firmware/test_apps/host/main/test_bme280.cpp`: scripted sequences observed exactly; helpers keep values/validity/error coherent
+- [x] T018 [US4] Add Bosch reference-vector tests in `firmware/test_apps/host/main/test_bme280.cpp`: fixed (calibration set, raw T/P/H) → expected compensated outputs from the Bosch datasheet reference implementation (int32 T, int64 P, int32 H), incl. the datasheet worked example, a negative-temperature vector and extreme-but-legal raws; each vector's derivation cited in a comment (research R8); float conversions (÷100, ÷256÷100, ÷1024) asserted
+- [x] T019 [P] [US4] Create `MockEnvironmentalSensor` in `firmware/components/sensors/include/sensors/testing/MockEnvironmentalSensor.h` — scripted value/validity/error sequences WITH consistency helpers `scriptSuccessfulRead(t,h,p)` / `scriptFailedRead(error)` from the start (PR-04 lesson), for PR-11 consumer tests
+- [x] T020 [P] [US4] Host tests for MockEnvironmentalSensor consistency in `firmware/test_apps/host/main/test_bme280.cpp`: scripted sequences observed exactly; helpers keep values/validity/error coherent
 - [x] T021 [US4] Register the suite: add `test_bme280.cpp` to SRCS in `firmware/test_apps/host/main/CMakeLists.txt`, declare + call `run_bme280_tests()` in `firmware/test_apps/host/main/test_main.cpp` between UNITY_BEGIN/UNITY_END — NOTE: pulled forward into implementation mission 1 (with T002–T012) so the main session can run the T006 suite immediately
 
 ## Phase 7: Polish & Cross-Cutting
 
-- [ ] T022 [P] Update `firmware/CLAUDE.md`: directory tree (Bme280Sensor/EspI2cBus/Locked/testing files, sensor_task), console command list (`env`), a "BME280 environmental sensor" section (architecture split, shared-bus note for PR-05, parity sampling profile), host-test description
-- [ ] T023 [P] Record deliberate divergences in `docs/parity-checklist.md` §6: address probing + chip-ID check, last-good getter values (legacy: NaN), live availability probe (legacy: cached), Locked-decorator synchronization (legacy: unsynchronized dual readers) — per contracts/interfaces.md list
-- [ ] T024 [P] Write HIL checklist `specs/005-bme280-i2c/checklists/hil.md` following `specs/004-modbus-soil-sensor/checklists/hil.md` format: (A) periodic readings + Arduino agreement, (B) console `env` incl. absent-vs-failed distinction, (C) unplug/replug + boot-without-sensor, (D) 0x76 module swap (if hardware available, else mark host-covered), (E) regression guard (pumps OFF at boot, pump/soil console commands intact)
-- [ ] T025 Full verification per `specs/005-bme280-i2c/quickstart.md`: host suite exit 0; rev1 AND rev2 build green from clean checkout (fullclean between overlays); `dependencies.lock` unchanged; capture outputs for the CP3 dossier
+- [x] T022 [P] Update `firmware/CLAUDE.md`: directory tree (Bme280Sensor/EspI2cBus/Locked/testing files, sensor_task), console command list (`env`), a "BME280 environmental sensor" section (architecture split, shared-bus note for PR-05, parity sampling profile), host-test description
+- [x] T023 [P] Record deliberate divergences in `docs/parity-checklist.md` §6: address probing + chip-ID check, last-good getter values (legacy: NaN), live availability probe (legacy: cached), Locked-decorator synchronization (legacy: unsynchronized dual readers) — per contracts/interfaces.md list
+- [x] T024 [P] Write HIL checklist `specs/005-bme280-i2c/checklists/hil.md` following `specs/004-modbus-soil-sensor/checklists/hil.md` format: (A) periodic readings + Arduino agreement, (B) console `env` incl. absent-vs-failed distinction, (C) unplug/replug + boot-without-sensor, (D) 0x76 module swap (if hardware available, else mark host-covered), (E) regression guard (pumps OFF at boot, pump/soil console commands intact)
+- [x] T025 Full verification per `specs/005-bme280-i2c/quickstart.md`: host suite exit 0; rev1 AND rev2 build green from clean checkout (fullclean between overlays); `dependencies.lock` unchanged; capture outputs for the CP3 dossier
 
 ## Dependencies & Execution Order
 
