@@ -8,7 +8,7 @@ Produced atomically from one 9-register transaction; either fully valid or an er
 
 | Field | Type | Source | Validation (read-fails-if) |
 |---|---|---|---|
-| moisture | float % | reg 0x0000 ÷10, × moisture factor | outside 0–100 |
+| moisture | float % | reg 0x0000 ÷10 (moisture factor NOT applied on read — legacy parity; `calibrateMoisture` stores/writes the factor but the read path never uses it) | outside 0–100 |
 | temperature | float °C | reg 0x0001 as **int16_t** ÷10 | outside −40–80 |
 | ec | float µS/cm | reg 0x0002 ×1, × EC factor | not enforced (parity) |
 | ph | float | reg 0x0003 ÷10, × pH factor | outside 3–9 |

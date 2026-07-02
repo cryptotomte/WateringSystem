@@ -30,6 +30,9 @@
 #include "actuators/EspTimeProvider.h"
 #include "actuators/GpioWaterPump.h"
 #include "actuators/LockedWaterPump.h"
+#include "sensors/EspModbusClient.h"
+#include "sensors/LockedSoilSensor.h"
+#include "sensors/ModbusSoilSensor.h"
 #include "storage/LittleFsDataStorage.h"
 #include "storage/LockedConfigStore.h"
 #include "storage/LockedDataStorage.h"
@@ -170,9 +173,31 @@ extern "C" void app_main(void)
              static_cast<unsigned long>(stats.usedBytes / 1024),
              static_cast<unsigned long>(stats.totalBytes / 1024));
 
+    // RS485 Modbus soil sensor (feature 004). Not safety-critical: a failed
+    // client init is logged and the system keeps running — the sensor layer
+    // reports invalid data and recovers on later attempts (US2 semantics).
+    // Function-local statics after pumps_force_off() (boot fail-safe rule),
+    // sensor wrapped in the mutex-serializing decorator: accessed from the
+    // console REPL task now and the main-loop controller in PR-11, so EVERY
+    // sensor access goes through the wrapper. No periodic read task in this
+    // PR (PR-11) — reads happen on console command only.
+    static EspModbusClient modbus_client;
+    static ModbusSoilSensor soil_sensor_raw(modbus_client);
+    static LockedSoilSensor soil_sensor(soil_sensor_raw);
+
+    if (modbus_client.initialize()) {
+        ESP_LOGI(TAG, "RS485 Modbus client up (UART%d)",
+                 BOARD_RS485_UART_PORT);
+    } else {
+        ESP_LOGE(TAG, "RS485 Modbus client init failed (error %d) — "
+                 "soil sensor unavailable until recovery",
+                 modbus_client.getLastError());
+    }
+
     // Serial diagnostic REPL (rig testing; contracts/serial-diagnostic.md).
     diag_console_register_pumps(plant, reservoir);
     diag_console_register_storage(config, storage);
+    diag_console_register_soil(soil_sensor, modbus_client);
     esp_err_t err = diag_console_start();
     if (err != ESP_OK) {
         // Console is a diagnostic aid, not a safety function: log and keep

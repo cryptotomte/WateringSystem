@@ -14,6 +14,8 @@
 #include "esp_err.h"
 #include "interfaces/IConfigStore.h"
 #include "interfaces/IDataStorage.h"
+#include "interfaces/IModbusClient.h"
+#include "interfaces/ISoilSensor.h"
 #include "interfaces/IWaterPump.h"
 
 /**
@@ -34,6 +36,18 @@ void diag_console_register_pumps(IWaterPump& plant, IWaterPump& reservoir);
  */
 void diag_console_register_storage(IConfigStore& config,
                                    IDataStorage& storage);
+
+/**
+ * @brief Register the soil sensor + Modbus client the `soil`/`rs485test`
+ *        commands operate on (HIL verification path for feature 004).
+ *
+ * Pass the LockedSoilSensor decorator, never the raw sensor — the console
+ * handlers run on the REPL task, concurrently with the main-loop reader
+ * arriving in PR-11. The client may be passed raw: in this PR it is only
+ * reached from the REPL task (directly and via the locked sensor). Must be
+ * called before diag_console_start(); plain pointer registration.
+ */
+void diag_console_register_soil(ISoilSensor& sensor, IModbusClient& client);
 
 /**
  * @brief Start the UART REPL (prompt "ws>") and register the commands.

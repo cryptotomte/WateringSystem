@@ -17,28 +17,28 @@ US3 dual-board, US4 host-testability) so each story is independently verifiable.
 
 ## Phase 1: Setup
 
-- [ ] T001 Create `sensors` component skeleton: `firmware/components/sensors/CMakeLists.txt`
+- [x] T001 Create `sensors` component skeleton: `firmware/components/sensors/CMakeLists.txt`
       (REQUIRES `interfaces`, `board`; register `src/ModbusSoilSensor.cpp` always and
       `src/EspModbusClient.cpp` only when `IDF_TARGET != linux`, same guard style as
       `firmware/components/storage/CMakeLists.txt`) and
       `firmware/components/sensors/idf_component.yml` pinning `espressif/esp-modbus: "==2.1.2"`
-- [ ] T002 [VERIFY-MAIN] Confirm `CONFIG_FMB_MASTER_TIMEOUT_MS_RESPOND` bounds allow
+- [x] T002 [VERIFY-MAIN] Confirm `CONFIG_FMB_MASTER_TIMEOUT_MS_RESPOND` bounds allow
       3000 ms in esp-modbus 2.1.2 Kconfig (inspect managed component after a
       dependency fetch) and add any required override to `firmware/sdkconfig.defaults`
       (plan risk 4)
 
 ## Phase 2: Foundational (blocking prerequisites for all stories)
 
-- [ ] T003 [P] Port `IModbusClient` to
+- [x] T003 [P] Port `IModbusClient` to
       `firmware/components/interfaces/include/interfaces/IModbusClient.h` per
       contracts/interfaces.md (pure C++, guard `WATERINGSYSTEM_INTERFACES_IMODBUSCLIENT_H`,
       SPDX header, contract notes as doc comments: one attempt/no retry, write echo
       verification, statistics semantics)
-- [ ] T004 [P] Port `ISoilSensor` to
+- [x] T004 [P] Port `ISoilSensor` to
       `firmware/components/interfaces/include/interfaces/ISoilSensor.h` per
       contracts/interfaces.md (trimmed surface — no setValidRange/isWithinValidRange;
       document the trim and the read()/validity contract)
-- [ ] T005 [P] Create `MockModbusClient` in
+- [x] T005 [P] Create `MockModbusClient` in
       `firmware/components/sensors/include/sensors/testing/MockModbusClient.h`:
       scriptable register payloads per (address, startRegister, count), forced
       timeout/CRC/exception errors, call recording (incl. writeSingleRegister log),
@@ -53,20 +53,20 @@ scaling incl. signed temperature, console `soil`/`rs485test` output.
 
 **Independent test**: quickstart.md §1 decode tests green + §3 HIL steps 1–3.
 
-- [ ] T006 [P] [US1] Write host tests for register decode in
+- [x] T006 [P] [US1] Write host tests for register decode in
       `firmware/test_apps/host/main/test_soil_sensor.cpp`: known 9-register payload
       decodes to expected moisture/temp/EC/pH/N/P/K (data-model scaling table),
       negative temperature case (0xFF38 → −20.0 °C), humidity ≡ moisture,
       salinity/TDS not exposed; register in
       `firmware/test_apps/host/main/CMakeLists.txt`
-- [ ] T007 [US1] Implement `ModbusSoilSensor` (pure logic) in
+- [x] T007 [US1] Implement `ModbusSoilSensor` (pure logic) in
       `firmware/components/sensors/include/sensors/ModbusSoilSensor.h` +
       `firmware/components/sensors/src/ModbusSoilSensor.cpp`: initialize/read
       (one readHoldingRegisters(0x01, 0x0000, 9) call), decode per data-model.md,
       getters from last successful read, real-bus-read isAvailable() (1 register,
       parity), getLastError; port reference `src/sensors/ModbusSoilSensor.cpp`
       (READ-ONLY legacy)
-- [ ] T008 [US1] Implement `EspModbusClient` core in
+- [x] T008 [US1] Implement `EspModbusClient` core in
       `firmware/components/sensors/include/sensors/EspModbusClient.h` +
       `firmware/components/sensors/src/EspModbusClient.cpp`: R1 create/start sequence
       (`mbc_master_create_serial`, ser_opts 9600 8N1 `response_tout_ms=3000`, UART
@@ -78,21 +78,21 @@ scaling incl. signed temperature, console `soil`/`rs485test` output.
       readHoldingRegisters/writeSingleRegister via `mbc_master_send_request`
       (commands 0x03/0x06), esp_err_t → error-code mapping per data-model.md (R6),
       statistics counters
-- [ ] T009 [US1] Add `LockedSoilSensor` decorator in
+- [x] T009 [US1] Add `LockedSoilSensor` decorator in
       `firmware/components/sensors/include/sensors/LockedSoilSensor.h` (per-call
       mutex, pattern of `actuators/LockedWaterPump.h`; document per-call-not-
       cross-call atomicity like `storage/Locked*`)
-- [ ] T010 [US1] Wire sensor into app in `firmware/main/app_main.cpp`:
+- [x] T010 [US1] Wire sensor into app in `firmware/main/app_main.cpp`:
       construct `EspModbusClient` + `ModbusSoilSensor` + `LockedSoilSensor` after
       storage init; boot log line with client init result; no periodic read task
       (out of scope, PR-11)
-- [ ] T011 [US1] Add console commands `soil` and `rs485test` in
+- [x] T011 [US1] Add console commands `soil` and `rs485test` in
       `firmware/main/diag_console.cpp` per contracts/interfaces.md console contract
       (values or error code+name; raw probe + statistics dump), going through
       `LockedSoilSensor`/client
-- [ ] T012 [VERIFY-MAIN] [US1] Host suite green (quickstart §1) — decode tests pass,
+- [x] T012 [VERIFY-MAIN] [US1] Host suite green (quickstart §1) — decode tests pass,
       exit code 0
-- [ ] T013 [VERIFY-MAIN] [US1] rev1 target builds green (quickstart §2, rev1 half)
+- [x] T013 [VERIFY-MAIN] [US1] rev1 target builds green (quickstart §2, rev1 half)
 
 **Checkpoint**: MVP flashable — HIL steps 1–3 executable by Paul at CP3.
 

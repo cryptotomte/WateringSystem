@@ -39,6 +39,9 @@
 #define BOARD_PIN_RS485_RX              17
 #define BOARD_HAS_RS485_DE              1
 #define BOARD_PIN_RS485_DE              25
+/* Modbus RTU runs on UART2 at 9600 baud 8N1 (parity: legacy Serial2,
+ * docs/parity-checklist.md §5). */
+#define BOARD_RS485_UART_PORT           2
 
 /* Pumps (MOSFET gates, active high) */
 #define BOARD_PIN_MAIN_PUMP             26
@@ -83,6 +86,10 @@
  * is 0: any reference that is not guarded by #if BOARD_HAS_RS485_DE becomes
  * a compile error instead of undefined behavior (e.g. 1ULL << -1) or a
  * silently dropped ESP_ERR_INVALID_ARG at runtime. */
+/* Modbus RTU runs on UART2 at 9600 baud 8N1 (parity: legacy Serial2,
+ * docs/parity-checklist.md §5). The UART number is a parity fact, not part
+ * of the provisional rev2 pin map — no TODO(SYNC1). */
+#define BOARD_RS485_UART_PORT           2
 
 /* Pumps (MOSFET gates, active high) */
 #define BOARD_PIN_MAIN_PUMP             26  // TODO(SYNC1): final rev2 pin map frozen at hardware sync 1

@@ -27,6 +27,13 @@
  *   storage event <category> <detail>   # category = u8 (1..255)
  *   storage events [n]                  # newest-first, default 10
  *
+ * Soil sensor commands (HIL verification path for feature 004; console
+ * contract in specs/004-modbus-soil-sensor/contracts/interfaces.md —
+ * calibration commands arrive in a later phase of that feature):
+ *
+ *   soil                                # one read(); 7 values or error
+ *   rs485test                           # raw 1-register probe + statistics
+ *
  * Handler exit codes follow the esp_console convention: 0 on OK, 1 on ERR.
  *
  * State is plain pointers/PODs set from app_main — no non-trivial static
@@ -47,6 +54,8 @@
 
 #include "interfaces/IConfigStore.h"
 #include "interfaces/IDataStorage.h"
+#include "interfaces/IModbusClient.h"
+#include "interfaces/ISoilSensor.h"
 #include "interfaces/IWaterPump.h"
 
 namespace {
@@ -70,6 +79,11 @@ PumpSlot s_slots[2] = {
 // initialized pointers, same rule as s_slots.
 IConfigStore *s_config = nullptr;
 IDataStorage *s_storage = nullptr;
+
+// Soil sensor + Modbus client (set from app_main; the sensor is expected
+// to be the LockedSoilSensor decorator). Same trivial-initialization rule.
+ISoilSensor *s_soil = nullptr;
+IModbusClient *s_modbus = nullptr;
 
 const char *stop_reason_str(StopReason reason)
 {
@@ -430,6 +444,84 @@ int storage_cmd(int argc, char **argv)
     return print_storage_usage();
 }
 
+// --- soil / rs485test commands (feature 004 HIL verification path) ------
+
+/// Error-code names per the data-model.md error table (feature 004).
+const char *soil_error_str(int error)
+{
+    switch (error) {
+    case 0:
+        return "ok";
+    case 1:
+        return "not_initialized";
+    case 2:
+        return "bus_error";
+    case 3:
+        return "timeout";
+    case 5:
+        return "range_validation";
+    default:
+        return error >= 100 ? "slave_exception" : "unknown";
+    }
+}
+
+/// `soil`: one read() through the locked sensor; all 7 values or the error.
+int soil_cmd(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    if (s_soil == nullptr) {
+        printf("ERR soil sensor not available\n");
+        return 1;
+    }
+    if (!s_soil->read()) {
+        const int error = s_soil->getLastError();
+        printf("ERR read failed: error %d (%s)\n", error,
+               soil_error_str(error));
+        return 1;
+    }
+    printf("OK moisture=%.1f %% temp=%.1f C ec=%.0f uS/cm ph=%.1f "
+           "n=%.0f mg/kg p=%.0f mg/kg k=%.0f mg/kg\n",
+           static_cast<double>(s_soil->getMoisture()),
+           static_cast<double>(s_soil->getTemperature()),
+           static_cast<double>(s_soil->getEC()),
+           static_cast<double>(s_soil->getPH()),
+           static_cast<double>(s_soil->getNitrogen()),
+           static_cast<double>(s_soil->getPhosphorus()),
+           static_cast<double>(s_soil->getPotassium()));
+    return 0;
+}
+
+/// `rs485test`: one raw 1-register probe (slave 0x01, register 0x0000 —
+/// the parity availability probe) + cumulative transaction statistics.
+int rs485test_cmd(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    if (s_modbus == nullptr) {
+        printf("ERR modbus client not available\n");
+        return 1;
+    }
+    uint16_t value = 0;
+    const bool ok = s_modbus->readHoldingRegisters(0x01, 0x0000, 1, &value);
+    uint32_t successCount = 0;
+    uint32_t errorCount = 0;
+    s_modbus->getStatistics(&successCount, &errorCount);
+    if (ok) {
+        printf("OK reg 0x0000 = %u, stats: success=%lu error=%lu\n",
+               static_cast<unsigned>(value),
+               static_cast<unsigned long>(successCount),
+               static_cast<unsigned long>(errorCount));
+        return 0;
+    }
+    const int error = s_modbus->getLastError();
+    printf("ERR probe failed: error %d (%s), stats: success=%lu error=%lu\n",
+           error, soil_error_str(error),
+           static_cast<unsigned long>(successCount),
+           static_cast<unsigned long>(errorCount));
+    return 1;
+}
+
 }  // namespace
 
 void diag_console_register_pumps(IWaterPump& plant, IWaterPump& reservoir)
@@ -442,6 +534,12 @@ void diag_console_register_storage(IConfigStore& config, IDataStorage& storage)
 {
     s_config = &config;
     s_storage = &storage;
+}
+
+void diag_console_register_soil(ISoilSensor& sensor, IModbusClient& client)
+{
+    s_soil = &sensor;
+    s_modbus = &client;
 }
 
 esp_err_t diag_console_start(void)
@@ -500,6 +598,34 @@ esp_err_t diag_console_start(void)
         .context = nullptr,
     };
     err = esp_console_cmd_register(&cmd_storage);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    const esp_console_cmd_t cmd_soil = {
+        .command = "soil",
+        .help = "soil — one soil sensor read (7 values or error code)",
+        .hint = nullptr,
+        .func = &soil_cmd,
+        .argtable = nullptr,
+        .func_w_context = nullptr,
+        .context = nullptr,
+    };
+    err = esp_console_cmd_register(&cmd_soil);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    const esp_console_cmd_t cmd_rs485test = {
+        .command = "rs485test",
+        .help = "rs485test — raw 1-register Modbus probe + statistics",
+        .hint = nullptr,
+        .func = &rs485test_cmd,
+        .argtable = nullptr,
+        .func_w_context = nullptr,
+        .context = nullptr,
+    };
+    err = esp_console_cmd_register(&cmd_rs485test);
     if (err != ESP_OK) {
         return err;
     }
