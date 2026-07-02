@@ -56,11 +56,21 @@ bool Bme280Sensor::initialize()
     }
 
     // No BME280 answers (or only wrong-identity devices answer): error 1,
-    // "sensor not found" (legacy error 1).
+    // "sensor not found" (legacy error 1). WARN only once per consecutive
+    // failure run — the lazy re-init retries every poll (5 s), and a
+    // permanently absent sensor must not defeat the sensor task's bounded
+    // log cadence with an unconditional WARN per attempt. Repeats go to
+    // debug; the flag resets on successful initialization below.
     if (!probeAndIdentify()) {
         lastError_ = 1;
-        ESP_LOGW(TAG, "initialize failed: no BME280 found (0x%02x/0x%02x)",
-                 kPrimaryAddress, kSecondaryAddress);
+        if (!initFailureLogged_) {
+            initFailureLogged_ = true;
+            ESP_LOGW(TAG, "initialize failed: no BME280 found (0x%02x/0x%02x)",
+                     kPrimaryAddress, kSecondaryAddress);
+        } else {
+            ESP_LOGD(TAG, "initialize failed: no BME280 found (0x%02x/0x%02x)",
+                     kPrimaryAddress, kSecondaryAddress);
+        }
         return false;
     }
 
@@ -86,6 +96,9 @@ bool Bme280Sensor::initialize()
 
     initialized_ = true;
     lastError_ = 0;
+    // Recovery re-arms the once-per-run not-found WARN (the INFO line
+    // below announces the recovery itself).
+    initFailureLogged_ = false;
     ESP_LOGI(TAG, "BME280 initialized at 0x%02x (NORMAL, T x2 / P x16 / "
              "H x1, IIR x16, standby 500 ms)", address_);
     return true;

@@ -627,10 +627,16 @@ int env_cmd(int argc, char **argv)
         return 1;
     }
     if (!s_env->read()) {
+        // read() and getLastError() are separate locked calls; a sensor-
+        // task poll interleaving between them can succeed and reset the
+        // error to 0 (benign cross-lock race, TODO(PR-11) snapshot helper
+        // in LockedEnvironmentalSensor.h) — hint accordingly.
         const int error = s_env->getLastError();
         const char *hint = (error == 1)   ? "sensor not found"
                            : (error == 2) ? "read failed"
-                                          : "unknown error";
+                           : (error == 0)
+                               ? "state changed concurrently - retry"
+                               : "unknown error";
         printf("ERROR %d (%s)\n", error, hint);
         return 1;
     }

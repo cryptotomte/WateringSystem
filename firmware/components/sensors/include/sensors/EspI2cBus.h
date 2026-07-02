@@ -20,9 +20,11 @@
  * come from board/board.h inside the .cpp (BOARD_PIN_I2C_SDA/SCL).
  *
  * Concurrency: transaction-level safety across tasks comes from the
- * i2c_master driver's per-transaction bus lock (research.md R3). Reading-
- * snapshot consistency above this layer is LockedEnvironmentalSensor's
- * job, not this class's.
+ * i2c_master driver's per-transaction bus lock (research.md R3). The
+ * device-handle bookkeeping (lazy bus creation + handle table) is
+ * internally synchronized with a private mutex, so concurrent first use
+ * from multiple tasks is safe. Reading-snapshot consistency above this
+ * layer is LockedEnvironmentalSensor's job, not this class's.
  */
 
 #ifndef WATERINGSYSTEM_SENSORS_ESPI2CBUS_H
@@ -30,6 +32,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 
 #include "interfaces/II2cBus.h"
 
@@ -39,8 +42,10 @@
  * The bus handle is created lazily on first use (no work in the
  * constructor — no error path there); per-address device handles are
  * created on first use at 100 kHz (FR-002) and cached. All transactions
- * use finite timeouts; failures are returned as false and logged at debug
- * level — error classification is the sensor driver's job.
+ * use finite timeouts; failures are returned as false and logged —
+ * transaction failures at debug level (expected NACKs) or warning level
+ * (timeouts/unexpected errors); one-time infrastructure failures at error
+ * level. Error classification is the sensor driver's job.
  */
 class EspI2cBus : public II2cBus {
 public:
@@ -75,10 +80,17 @@ private:
 
     /// Create the master bus on first use (board pins, port auto,
     /// internal pull-ups on). Returns false when creation fails.
+    /// Caller must hold mutex_.
     bool ensureBus();
 
     /// Cached-or-created device handle for @p address7; nullptr on failure.
+    /// Takes mutex_ internally (handle-table bookkeeping).
     void* deviceHandle(uint8_t address7);
+
+    /// Guards busHandle_/devices_/deviceCount_ (lazy creation from
+    /// multiple tasks). Transactions run outside this lock — the
+    /// i2c_master driver's bus lock covers them.
+    std::mutex mutex_;
 
     void* busHandle_ = nullptr;  ///< opaque i2c_master_bus_handle_t
     Device devices_[kMaxDevices] = {};

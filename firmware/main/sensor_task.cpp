@@ -62,10 +62,14 @@ constexpr UBaseType_t kPriority = 1;    ///< parity priority (R7)
                      static_cast<double>(sensor.getPressure()));
             break;
         case SensorTaskLogPolicy::Event::FailureTransition:
-            // Valid → invalid transition: WARN exactly once.
+            // Valid → invalid transition: WARN exactly once. Note:
+            // read() and getLastError() are separate locked calls, so a
+            // console `env` read interleaving between them can change the
+            // error code — benign here (log-only); the consistent-snapshot
+            // helper is TODO(PR-11) (LockedEnvironmentalSensor.h).
             ESP_LOGW(TAG,
-                     "environmental reading invalid (error %d) — "
-                     "keeping last-good values, retrying every %lu ms",
+                     "environmental reading invalid (error %d), "
+                     "retrying every %lu ms",
                      sensor.getLastError(),
                      static_cast<unsigned long>(kPeriodMs));
             break;

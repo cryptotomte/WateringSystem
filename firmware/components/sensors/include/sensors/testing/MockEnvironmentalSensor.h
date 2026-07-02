@@ -23,6 +23,7 @@
 #define WATERINGSYSTEM_SENSORS_TESTING_MOCKENVIRONMENTALSENSOR_H
 
 #include <cstddef>
+#include <limits>
 #include <vector>
 
 #include "interfaces/IEnvironmentalSensor.h"
@@ -35,11 +36,13 @@
  * the LAST step repeats forever (a steady sensor keeps delivering, a dead
  * one keeps failing — matches the real driver's persistence). An entirely
  * unscripted read() succeeds with error 0 and whatever values are current
- * (the 0.0 placeholders before any successful step — same
- * meaningless-before-first-read contract as the real driver).
+ * (the NaN placeholders before any successful step — same
+ * NaN-before-first-read contract as the real driver).
  * initialize()/isAvailable() results are plain scripted fields
- * (MockSoilSensor style); per the interface contract neither touches the
- * error code.
+ * (MockSoilSensor style). Per the interface contract initialize() owns
+ * its own error reporting — a scripted failure sets error 1 ("not found",
+ * the mock's semantic for a false initializeResult), success sets 0 —
+ * while the isAvailable() probe never touches the error code.
  */
 class MockEnvironmentalSensor : public IEnvironmentalSensor {
 public:
@@ -77,6 +80,10 @@ public:
     bool initialize() override
     {
         ++initializeCalls;
+        // initialize() owns its own error reporting (interface contract,
+        // matching the real driver): failure sets 1 ("not found" — the
+        // mock's semantic for a scripted failure), success sets 0.
+        lastError_ = initializeResult ? 0 : 1;
         return initializeResult;
     }
 
@@ -84,8 +91,8 @@ public:
     {
         ++readCalls;
         if (script_.empty()) {
-            // Unscripted: succeed with the current values (placeholders
-            // before the first scripted success).
+            // Unscripted: succeed with the current values (NaN
+            // placeholders before the first scripted success).
             lastError_ = 0;
             return true;
         }
@@ -130,10 +137,11 @@ private:
     size_t next_ = 0;
     int lastError_ = 0;
 
-    // Last-good values (placeholders 0.0 before the first scripted success).
-    float temperature_ = 0.0f;
-    float humidity_ = 0.0f;
-    float pressure_ = 0.0f;
+    // Last-good values (NaN placeholders before the first scripted
+    // success — same self-announcing contract as the real driver).
+    float temperature_ = std::numeric_limits<float>::quiet_NaN();
+    float humidity_ = std::numeric_limits<float>::quiet_NaN();
+    float pressure_ = std::numeric_limits<float>::quiet_NaN();
 };
 
 #endif /* WATERINGSYSTEM_SENSORS_TESTING_MOCKENVIRONMENTALSENSOR_H */

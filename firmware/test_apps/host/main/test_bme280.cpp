@@ -16,7 +16,10 @@
  * re-read, sensorless boot), T015 (sensor-task log policy), T017 (US3
  * address variants and chip-ID rejection), T018 (Bosch reference vectors,
  * integer outputs asserted exactly) and T020 (MockEnvironmentalSensor
- * consistency).
+ * consistency); review-fix hardening adds the mid-initialization error-2
+ * paths, the continue-to-next-candidate probe path, extra Bosch vectors
+ * (dig_H3, negative H calibration, clamps, dig_P1=0 guard) and the
+ * LockedEnvironmentalSensor delegation check.
  */
 
 #include <cmath>
@@ -25,6 +28,7 @@
 #include "unity.h"
 
 #include "sensors/Bme280Sensor.h"
+#include "sensors/LockedEnvironmentalSensor.h"
 #include "sensors/SensorTaskLogPolicy.h"
 #include "sensors/testing/MockEnvironmentalSensor.h"
 #include "sensors/testing/MockI2cBus.h"
@@ -145,6 +149,39 @@ const std::vector<uint8_t> kDataBlockNegativeTemp = {
 const std::vector<uint8_t> kDataBlockExtreme = {
     0x00, 0x00, 0x00, 0xFF, 0xFF, 0xF0, 0xFF, 0xFF,
 };
+
+// ---------------------------------------------------------------------------
+// Negative-humidity-calibration vector (review fix C2): calib26–32 bytes
+// with the sign bits set in 0xE4/0xE6/0xE7, pinning readCalibration's
+// int8_t sign-extension casts. Parses to H2=362, H3=0,
+// H4 = int8(0xFF)*16 | (0x25 & 0xF) = -16 | 5  = -11,
+// H5 = int8(0xFF)*16 | (0x25 >> 4)  = -16 | 2  = -14,
+// H6 = int8(0xE2) = -30.
+// adc_H = 11264 (0x2C00) is chosen so the result stays inside the Bosch
+// 0–100 %RH clamps. Expected output derived by running the Bosch int32
+// reference routine over (H1=75, H2=362, H3=0, H4=-11, H5=-14, H6=-30,
+// adc_H=11264, t_fine=128422):
+//   v = 128422 - 76800 = 51622
+//   a = ((11264<<14) - (-11<<20) - (-14*51622) + 16384) >> 15
+//     = (184549376 + 11534336 + 722708 + 16384) >> 15 = 6006
+//   b = ((((((51622*(-30))>>10) * 32768) >> 10) + 2097152)*362 + 8192) >> 14
+//     = 45266
+//   v = 6006*45266 = 271867596; minus the H1 correction 2520393
+//     = 269347203; >> 12 = 65758 → 64.216797 %RH
+// A sign break in H5 or H6 changes the result grossly (H5 unsigned drives
+// it to the 0 clamp, H6 unsigned past the 100 %RH clamp). H4's own sign
+// extension is inherently unobservable through the int32 path — the <<20
+// keeps only the 12 value bits — but its parse runs through the same cast
+// path end-to-end here. T/P calibration is kCalibBlock1, so temperature
+// and pressure keep their reference expectations.
+// ---------------------------------------------------------------------------
+const std::vector<uint8_t> kCalibBlock2Negative = {
+    0x6A, 0x01, 0x00, 0xFF, 0x25, 0xFF, 0xE2,
+};
+const std::vector<uint8_t> kDataBlockSmallHumidity = {
+    0x65, 0x5A, 0xC0, 0x7E, 0xED, 0x00, 0x2C, 0x00,
+};
+constexpr float kExpectedHumidityNegativeCal = 64.216797f;  // 65758 ÷ 1024
 
 /// Script a complete, healthy BME280 at @p address: chip-ID, both
 /// calibration blocks and one measurement in the data registers.
@@ -282,8 +319,10 @@ static void test_read_is_one_eight_byte_burst(void)
 
 // --------------------------------------------------------------------------
 // Before the FIRST successful read() the getters return the documented
-// meaningless placeholders (0.0) — consumers gate on read(), never on
-// value plausibility (interface contract)
+// quiet-NaN placeholders — self-announcing for consumers that forget to
+// gate on read() (a plausible 0.0 would silently pass for a real reading);
+// consumers gate on read(), never on value plausibility (interface
+// contract)
 // --------------------------------------------------------------------------
 static void test_getters_before_first_read_are_placeholders(void)
 {
@@ -293,9 +332,9 @@ static void test_getters_before_first_read_are_placeholders(void)
 
     TEST_ASSERT_TRUE(sensor.initialize());
 
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, sensor.getTemperature());
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, sensor.getHumidity());
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, sensor.getPressure());
+    TEST_ASSERT_TRUE(std::isnan(sensor.getTemperature()));
+    TEST_ASSERT_TRUE(std::isnan(sensor.getHumidity()));
+    TEST_ASSERT_TRUE(std::isnan(sensor.getPressure()));
 }
 
 // --------------------------------------------------------------------------
@@ -341,6 +380,60 @@ static void test_initialize_absent_sensor_fails_error1(void)
     }
     TEST_ASSERT_EQUAL(1, probedPrimary);
     TEST_ASSERT_EQUAL(1, probedSecondary);
+}
+
+// --------------------------------------------------------------------------
+// Mid-initialization bus error AFTER a device identified (review fix A5):
+// the calibration readout fails → initialize() false, error 2 (a
+// communication failure, not "not found"), the driver stays uninitialized
+// and the next read() re-probes from scratch and recovers
+// --------------------------------------------------------------------------
+static void test_initialize_calibration_read_error_sets_error2_then_recovers(void)
+{
+    MockI2cBus mock;
+    Bme280Sensor sensor(mock);
+    scriptBme280(mock, kAddrSecondary);
+
+    // Read outcomes are FIFO per readRegisters() call on a present device:
+    // the chip-ID read succeeds, the calib00–25 burst then fails.
+    mock.queueReadOutcome(true);   // chip-ID at 0x77
+    mock.queueReadOutcome(false);  // calibration burst → bus error
+
+    TEST_ASSERT_FALSE(sensor.initialize());
+    TEST_ASSERT_EQUAL_INT(2, sensor.getLastError());
+
+    // Uninitialized after the failure: the next read() re-runs the full
+    // init (outcome queue exhausted → bus healthy) and delivers a reading.
+    TEST_ASSERT_TRUE(sensor.read());
+    TEST_ASSERT_EQUAL_INT(0, sensor.getLastError());
+    TEST_ASSERT_FLOAT_WITHIN(0.005f, kExpectedTemperature,
+                             sensor.getTemperature());
+}
+
+// --------------------------------------------------------------------------
+// Mid-initialization bus error on the sampling-profile write (review fix
+// A5): initialize() false, error 2, and the driver stays uninitialized —
+// the next initialize() is a full re-probe, not an idempotent no-op
+// --------------------------------------------------------------------------
+static void test_initialize_profile_write_error_sets_error2_stays_uninitialized(void)
+{
+    MockI2cBus mock;
+    Bme280Sensor sensor(mock);
+    scriptBme280(mock, kAddrSecondary);
+
+    mock.queueWriteOutcome(false);  // ctrl_hum write → bus error
+
+    TEST_ASSERT_FALSE(sensor.initialize());
+    TEST_ASSERT_EQUAL_INT(2, sensor.getLastError());
+
+    // Not initialized: the retry starts with a probe (re-probe from
+    // scratch) and succeeds once the bus behaves.
+    mock.calls.clear();
+    TEST_ASSERT_TRUE(sensor.initialize());
+    TEST_ASSERT_EQUAL_INT(0, sensor.getLastError());
+    TEST_ASSERT_FALSE(mock.calls.empty());
+    TEST_ASSERT_EQUAL(static_cast<int>(MockI2cBus::Call::Type::Probe),
+                      static_cast<int>(mock.calls.front().type));
 }
 
 // --------------------------------------------------------------------------
@@ -480,6 +573,21 @@ static void test_is_available_false_on_loss_leaves_error_untouched(void)
 }
 
 // --------------------------------------------------------------------------
+// isAvailable() after init with a FOREIGN chip identity (review fix C3):
+// the device still ACKs and the chip-ID read succeeds, but the identity is
+// a BMP280's (0x58) — unavailable, error code untouched (the probe never
+// touches it; only the NEXT read()/initialize() reports)
+// --------------------------------------------------------------------------
+static void test_is_available_false_on_foreign_chip_id_after_init(void)
+{
+    Fixture f;  // initialized at 0x77, lastError == 0
+
+    f.mock.setRegister(kAddrSecondary, kRegChipId, 0x58);  // BMP280 now
+    TEST_ASSERT_FALSE(f.sensor.isAvailable());
+    TEST_ASSERT_EQUAL_INT(0, f.sensor.getLastError());
+}
+
+// --------------------------------------------------------------------------
 // NaN guard (US2 scenario 4, FR-007): with the Bosch INTEGER compensation
 // paths a NaN is unreachable from any raw register content — the guard is
 // retained as the binding legacy-parity safety net. Verified here at the
@@ -560,6 +668,29 @@ static void test_wrong_chip_id_at_primary_selects_secondary(void)
             TEST_ASSERT_EQUAL_UINT8(kAddrSecondary, call.address);
         }
     }
+}
+
+// --------------------------------------------------------------------------
+// Chip-ID read ERROR at 0x76 (device ACKs the probe but the identity read
+// fails) with a healthy BME280 at 0x77: the probing loop continues to the
+// next candidate instead of giving up (review fix B6)
+// --------------------------------------------------------------------------
+static void test_chip_id_read_error_at_primary_continues_to_secondary(void)
+{
+    MockI2cBus mock;
+    Bme280Sensor sensor(mock);
+    mock.addDevice(kAddrPrimary);        // ACKs, chip-ID read will error
+    scriptBme280(mock, kAddrSecondary);  // healthy module at 0x77
+    mock.queueReadOutcome(false);        // first read = chip-ID at 0x76
+
+    TEST_ASSERT_TRUE(sensor.initialize());
+    TEST_ASSERT_EQUAL_INT(0, sensor.getLastError());
+
+    // The candidate at 0x76 was skipped; the reading comes from 0x77.
+    TEST_ASSERT_TRUE(sensor.read());
+    const MockI2cBus::Call& last = mock.calls.back();
+    TEST_ASSERT_EQUAL_UINT8(kRegData, last.reg);
+    TEST_ASSERT_EQUAL_UINT8(kAddrSecondary, last.address);
 }
 
 // --------------------------------------------------------------------------
@@ -695,6 +826,56 @@ static void test_compensation_extreme_legal_raws_vector(void)
 }
 
 // --------------------------------------------------------------------------
+// dig_P1 = 0 division-by-zero guard (review fix B7): the reference
+// algorithm's divisor var1 becomes ((1<<47) + var1) * 0 >> 33 = 0, and the
+// datasheet behavior is to return 0 instead of dividing
+// --------------------------------------------------------------------------
+static void test_compensate_pressure_zero_digp1_returns_zero(void)
+{
+    Bme280Sensor::Calibration cal = kRefCal;
+    cal.digP1 = 0;
+
+    TEST_ASSERT_EQUAL_UINT32(
+        0u, Bme280Sensor::compensatePressure(415148, cal, kRefTFine));
+}
+
+// --------------------------------------------------------------------------
+// dig_H3 ≠ 0 humidity vector (review fix C1) — every other set has H3=0,
+// leaving the ((v*H3)>>11) term invisible. kRefCal with dig_H3=50,
+// adc_H=32768, t_fine=128422; expected output derived by hand-running the
+// Bosch int32 reference routine:
+//   v      = 128422 - 76800 = 51622
+//   a      = ((32768<<14) - (315<<20) - 50*51622 + 16384) >> 15 = 6225
+//   inner  = ((51622*50)>>11) + 32768 = 1260 + 32768 = 34028  (the H3 term;
+//            32768 exactly when H3 = 0)
+//   b      = ((((((51622*30)>>10)*34028)>>10) + 2097152)*362 + 8192) >> 14
+//          = 47446
+//   v      = 6225*47446 - 2974879 (H1 correction) = 292376471
+//   H      = 292376471 >> 12 = 71380 → 69.707 %RH  (71319 with H3 = 0)
+// --------------------------------------------------------------------------
+static void test_compensation_humidity_nonzero_digh3_vector(void)
+{
+    Bme280Sensor::Calibration cal = kRefCal;
+    cal.digH3 = 50;
+
+    TEST_ASSERT_EQUAL_UINT32(
+        71380u, Bme280Sensor::compensateHumidity(32768, cal, kRefTFine));
+}
+
+// --------------------------------------------------------------------------
+// Humidity lower clamp (review fix C4): adc_H = 0 over kRefCal drives the
+// intermediate negative (Bosch reference over kRefCal at t_fine=128422:
+// a = (0 - 315<<20 - 50*51622 + 16384)>>15 = -10159, b = 47405, product
+// minus H1 correction ≈ -4.9e8 < 0), so the reference algorithm's own
+// lower clamp must yield exactly 0
+// --------------------------------------------------------------------------
+static void test_compensation_humidity_lower_clamp_at_zero_adch(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(
+        0u, Bme280Sensor::compensateHumidity(0, kRefCal, kRefTFine));
+}
+
+// --------------------------------------------------------------------------
 // End-to-end read of the negative-temperature raw block: register
 // assembly + compensation + float conversion through the full read() path
 // --------------------------------------------------------------------------
@@ -707,6 +888,30 @@ static void test_read_negative_temperature_block(void)
     TEST_ASSERT_FLOAT_WITHIN(0.005f, -9.61f, f.sensor.getTemperature());
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 67.064453f, f.sensor.getHumidity());
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 953.71309f, f.sensor.getPressure());
+}
+
+// --------------------------------------------------------------------------
+// End-to-end read with NEGATIVE dig_H4/H5/H6 (review fix C2): calibration
+// parsing (int8_t sign-extension of the split-nibble/H6 top bytes) +
+// compensation through the full read() path — derivation at
+// kCalibBlock2Negative above. T/P calibration is unchanged, so they keep
+// the reference expectations
+// --------------------------------------------------------------------------
+static void test_read_negative_h4_h5_h6_calibration(void)
+{
+    MockI2cBus mock;
+    Bme280Sensor sensor(mock);
+    scriptBme280(mock, kAddrSecondary);
+    mock.setRegisters(kAddrSecondary, 0xE1, kCalibBlock2Negative);
+    mock.setRegisters(kAddrSecondary, kRegData, kDataBlockSmallHumidity);
+
+    TEST_ASSERT_TRUE(sensor.read());
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, kExpectedHumidityNegativeCal,
+                             sensor.getHumidity());
+    TEST_ASSERT_FLOAT_WITHIN(0.005f, kExpectedTemperature,
+                             sensor.getTemperature());
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, kExpectedPressure,
+                             sensor.getPressure());
 }
 
 // ==========================================================================
@@ -864,7 +1069,7 @@ static void test_mock_env_exhausted_script_repeats_last_step(void)
 // --------------------------------------------------------------------------
 // Helpers keep values/validity/error coherent: a failed step carries its
 // error and leaves values alone; a successful step always resets error 0.
-// Unscripted reads succeed with the placeholder values (0.0), matching the
+// Unscripted reads succeed with the NaN placeholder values, matching the
 // real driver's before-first-read contract
 // --------------------------------------------------------------------------
 static void test_mock_env_helpers_keep_state_coherent(void)
@@ -872,27 +1077,79 @@ static void test_mock_env_helpers_keep_state_coherent(void)
     MockEnvironmentalSensor unscripted;
     TEST_ASSERT_TRUE(unscripted.read());
     TEST_ASSERT_EQUAL_INT(0, unscripted.getLastError());
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, unscripted.getTemperature());
+    TEST_ASSERT_TRUE(std::isnan(unscripted.getTemperature()));
 
     MockEnvironmentalSensor mock;
     mock.scriptFailedRead(1);  // e.g. sensorless boot
     mock.scriptSuccessfulRead(18.0f, 55.0f, 990.0f);
     TEST_ASSERT_FALSE(mock.read());
     TEST_ASSERT_EQUAL_INT(1, mock.getLastError());
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, mock.getTemperature());  // still placeholder
+    TEST_ASSERT_TRUE(std::isnan(mock.getTemperature()));  // still placeholder
     TEST_ASSERT_TRUE(mock.read());
     TEST_ASSERT_EQUAL_INT(0, mock.getLastError());
     TEST_ASSERT_EQUAL_FLOAT(18.0f, mock.getTemperature());
+}
 
-    // initialize()/isAvailable() are scripted fields with call counters and
-    // never touch the error code (interface convention).
+// --------------------------------------------------------------------------
+// initialize()/isAvailable() error-code discipline (review fix A2, matching
+// the real driver and the interface contract): initialize() owns its own
+// error reporting — a scripted failure sets error 1 ("not found", the
+// mock's semantic for a false initializeResult), success resets 0 — while
+// the isAvailable() probe never touches the error code in either direction
+// --------------------------------------------------------------------------
+static void test_mock_env_initialize_reports_error_available_is_neutral(void)
+{
+    MockEnvironmentalSensor mock;
+
     mock.initializeResult = false;
-    mock.isAvailableResult = false;
     TEST_ASSERT_FALSE(mock.initialize());
+    TEST_ASSERT_EQUAL_INT(1, mock.getLastError());
+
+    mock.isAvailableResult = false;
     TEST_ASSERT_FALSE(mock.isAvailable());
+    TEST_ASSERT_EQUAL_INT(1, mock.getLastError());  // untouched by the probe
+
+    mock.initializeResult = true;
+    TEST_ASSERT_TRUE(mock.initialize());
     TEST_ASSERT_EQUAL_INT(0, mock.getLastError());
-    TEST_ASSERT_EQUAL(1, mock.initializeCalls);
-    TEST_ASSERT_EQUAL(1, mock.isAvailableCalls);
+
+    mock.isAvailableResult = true;
+    TEST_ASSERT_TRUE(mock.isAvailable());
+    TEST_ASSERT_EQUAL_INT(0, mock.getLastError());  // untouched by the probe
+
+    TEST_ASSERT_EQUAL(2, mock.initializeCalls);
+    TEST_ASSERT_EQUAL(2, mock.isAvailableCalls);
+}
+
+// --------------------------------------------------------------------------
+// LockedEnvironmentalSensor delegates the full interface unchanged (review
+// fix B9; LockedWaterPump precedent): every method forwards to the wrapped
+// sensor, with distinct per-getter values so a transposed forward fails
+// --------------------------------------------------------------------------
+static void test_locked_env_wrapper_delegates_all_methods(void)
+{
+    MockEnvironmentalSensor inner;
+    LockedEnvironmentalSensor sensor(inner);
+    inner.scriptSuccessfulRead(21.5f, 40.0f, 1013.2f);
+    inner.scriptFailedRead(2);
+
+    TEST_ASSERT_TRUE(sensor.initialize());
+    TEST_ASSERT_TRUE(sensor.isAvailable());
+
+    TEST_ASSERT_TRUE(sensor.read());
+    TEST_ASSERT_EQUAL_INT(0, sensor.getLastError());
+    TEST_ASSERT_EQUAL_FLOAT(21.5f, sensor.getTemperature());
+    TEST_ASSERT_EQUAL_FLOAT(40.0f, sensor.getHumidity());
+    TEST_ASSERT_EQUAL_FLOAT(1013.2f, sensor.getPressure());
+
+    TEST_ASSERT_FALSE(sensor.read());
+    TEST_ASSERT_EQUAL_INT(2, sensor.getLastError());
+    TEST_ASSERT_EQUAL_FLOAT(21.5f, sensor.getTemperature());  // last-good
+
+    // Every call reached the wrapped sensor exactly once per invocation.
+    TEST_ASSERT_EQUAL(1, inner.initializeCalls);
+    TEST_ASSERT_EQUAL(1, inner.isAvailableCalls);
+    TEST_ASSERT_EQUAL(2, inner.readCalls);
 }
 
 void run_bme280_tests(void)
@@ -907,30 +1164,40 @@ void run_bme280_tests(void)
     RUN_TEST(test_read_initializes_lazily);
     // US2 (T014)
     RUN_TEST(test_initialize_absent_sensor_fails_error1);
+    RUN_TEST(test_initialize_calibration_read_error_sets_error2_then_recovers);
+    RUN_TEST(test_initialize_profile_write_error_sets_error2_stays_uninitialized);
     RUN_TEST(test_read_bus_error_keeps_last_good_and_sets_error2);
     RUN_TEST(test_read_recovers_after_bus_error_with_reprobe);
     RUN_TEST(test_recovery_rereads_calibration_of_replaced_module);
     RUN_TEST(test_boot_sensorless_then_attach_recovers);
     RUN_TEST(test_is_available_reads_chip_id_and_leaves_error_untouched);
     RUN_TEST(test_is_available_false_on_loss_leaves_error_untouched);
+    RUN_TEST(test_is_available_false_on_foreign_chip_id_after_init);
     RUN_TEST(test_read_extreme_raws_never_produce_nan);
     // US3 (T017)
     RUN_TEST(test_device_at_primary_delivers_reading);
     RUN_TEST(test_device_at_secondary_delivers_reading);
     RUN_TEST(test_wrong_chip_id_at_primary_selects_secondary);
+    RUN_TEST(test_chip_id_read_error_at_primary_continues_to_secondary);
     RUN_TEST(test_wrong_chip_id_everywhere_fails_error1);
     RUN_TEST(test_loss_then_reappearance_at_other_address_recovers);
     // US4 (T018)
     RUN_TEST(test_compensation_worked_example_integer_outputs);
     RUN_TEST(test_compensation_negative_temperature_vector);
     RUN_TEST(test_compensation_extreme_legal_raws_vector);
+    RUN_TEST(test_compensate_pressure_zero_digp1_returns_zero);
+    RUN_TEST(test_compensation_humidity_nonzero_digh3_vector);
+    RUN_TEST(test_compensation_humidity_lower_clamp_at_zero_adch);
     RUN_TEST(test_read_negative_temperature_block);
+    RUN_TEST(test_read_negative_h4_h5_h6_calibration);
     // Sensor-task log policy (T015)
     RUN_TEST(test_log_policy_warns_once_then_bounded_repeats);
     RUN_TEST(test_log_policy_warns_on_recovery_then_reads);
     RUN_TEST(test_log_policy_long_outage_stays_bounded_and_never_stops);
-    // MockEnvironmentalSensor (T020)
+    // MockEnvironmentalSensor (T020) + LockedEnvironmentalSensor
     RUN_TEST(test_mock_env_scripted_sequence_observed_exactly);
     RUN_TEST(test_mock_env_exhausted_script_repeats_last_step);
     RUN_TEST(test_mock_env_helpers_keep_state_coherent);
+    RUN_TEST(test_mock_env_initialize_reports_error_available_is_neutral);
+    RUN_TEST(test_locked_env_wrapper_delegates_all_methods);
 }

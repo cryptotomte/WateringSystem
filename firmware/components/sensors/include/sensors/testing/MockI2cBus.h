@@ -69,13 +69,14 @@ public:
     }
 
     /// Script consecutive register bytes starting at @p startReg (the device
-    /// is added implicitly if absent; the block must fit below 0x100).
+    /// is added implicitly if absent; indices wrap at 0xFF, matching
+    /// readRegisters()).
     void setRegisters(uint8_t address7, uint8_t startReg,
                       const std::vector<uint8_t>& values)
     {
         auto& map = devices_[address7];
         for (size_t i = 0; i < values.size(); ++i) {
-            map[startReg + i] = values[i];
+            map[static_cast<uint8_t>(startReg + i)] = values[i];
         }
     }
 

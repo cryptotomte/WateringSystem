@@ -23,9 +23,11 @@ consumers must distinguish (SC-006: console separates "absent" from "read failed
 |------|---------|---------------|--------|
 | 0 | OK | last operation succeeded | legacy 0 |
 | 1 | Sensor not found | probe of 0x76 and 0x77 finds no device ACK, or a responding device fails the chip-identity check (logged distinctly) | legacy 1 ("sensor not found") |
-| 2 | Read failed | bus/communication error during a data read, or compensation yields NaN | legacy 2 ("read failed / NaN") |
+| 2 | Read failed | bus/communication error during a data read, a mid-initialization bus failure after a device identified (calibration readout / sampling-profile write), or compensation yields NaN | legacy 2 ("read failed / NaN") |
 
-`isAvailable()` never modifies the error code (soil-sensor convention).
+The `isAvailable()` probe itself never modifies the error code; a lazy
+(re-)initialization triggered by `isAvailable()` owns its own error reporting
+(reports through `initialize()` — soil-sensor convention).
 
 ## BME280 register map (used subset)
 

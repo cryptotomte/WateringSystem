@@ -26,18 +26,25 @@ Contract:
 
 - **`initialize()`**: probes 0x76 then 0x77, verifies chip identity (0x60), reads
   calibration, writes the parity sampling profile (ctrl_hum → ctrl_meas → config,
-  data-model.md). Returns false with error 1 if no BME280 is found. Idempotent;
-  callers need not call it first — `read()`/`isAvailable()` initialize lazily
-  (parity).
+  data-model.md). Returns false with error 1 if no BME280 is found, and false with
+  error 2 on a mid-initialization bus failure after a device identified
+  (calibration readout / sampling-profile write) — the driver stays uninitialized
+  and the next attempt re-probes from scratch. Idempotent; callers need not call
+  it first — `read()`/`isAvailable()` initialize lazily (parity).
 - **`read()`**: burst-reads 0xF7–0xFE in one transaction, compensates T → P → H
   (t_fine ordering), converts to °C/%RH/hPa. Atomic: either all three getters are
-  refreshed, or the call fails (error 1 on lost/absent sensor, error 2 on bus
-  error or NaN) and the last-good values remain untouched. **Consumers gate on the
+  refreshed, or the call fails (error 1 when the lazy (re-)initialization finds no
+  sensor, error 2 on a bus error or NaN during the data read — an unplug mid-run
+  reports error 2 on the failing read, then error 1 from the next read's re-probe)
+  and the last-good values remain untouched. **Consumers gate on the
   read result, never on value plausibility.** Before the first successful read the
-  getters return meaningless placeholders. A bus error marks the driver
-  uninitialized → the next call re-probes both addresses (recovery, spec FR-004).
-- **`isAvailable()`**: real chip-ID read every call — never cached state. Does not
-  modify `getLastError()`.
+  getters return quiet-NaN placeholders (self-announcing). A bus error marks the
+  driver uninitialized → the next call re-probes both addresses (recovery, spec
+  FR-004).
+- **`isAvailable()`**: real chip-ID read every call — never cached state. The
+  probe itself never modifies `getLastError()`; a lazy (re-)initialization
+  triggered by `isAvailable()` owns its own error reporting (reports through
+  `initialize()`).
 - Exactly one bus attempt per operation; no automatic retry (recovery comes from
   the caller's poll cadence — same philosophy as the soil sensor).
 
@@ -87,8 +94,10 @@ Implements `II2cBus` over `driver/i2c_master.h` (new API — never the legacy
   **100 kHz** standard mode per device (spec FR-002).
 - `probe()` maps to `i2c_master_probe`; `readRegisters` to
   `i2c_master_transmit_receive`; `writeRegister` to `i2c_master_transmit`.
-  Finite timeouts (no infinite waits); errors logged at debug level and returned
-  as false — classification is `Bme280Sensor`'s job.
+  Finite timeouts (no infinite waits); failures returned as false — transaction
+  failures logged at debug level (expected NACKs) or warning level
+  (timeouts/unexpected errors), one-time infrastructure failures at error level —
+  classification is `Bme280Sensor`'s job.
 - **Bus sharing (spec FR-003)**: the one `EspI2cBus` instance is constructed in
   `app_main` (function-local static, established pattern) and passed to every
   I2C driver — PR-05's INA226 receives the same instance. No second bus creation

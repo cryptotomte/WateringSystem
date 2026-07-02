@@ -29,6 +29,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 
 #include "interfaces/IEnvironmentalSensor.h"
 #include "interfaces/II2cBus.h"
@@ -171,13 +172,19 @@ private:
     II2cBus& bus_;
     uint8_t address_ = 0;  ///< resolved device address (valid when initialized_)
     bool initialized_ = false;
+    /// WARN once per consecutive not-found run (lazy re-init retries every
+    /// poll); repeats are demoted to debug. Reset on successful init.
+    bool initFailureLogged_ = false;
     int lastError_ = 0;
     Calibration cal_{};
 
     // Last-good reading (published only by a fully successful read()).
-    float temperature_ = 0.0f;
-    float humidity_ = 0.0f;
-    float pressure_ = 0.0f;
+    // NaN until the first successful read — self-announcing for consumers
+    // that forget to gate on read()/getLastError(); physically plausible
+    // 0.0 placeholders would silently pass for real readings.
+    float temperature_ = std::numeric_limits<float>::quiet_NaN();
+    float humidity_ = std::numeric_limits<float>::quiet_NaN();
+    float pressure_ = std::numeric_limits<float>::quiet_NaN();
 };
 
 #endif /* WATERINGSYSTEM_SENSORS_BME280SENSOR_H */

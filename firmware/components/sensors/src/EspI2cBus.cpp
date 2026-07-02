@@ -75,6 +75,12 @@ bool EspI2cBus::ensureBus()
 
 void* EspI2cBus::deviceHandle(uint8_t address7)
 {
+    // Guards the lazy bus creation and the handle table against concurrent
+    // first use from multiple tasks (sensor task + console REPL; INA226 in
+    // PR-05). Transactions themselves are NOT under this lock — the
+    // i2c_master driver's per-transaction bus lock covers those.
+    std::lock_guard<std::mutex> lock(mutex_);
+
     if (!ensureBus()) {
         return nullptr;
     }
@@ -101,7 +107,9 @@ void* EspI2cBus::deviceHandle(uint8_t address7)
     const esp_err_t err = i2c_master_bus_add_device(
         static_cast<i2c_master_bus_handle_t>(busHandle_), &dev_config, &dev);
     if (err != ESP_OK) {
-        ESP_LOGD(TAG, "i2c_master_bus_add_device(0x%02x) failed: %s",
+        // Infrastructure fault (never an expected runtime condition —
+        // same class as ensureBus()/table-full above).
+        ESP_LOGE(TAG, "i2c_master_bus_add_device(0x%02x) failed: %s",
                  address7, esp_err_to_name(err));
         return nullptr;
     }
@@ -111,16 +119,28 @@ void* EspI2cBus::deviceHandle(uint8_t address7)
 
 bool EspI2cBus::probe(uint8_t address7)
 {
-    if (!ensureBus()) {
-        return false;
+    {
+        // ensureBus() mutates busHandle_ — same lock as deviceHandle().
+        // Once created the handle never changes, so the transaction below
+        // can safely run outside the lock (driver bus lock covers it).
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!ensureBus()) {
+            return false;
+        }
     }
     const esp_err_t err = i2c_master_probe(
         static_cast<i2c_master_bus_handle_t>(busHandle_), address7,
         kTimeoutMs);
-    if (err != ESP_OK) {
-        // Expected for absent devices — debug level (classification is the
-        // sensor driver's job, contracts/interfaces.md).
+    if (err == ESP_ERR_NOT_FOUND) {
+        // NACK — expected for absent devices, debug level (classification
+        // is the sensor driver's job, contracts/interfaces.md).
         ESP_LOGD(TAG, "probe(0x%02x): %s", address7, esp_err_to_name(err));
+        return false;
+    }
+    if (err != ESP_OK) {
+        // Timeout/bus fault — a wedged bus must be distinguishable from a
+        // device-absent NACK in the field logs.
+        ESP_LOGW(TAG, "probe(0x%02x): %s", address7, esp_err_to_name(err));
         return false;
     }
     return true;
@@ -140,8 +160,17 @@ bool EspI2cBus::readRegisters(uint8_t address7, uint8_t startReg,
     const esp_err_t err =
         i2c_master_transmit_receive(dev, &startReg, 1, buf, len, kTimeoutMs);
     if (err != ESP_OK) {
-        ESP_LOGD(TAG, "readRegisters(0x%02x, 0x%02x, %u): %s", address7,
-                 startReg, static_cast<unsigned>(len), esp_err_to_name(err));
+        // NACK (device unplugged) stays at debug; a timeout/unexpected
+        // error means a wedged bus and must be visible at default level.
+        if (err == ESP_ERR_NOT_FOUND) {
+            ESP_LOGD(TAG, "readRegisters(0x%02x, 0x%02x, %u): %s", address7,
+                     startReg, static_cast<unsigned>(len),
+                     esp_err_to_name(err));
+        } else {
+            ESP_LOGW(TAG, "readRegisters(0x%02x, 0x%02x, %u): %s", address7,
+                     startReg, static_cast<unsigned>(len),
+                     esp_err_to_name(err));
+        }
         return false;
     }
     return true;
@@ -158,8 +187,15 @@ bool EspI2cBus::writeRegister(uint8_t address7, uint8_t reg, uint8_t value)
     const esp_err_t err =
         i2c_master_transmit(dev, payload, sizeof(payload), kTimeoutMs);
     if (err != ESP_OK) {
-        ESP_LOGD(TAG, "writeRegister(0x%02x, 0x%02x, 0x%02x): %s", address7,
-                 reg, value, esp_err_to_name(err));
+        // Same classification as readRegisters(): expected NACK at debug,
+        // timeout/unexpected errors at warning.
+        if (err == ESP_ERR_NOT_FOUND) {
+            ESP_LOGD(TAG, "writeRegister(0x%02x, 0x%02x, 0x%02x): %s",
+                     address7, reg, value, esp_err_to_name(err));
+        } else {
+            ESP_LOGW(TAG, "writeRegister(0x%02x, 0x%02x, 0x%02x): %s",
+                     address7, reg, value, esp_err_to_name(err));
+        }
         return false;
     }
     return true;
