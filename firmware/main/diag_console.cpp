@@ -45,6 +45,13 @@
  *
  *   env                                 # one read(); T/RH/P or ERROR <code>
  *
+ * Level sensor command (HIL verification path for feature 006; console
+ * contract in specs/006-level-sensors-ina226/contracts/interfaces.md — the
+ * output distinguishes "not_yet_valid" from wet/dry, SC-005/FR-012, and
+ * shows the logical + raw state per sensor):
+ *
+ *   level                               # both sensors: logical + raw + validity
+ *
  * Handler exit codes follow the esp_console convention: 0 on OK, 1 on ERR.
  *
  * State is plain pointers/PODs set from app_main — no non-trivial static
@@ -67,6 +74,7 @@
 #include "interfaces/IConfigStore.h"
 #include "interfaces/IDataStorage.h"
 #include "interfaces/IEnvironmentalSensor.h"
+#include "interfaces/ILevelSensor.h"
 #include "interfaces/IModbusClient.h"
 #include "interfaces/ISoilSensor.h"
 #include "interfaces/IWaterPump.h"
@@ -101,6 +109,12 @@ IModbusClient *s_modbus = nullptr;
 // Environmental sensor (set from app_main; expected to be the
 // LockedEnvironmentalSensor decorator). Same trivial-initialization rule.
 IEnvironmentalSensor *s_env = nullptr;
+
+// Level sensors (set from app_main; expected to be the LockedLevelSensor
+// decorators — the handler runs on the REPL task, concurrently with the
+// main-loop update()). Same trivial-initialization rule.
+ILevelSensor *s_level_low = nullptr;
+ILevelSensor *s_level_high = nullptr;
 
 const char *stop_reason_str(StopReason reason)
 {
@@ -647,6 +661,42 @@ int env_cmd(int argc, char **argv)
     return 0;
 }
 
+// --- level command (feature 006 HIL verification path) -------------------
+
+/// One sensor's console word: "not_yet_valid" is a DISTINCT state, never
+/// conflated with wet/dry (SC-005/FR-012 — a settling or warming-up sensor
+/// must not read as an empty or full reservoir).
+const char *level_state_str(ILevelSensor &sensor)
+{
+    // isValid() and isWaterPresent() are separate locked calls; a main-loop
+    // update() interleaving between them can only make a just-valid reading
+    // report not_yet_valid or vice versa (benign cross-lock race,
+    // TODO(PR-11) snapshot helper in LockedLevelSensor.h).
+    if (!sensor.isValid()) {
+        return "not_yet_valid";
+    }
+    return sensor.isWaterPresent() ? "water" : "dry";
+}
+
+/// `level`: both sensors' logical + raw + validity; thin wrapper, no logic.
+/// The raw pin level is diagnostics (polarity NOT absorbed — see board.h).
+int level_cmd(int argc, char **argv)
+{
+    (void)argv;
+    if (argc != 1) {
+        printf("ERR usage: level\n");
+        return 1;
+    }
+    if (s_level_low == nullptr || s_level_high == nullptr) {
+        printf("ERR level sensors not available\n");
+        return 1;
+    }
+    printf("OK low=%s (raw=%d) high=%s (raw=%d)\n",
+           level_state_str(*s_level_low), s_level_low->rawState() ? 1 : 0,
+           level_state_str(*s_level_high), s_level_high->rawState() ? 1 : 0);
+    return 0;
+}
+
 }  // namespace
 
 void diag_console_register_pumps(IWaterPump& plant, IWaterPump& reservoir)
@@ -670,6 +720,12 @@ void diag_console_register_soil(ISoilSensor& sensor, IModbusClient& client)
 void diag_console_register_env(IEnvironmentalSensor& sensor)
 {
     s_env = &sensor;
+}
+
+void diag_console_register_level(ILevelSensor& low, ILevelSensor& high)
+{
+    s_level_low = &low;
+    s_level_high = &high;
 }
 
 esp_err_t diag_console_start(void)
@@ -815,6 +871,21 @@ esp_err_t diag_console_start(void)
         .context = nullptr,
     };
     err = esp_console_cmd_register(&cmd_env);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    const esp_console_cmd_t cmd_level = {
+        .command = "level",
+        .help = "level — both level sensors: logical + raw state "
+                "(not_yet_valid distinct from water/dry)",
+        .hint = nullptr,
+        .func = &level_cmd,
+        .argtable = nullptr,
+        .func_w_context = nullptr,
+        .context = nullptr,
+    };
+    err = esp_console_cmd_register(&cmd_level);
     if (err != ESP_OK) {
         return err;
     }

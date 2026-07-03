@@ -208,7 +208,7 @@ Two board revisions exist, selected via Kconfig (`main/Kconfig.projbuild`):
   Rev2 pins are provisional until hardware sync 1 (`TODO(SYNC1)` markers).
 
 All pins and polarity/feature flags come from `board/board.h`
-(`BOARD_PIN_*`, `BOARD_HAS_RS485_DE`, `BOARD_LEVEL_SENSOR_ACTIVE_LOW`,
+(`BOARD_PIN_*`, `BOARD_HAS_RS485_DE`, `BOARD_LEVEL_ACTIVE_LOW`,
 `BOARD_HAS_INA226`, `BOARD_NAME`). Never hard-code GPIO numbers elsewhere.
 Board-conditional code uses `#if CONFIG_BOARD_REV2` / `#if BOARD_HAS_INA226`.
 

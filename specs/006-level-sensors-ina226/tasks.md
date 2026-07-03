@@ -17,24 +17,28 @@ app_main/diag_console/test-harness files.
 
 ## Phase 2: Foundational
 
-- [ ] T002 [P] Create `ILevelSensor` in `firmware/components/interfaces/include/interfaces/ILevelSensor.h` — update/isValid/isWaterPresent/rawState/notifyPowerOn, contract doc comments per contracts/interfaces.md (validity gating, polarity absorption, fail-direction notes)
-- [ ] T003 [P] Create `IPowerSensor` in `firmware/components/interfaces/include/interfaces/IPowerSensor.h` — established sensor validity family (initialize/read/isAvailable/getLastError 0/1/2, NaN-before-first-success getters: busVoltage/current/power)
-- [ ] T004 Extend `II2cBus` in `firmware/components/interfaces/include/interfaces/II2cBus.h`: new virtual `writeRegister16(addr7, reg, uint16_t)` (big-endian, ONE transaction, doc: required by INA226 config/cal writes) + non-virtual `readRegister16` helper over readRegisters; update the PR-05 delegation note to point at this resolution
-- [ ] T005 Implement `writeRegister16` in `firmware/components/sensors/src/EspI2cBus.cpp` + `include/sensors/EspI2cBus.h` (3-byte i2c_master_transmit, same lock/log discipline as existing methods)
-- [ ] T006 Extend `MockI2cBus` in `firmware/components/sensors/include/sensors/testing/MockI2cBus.h`: 16-bit writes recorded big-endian into the per-address byte map + call log; scripting outcomes for 16-bit writes; host test for the extension in `firmware/test_apps/host/main/test_ina226.cpp` (mock-level roundtrip)
-- [ ] T007 [P] Board flags in `firmware/components/board/include/board/board.h` per data-model.md table: `BOARD_HAS_RESERVOIR_PUMP` (rev1=1; rev2=0 + `BOARD_PIN_RESERVOIR_PUMP` REMOVED), `BOARD_PIN_LEVEL_LOW/HIGH` (32/33 both), `BOARD_LEVEL_ACTIVE_LOW` (0/1), `BOARD_LEVEL_DEBOUNCE_MS` (300), `BOARD_LEVEL_SETTLE_MS` (0/500), `BOARD_INA226_ADDR` (0x40 rev2 + address-map comment); flag-guard existing reservoir-pin sanity checks, add flag⇒pin consistency assert + level-pin distinctness asserts
+- [x] T002 [P] Create `ILevelSensor` in `firmware/components/interfaces/include/interfaces/ILevelSensor.h` — update/isValid/isWaterPresent/rawState/notifyPowerOn, contract doc comments per contracts/interfaces.md (validity gating, polarity absorption, fail-direction notes)
+- [x] T003 [P] Create `IPowerSensor` in `firmware/components/interfaces/include/interfaces/IPowerSensor.h` — established sensor validity family (initialize/read/isAvailable/getLastError 0/1/2, NaN-before-first-success getters: busVoltage/current/power)
+- [x] T004 Extend `II2cBus` in `firmware/components/interfaces/include/interfaces/II2cBus.h`: new virtual `writeRegister16(addr7, reg, uint16_t)` (big-endian, ONE transaction, doc: required by INA226 config/cal writes) + non-virtual `readRegister16` helper over readRegisters; update the PR-05 delegation note to point at this resolution
+- [x] T005 Implement `writeRegister16` in `firmware/components/sensors/src/EspI2cBus.cpp` + `include/sensors/EspI2cBus.h` (3-byte i2c_master_transmit, same lock/log discipline as existing methods)
+- [x] T006 Extend `MockI2cBus` in `firmware/components/sensors/include/sensors/testing/MockI2cBus.h`: 16-bit writes recorded big-endian into the per-address byte map + call log; scripting outcomes for 16-bit writes; host test for the extension in `firmware/test_apps/host/main/test_ina226.cpp` (mock-level roundtrip)
+- [x] T007 [P] Board flags in `firmware/components/board/include/board/board.h` per data-model.md table: `BOARD_HAS_RESERVOIR_PUMP` (rev1=1; rev2=0 + `BOARD_PIN_RESERVOIR_PUMP` REMOVED), `BOARD_PIN_LEVEL_LOW/HIGH` (32/33 both), `BOARD_LEVEL_ACTIVE_LOW` (0/1), `BOARD_LEVEL_DEBOUNCE_MS` (300), `BOARD_LEVEL_SETTLE_MS` (0/500), `BOARD_INA226_ADDR` (0x40 rev2 + address-map comment); flag-guard existing reservoir-pin sanity checks, add flag⇒pin consistency assert + level-pin distinctness asserts
 
 ## Phase 3: User Story 1 — Trustworthy water-level status (P1) 🎯 MVP
 
-- [ ] T008 [US1] Implement `DebouncedLevelSensor` (pure) in `firmware/components/sensors/include/sensors/DebouncedLevelSensor.h` + `src/DebouncedLevelSensor.cpp`: injected raw-input source + ITimeProvider; settle gating (notifyPowerOn per FW-3, CP1 decision A) → warm-up → tracking with stability-window debounce (flip restarts window); polarity from constructor parameter (board macro at wiring site); state machine per data-model.md
-- [ ] T009 [P] [US1] Host tests in `firmware/test_apps/host/main/test_level_sensor.cpp` (new suite `run_level_sensor_tests()`): debounce boundary (change only after window; flip restarts), warm-up not-yet-valid, settle gating (500 ms rev2 case incl. notifyPowerOn re-arm), polarity equivalence (same scenario both polarities → identical logical result), chatter → single transition
-- [ ] T010 [P] [US1] Implement `GpioLevelSensor` raw-input provider (target-only) in `firmware/components/sensors/include/sensors/GpioLevelSensor.h` + `src/GpioLevelSensor.cpp`: input + internal pull-up (both boards, R4), no logic; CMakeLists linux-exclusion
-- [ ] T011 [P] [US1] Implement `LockedLevelSensor` in `firmware/components/sensors/include/sensors/LockedLevelSensor.h` (per-call mutex decorator, established pattern + cross-call limitation note)
-- [ ] T012 [US1] `level` console command: `diag_console_register_level(ILevelSensor &low, ILevelSensor &high)` in `firmware/main/diag_console.h/.cpp` — thin wrapper; output distinguishes not-yet-valid from wet/dry, shows logical + raw per sensor
-- [ ] T013 [US1] Wire level sensors in `firmware/main/app_main.cpp`: two GpioLevelSensor + DebouncedLevelSensor (+Locked wrappers), polarity/settle from board macros, `notifyPowerOn()` at boot, `update()` calls in the 10 Hz main loop, console registration before start
+- [x] T008 [US1] Implement `DebouncedLevelSensor` (pure) in `firmware/components/sensors/include/sensors/DebouncedLevelSensor.h` + `src/DebouncedLevelSensor.cpp`: injected raw-input source + ITimeProvider; settle gating (notifyPowerOn per FW-3, CP1 decision A) → warm-up → tracking with stability-window debounce (flip restarts window); polarity from constructor parameter (board macro at wiring site); state machine per data-model.md
+- [x] T009 [P] [US1] Host tests in `firmware/test_apps/host/main/test_level_sensor.cpp` (new suite `run_level_sensor_tests()`): debounce boundary (change only after window; flip restarts), warm-up not-yet-valid, settle gating (500 ms rev2 case incl. notifyPowerOn re-arm), polarity equivalence (same scenario both polarities → identical logical result), chatter → single transition
+- [x] T010 [P] [US1] Implement `GpioLevelSensor` raw-input provider (target-only) in `firmware/components/sensors/include/sensors/GpioLevelSensor.h` + `src/GpioLevelSensor.cpp`: input + internal pull-up (both boards, R4), no logic; CMakeLists linux-exclusion
+- [x] T011 [P] [US1] Implement `LockedLevelSensor` in `firmware/components/sensors/include/sensors/LockedLevelSensor.h` (per-call mutex decorator, established pattern + cross-call limitation note)
+- [x] T012 [US1] `level` console command: `diag_console_register_level(ILevelSensor &low, ILevelSensor &high)` in `firmware/main/diag_console.h/.cpp` — thin wrapper; output distinguishes not-yet-valid from wet/dry, shows logical + raw per sensor
+- [x] T013 [US1] Wire level sensors in `firmware/main/app_main.cpp`: two GpioLevelSensor + DebouncedLevelSensor (+Locked wrappers), polarity/settle from board macros, `notifyPowerOn()` at boot, `update()` calls in the 10 Hz main loop, console registration before start
 
 ## Phase 4: User Story 2 — One firmware, one-pump and two-pump boards (P2)
 
+  > NOTE (implementer, Mission 1): T007 removed `BOARD_PIN_RESERVOIR_PUMP` from
+  > the rev2 board profile, so the REV2 TARGET BUILD IS EXPECTED RED until T014
+  > guards app_main's unconditional references (task-order artifact of the
+  > Mission 1/2 split). Host suite and rev1 target are unaffected.
 - [ ] T014 [US2] Capability-gate reservoir pump wiring in `firmware/main/app_main.cpp`: instance creation, boot force-OFF and any references under `#if BOARD_HAS_RESERVOIR_PUMP`; verify the force-off-first invariant reads correctly on both boards (rev2 forces off exactly the plant pump)
 - [ ] T015 [US2] Gate `pump reservoir` console registration in `firmware/main/diag_console.cpp` (compile-time absence on flag=0; `pump status` reports exactly the existing pumps)
 - [ ] T016 [P] [US2] Host tests for capability gating in `firmware/test_apps/host/main/test_level_sensor.cpp` or existing pump suite: whatever pump-wiring logic is host-reachable stays green on both configs; at minimum assert the board-header contract compiles both ways (a compile-time test: rev1 path references the pin, shared code does not) — plus regression: full existing pump suite untouched (SC-004)
@@ -50,7 +54,12 @@ app_main/diag_console/test-harness files.
 
 - [ ] T021 [P] [US4] Create `MockLevelSensor` in `firmware/components/sensors/include/sensors/testing/MockLevelSensor.h` with consistency helpers (`scriptValidState(present)`, `scriptInvalid()`); host tests proving all four PR-11 truth-table combinations expressible across two instances (incl. low-dry+high-wet) with coherent validity — the SC-006 consumer-style test
 - [ ] T022 [P] [US4] Fail-direction truth tests in `firmware/test_apps/host/main/test_level_sensor.cpp`: disconnected-input simulation (raw pulled HIGH) → rev1 config reads "water present", rev2 config reads "water absent" — checklist line 97 pinned per board with a comment citing the pump-topology safety rationale
-- [ ] T023 [US4] Register both new suites in `firmware/test_apps/host/main/CMakeLists.txt` + `test_main.cpp` (`run_level_sensor_tests`, `run_ina226_tests`)
+- [x] T023 [US4] Register both new suites in `firmware/test_apps/host/main/CMakeLists.txt` + `test_main.cpp` (`run_level_sensor_tests`, `run_ina226_tests`)
+  > NOTE (implementer, Mission 1): pulled forward and completed together with
+  > T006/T009 — both suite files must exist and be registered for the host app
+  > to build, so `run_level_sensor_tests` and `run_ina226_tests` were wired into
+  > `test_main.cpp`/`CMakeLists.txt` in Phase 2–3. T021/T022 later APPEND tests
+  > to these suites; no further registration work remains.
 
 ## Phase 7: Polish & Cross-Cutting
 

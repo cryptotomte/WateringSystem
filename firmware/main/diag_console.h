@@ -15,6 +15,7 @@
 #include "interfaces/IConfigStore.h"
 #include "interfaces/IDataStorage.h"
 #include "interfaces/IEnvironmentalSensor.h"
+#include "interfaces/ILevelSensor.h"
 #include "interfaces/IModbusClient.h"
 #include "interfaces/ISoilSensor.h"
 #include "interfaces/IWaterPump.h"
@@ -60,6 +61,20 @@ void diag_console_register_soil(ISoilSensor& sensor, IModbusClient& client);
  * registration.
  */
 void diag_console_register_env(IEnvironmentalSensor& sensor);
+
+/**
+ * @brief Register the two level sensors the `level` command operates on
+ *        (HIL verification path for feature 006).
+ *
+ * Pass the LockedLevelSensor decorators, never the raw sensors — the
+ * console handler runs on the REPL task, concurrently with the 10 Hz
+ * main-loop update(). Must be called before diag_console_start(); plain
+ * pointer registration.
+ *
+ * @param low  Low-mark sensor (BOARD_PIN_LEVEL_LOW).
+ * @param high High-mark sensor (BOARD_PIN_LEVEL_HIGH).
+ */
+void diag_console_register_level(ILevelSensor& low, ILevelSensor& high);
 
 /**
  * @brief Start the UART REPL (prompt "ws>") and register the commands.

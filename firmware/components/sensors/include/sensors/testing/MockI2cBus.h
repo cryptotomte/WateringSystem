@@ -10,8 +10,12 @@
  * address, queued error on register read/write; corrupt data is simply
  * scripted wrong register bytes), and assert on the recorded call log
  * (config bytes written in order, burst-read shape, re-probe on recovery).
- * Never compiled into target builds (only included from test code). No IDF
- * includes.
+ * Feature 006 (INA226) extends it with 16-bit writes: writeRegister16()
+ * records BIG-ENDIAN into the same per-address byte map (so byte-level
+ * assertions stay valid) and into the call log, and shares the write
+ * outcome queue with the 8-bit writes (one FIFO covers a mixed-width write
+ * sequence). Never compiled into target builds (only included from test
+ * code). No IDF includes.
  */
 
 #ifndef WATERINGSYSTEM_SENSORS_TESTING_MOCKI2CBUS_H
@@ -41,13 +45,14 @@ class MockI2cBus : public II2cBus {
 public:
     /// One recorded bus transaction (in `calls`, chronological).
     struct Call {
-        enum class Type { Probe, Read, Write };
+        enum class Type { Probe, Read, Write, Write16 };
         Type type;
         uint8_t address;
         uint8_t reg;    ///< startReg (reads) / register (writes); 0 for probes
-        size_t len;     ///< byte count (reads); 1 for writes; 0 for probes
-        uint8_t value;  ///< written value (writes); 0 otherwise
+        size_t len;     ///< byte count (reads); 1/2 for writes; 0 for probes
+        uint8_t value;  ///< written value (8-bit writes); 0 otherwise
         bool succeeded; ///< outcome reported to the caller
+        uint16_t value16 = 0;  ///< written value (16-bit writes); 0 otherwise
     };
 
     // Instrumentation (public, MockModbusClient style).
@@ -87,7 +92,10 @@ public:
      */
     void queueReadOutcome(bool ok) { readOutcomes_.push_back(ok); }
 
-    /// Same as queueReadOutcome() for writeRegister() calls.
+    /// Same as queueReadOutcome() for writeRegister()/writeRegister16()
+    /// calls — ONE shared FIFO covers both widths, in call order, so a
+    /// mixed-width write sequence (INA226 config + calibration) scripts
+    /// naturally.
     void queueWriteOutcome(bool ok) { writeOutcomes_.push_back(ok); }
 
     // -- II2cBus -------------------------------------------------------------
@@ -125,6 +133,27 @@ public:
             return false;
         }
         device->second[reg] = value;
+        call.succeeded = true;
+        calls.push_back(call);
+        return true;
+    }
+
+    bool writeRegister16(uint8_t address7, uint8_t reg,
+                         uint16_t value) override
+    {
+        Call call{Call::Type::Write16, address7, reg, 2, 0, false, value};
+        const auto device = devices_.find(address7);
+        if (device == devices_.end() || !nextOutcome(writeOutcomes_)) {
+            calls.push_back(call);
+            return false;
+        }
+        // BIG-ENDIAN into the per-address byte map, so byte-level
+        // assertions (and readRegisters()/readRegister16() round trips)
+        // stay valid. Indices wrap at 0xFF via the uint8_t cast — the same
+        // convention as setRegisters()/readRegisters().
+        device->second[reg] = static_cast<uint8_t>(value >> 8);
+        device->second[static_cast<uint8_t>(reg + 1)] =
+            static_cast<uint8_t>(value & 0xFF);
         call.succeeded = true;
         calls.push_back(call);
         return true;

@@ -31,9 +31,12 @@
 #include "actuators/GpioWaterPump.h"
 #include "actuators/LockedWaterPump.h"
 #include "sensors/Bme280Sensor.h"
+#include "sensors/DebouncedLevelSensor.h"
 #include "sensors/EspI2cBus.h"
 #include "sensors/EspModbusClient.h"
+#include "sensors/GpioLevelSensor.h"
 #include "sensors/LockedEnvironmentalSensor.h"
+#include "sensors/LockedLevelSensor.h"
 #include "sensors/LockedSoilSensor.h"
 #include "sensors/ModbusSoilSensor.h"
 #include "storage/LittleFsDataStorage.h"
@@ -221,11 +224,45 @@ extern "C" void app_main(void)
                  env_sensor.getLastError());
     }
 
+    // Reservoir level sensors (feature 006). Not safety-critical at boot:
+    // a failed GPIO init is logged and the system keeps running — the
+    // sensors report not-yet-valid/garbage-gated states and PR-11's
+    // fail-safe treats invalid as "do not act". Function-local statics
+    // after pumps_force_off() (boot fail-safe rule). Split per research
+    // R1: GpioLevelSensor is the raw pin read (input + pull-up, no logic);
+    // DebouncedLevelSensor holds ALL policy — polarity (FW-5), debounce
+    // and settle gating (FW-3) from the board macros. Wrapped in the
+    // mutex-serializing decorators: updated from this main loop at 10 Hz
+    // and read by the console REPL task (`level`), so EVERY access from
+    // here on goes through the wrappers.
+    static GpioLevelSensor level_low_input(BOARD_PIN_LEVEL_LOW);
+    static GpioLevelSensor level_high_input(BOARD_PIN_LEVEL_HIGH);
+    static DebouncedLevelSensor level_low_raw(
+        level_low_input, time_provider, BOARD_LEVEL_ACTIVE_LOW != 0,
+        BOARD_LEVEL_DEBOUNCE_MS, BOARD_LEVEL_SETTLE_MS);
+    static DebouncedLevelSensor level_high_raw(
+        level_high_input, time_provider, BOARD_LEVEL_ACTIVE_LOW != 0,
+        BOARD_LEVEL_DEBOUNCE_MS, BOARD_LEVEL_SETTLE_MS);
+    static LockedLevelSensor level_low(level_low_raw);
+    static LockedLevelSensor level_high(level_high_raw);
+
+    if (!level_low_input.initialize() || !level_high_input.initialize()) {
+        ESP_LOGE(TAG, "level sensor GPIO init failed — level readings "
+                 "unreliable");
+    }
+
+    // FW-3: the sensor rail is on from power-up (rail *control* arrives in
+    // PR-14) — arm the settle gate once at boot. On rev1 the settle window
+    // is 0 ms, so this only re-affirms the construction-time gating.
+    level_low.notifyPowerOn();
+    level_high.notifyPowerOn();
+
     // Serial diagnostic REPL (rig testing; contracts/serial-diagnostic.md).
     diag_console_register_pumps(plant, reservoir);
     diag_console_register_storage(config, storage);
     diag_console_register_soil(soil_sensor, modbus_client);
     diag_console_register_env(env_sensor);
+    diag_console_register_level(level_low, level_high);
     esp_err_t err = diag_console_start();
     if (err != ESP_OK) {
         // Console is a diagnostic aid, not a safety function: log and keep
@@ -238,11 +275,15 @@ extern "C" void app_main(void)
     // sensor failed init above — lazy re-init recovers later (parity).
     sensor_task_start(env_sensor);
 
-    // Main loop: poll pump enforcement at 10 Hz. update() applies the timed
-    // self-stop and the hard 300 s max-runtime cap.
+    // Main loop: poll pump enforcement and the level sensors at 10 Hz.
+    // Pump update() applies the timed self-stop and the hard 300 s
+    // max-runtime cap; level update() samples the raw pins and advances
+    // the settle/debounce state machines (~3 samples per 300 ms window).
     while (true) {
         plant.update();
         reservoir.update();
+        level_low.update();
+        level_high.update();
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
