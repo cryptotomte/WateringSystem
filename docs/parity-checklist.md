@@ -94,6 +94,12 @@ State machine (`src/main.cpp:492-552`, called every main-loop pass):
 - [ ] `[HOST]` Status query reads the level pins live and reports low/high/running (`src/main.cpp:649-665`)
 - [ ] `[HIL]` Level sensor inputs: low = GPIO 32, high = GPIO 33, configured with internal pull-ups (`src/main.cpp:37-38`, `231-233`)
 - [ ] `[HIL]` **Level sensor polarity — verify by measurement, not by parity.** The Arduino code *as it stands today* reads the sensors as active HIGH (water = HIGH: `src/main.cpp:504-506`, `567`, `651-656`). Note: PRD FR5 states the Arduino code reads active LOW — that described an earlier revision; the fix from the 2026-04-12 fix-branch is already merged on this branch. Polarity facts per FR5: XKC-Y26 OUT is active HIGH; rev1 (direct via TXS0108E, non-inverting) ⇒ GPIO active HIGH; rev2 (via 2N7002 inverter) ⇒ GPIO active LOW. **The checklist target is CORRECT behavior driven by board configuration (`BOARD_REV1_DEVKIT`/`BOARD_REV2` Kconfig), not bug-for-bug parity. Final polarity must be verified by measurement on the bench rig in Phase 1 and the result recorded here.**
+  > **REV1 BENCH MEASUREMENT RECORD (feature 006 HIL, checklist item A —
+  > DO NOT fill in from code or docs; measured values only):**
+  > - Water present at sensor → GPIO level measured: `____` (expected HIGH)
+  > - No water at sensor → GPIO level measured: `____` (expected LOW)
+  > - `level` console output matched the physical state: `____` (yes/no)
+  > - Measured by / date: `____`
 - [ ] `[HIL]` Pull-up + active-HIGH consequence on rev1: a disconnected/floating sensor reads HIGH = "water present", which keeps the fill pump off (fails toward "do not pump"). Confirm equivalent fail-direction on rev2 (inverted polarity ⇒ pull state must be re-chosen per board config). (`src/main.cpp:231-233`)
 
 ## 4. Web API
@@ -240,6 +246,41 @@ parity targets; each is the new contract behavior, host-tested in
   legacy has two unsynchronized readers on the same I2C device (main loop +
   web server); the port serializes every interface call through the mutex
   decorator — same pattern as the other Locked* wrappers (spec 005 FR-010).
+
+### Deliberate divergences in the ESP-IDF port (feature 006, PR-05)
+
+Intentional behavior changes from the Arduino level-sensor handling
+(section 3) plus the new single-pump capability and INA226 surface; each is
+the new contract behavior, host-tested in
+`firmware/test_apps/host/main/test_level_sensor.cpp` /
+`test_ina226.cpp` (contracts:
+`specs/006-level-sensors-ina226/contracts/interfaces.md`).
+
+- [ ] `[HOST]` **Stability-window debounce on the level inputs**: legacy
+  reads the bare pins every main-loop pass (`src/main.cpp:504-506`); the
+  port changes the reported logical state only after the raw input has held
+  a new value for `BOARD_LEVEL_DEBOUNCE_MS` (300 ms) — any flip restarts
+  the window, so chatter at the water line collapses to a single transition
+  (spec 006 FR-003/SC-005).
+- [ ] `[HOST]` **Explicit not-yet-valid state**: legacy has no validity
+  concept — a just-booted or just-powered sensor is read as-is; the port
+  gates readings behind settle time (FW-3: rev2 500 ms after power-on,
+  rev1 0) plus a debounce warm-up, and reports a DISTINCT not-yet-valid
+  state that consumers must never conflate with wet or dry (spec 006
+  FR-001/FR-004/SC-005; PR-11 treats invalid as "do not act").
+- [ ] `[HOST]` **INA226 identity check**: new capability, no legacy INA226
+  at all (section 9) — the driver verifies manufacturer ID (0xFE ==
+  0x5449) and die ID (0xFF == 0x2260) at initialization and rejects
+  foreign devices with a distinct error, mirroring the BME280 chip-ID
+  divergence above (spec 006 FR-009).
+- [ ] `[HOST]` **Reservoir pump capability flag**: legacy always compiles
+  both pumps; the port gates ALL reservoir-pump wiring (instance, boot
+  force-OFF, console registration) behind `BOARD_HAS_RESERVOIR_PUMP`
+  (rev1 = 1, rev2 = 0 — single-pump decision, master PRD FR4, final
+  2026-06-10). On rev2 the pump pin macro is REMOVED so unguarded
+  references fail the build; the boot invariant becomes "every pump that
+  EXISTS is forced OFF first" (spec 006 FR-006/FR-007; the reservoir
+  parity items in sections 2–3 remain rev1-only per section 9).
 
 ## 7. WiFi / network / time
 

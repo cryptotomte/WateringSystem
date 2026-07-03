@@ -10,8 +10,13 @@
  * Normative contract: specs/005-bme280-i2c/contracts/interfaces.md.
  *
  * This interface carries no BME280 knowledge — PR-05's INA226 driver reuses
- * it on the same bus instance (INA226 uses 16-bit register values; PR-05
- * may extend the interface or compose two 8-bit operations, its call).
+ * it on the same bus instance. PR-05 exercised the extension option its
+ * contract sanctioned ("may extend the interface or compose two 8-bit
+ * operations") and added the 16-bit register operations: writeRegister16()
+ * as a new virtual (the INA226's pointer + two data bytes must land in ONE
+ * transaction — not composable from single-byte writes) and readRegister16()
+ * as a non-virtual convenience over readRegisters() (feature 006,
+ * research.md R6; specs/006-level-sensors-ina226/contracts/interfaces.md).
  *
  * Part of the header-only `interfaces` component: no IDF includes allowed.
  */
@@ -23,8 +28,8 @@
 #include <cstdint>
 
 /**
- * @brief I2C master: probe + 8-bit register reads/writes, one transaction
- * per call.
+ * @brief I2C master: probe + 8/16-bit register reads/writes, one
+ * transaction per call.
  *
  * All addresses are 7-bit. Every method returns false on NACK, bus error
  * or timeout; there are NO retries at this layer — recovery policy belongs
@@ -74,6 +79,50 @@ public:
      */
     virtual bool writeRegister(uint8_t address7, uint8_t reg,
                                uint8_t value) = 0;
+
+    /**
+     * @brief Write one 16-bit register value, BIG-ENDIAN, in a single
+     * transaction (register pointer + MSB + LSB).
+     *
+     * Required by the INA226 configuration/calibration writes (feature
+     * 006): the device latches a 16-bit value per write transaction, so
+     * this is NOT composable from two writeRegister() calls. Same error
+     * semantics as writeRegister(): false on NACK/bus error/timeout, no
+     * retries at this layer.
+     *
+     * @param address7 7-bit device address.
+     * @param reg Register address.
+     * @param value Value to write; transmitted MSB first (big-endian).
+     * @return true if the device acknowledged the write.
+     */
+    virtual bool writeRegister16(uint8_t address7, uint8_t reg,
+                                 uint16_t value) = 0;
+
+    /**
+     * @brief Read one 16-bit register value, BIG-ENDIAN decoded.
+     *
+     * Non-virtual convenience implemented on the interface over
+     * readRegisters(..., 2) — a 16-bit read is already expressible as a
+     * 2-byte burst, so implementations provide nothing extra (feature 006,
+     * research.md R6). Exists for symmetry with writeRegister16() and
+     * call-site clarity in the INA226 driver.
+     *
+     * @param address7 7-bit device address.
+     * @param reg Register address.
+     * @param out Decoded value (MSB-first); defined only when the call
+     *            returns true.
+     * @return true if both bytes were read.
+     */
+    bool readRegister16(uint8_t address7, uint8_t reg, uint16_t& out)
+    {
+        uint8_t buf[2] = {0, 0};
+        if (!readRegisters(address7, reg, buf, sizeof(buf))) {
+            return false;
+        }
+        out = static_cast<uint16_t>((static_cast<uint16_t>(buf[0]) << 8) |
+                                    buf[1]);
+        return true;
+    }
 };
 
 #endif /* WATERINGSYSTEM_INTERFACES_II2CBUS_H */

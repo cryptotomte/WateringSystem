@@ -10,7 +10,12 @@
  *   pump <plant|reservoir> start <seconds>   # timed run; 1..300
  *   pump <plant|reservoir> stop
  *   pump <plant|reservoir> status
- *   pump status                              # both pumps
+ *   pump status                              # every existing pump
+ *
+ * The pump set is capability-aware (feature 006, FR-007): on boards with
+ * BOARD_HAS_RESERVOIR_PUMP == 0 (rev2, single-pump node) the reservoir
+ * slot is compiled out — `pump reservoir ...` is a usage error and
+ * `pump status` reports exactly one pump (PR-14 contract).
  *
  * Storage commands (HIL verification path for feature 003, quickstart.md
  * steps 2-4; thin wrappers — every handler is a direct interface call):
@@ -45,6 +50,19 @@
  *
  *   env                                 # one read(); T/RH/P or ERROR <code>
  *
+ * Level sensor command (HIL verification path for feature 006; console
+ * contract in specs/006-level-sensors-ina226/contracts/interfaces.md — the
+ * output distinguishes "not_yet_valid" from wet/dry, FR-001/FR-003/FR-012,
+ * and shows the logical + raw state per sensor):
+ *
+ *   level                               # both sensors: logical + raw + validity
+ *
+ * Power telemetry command (feature 006, BOARD_HAS_INA226 builds only; the
+ * PR-14 bring-up path — the failure output distinguishes error 1, sensor
+ * not found, from error 2, read failed):
+ *
+ *   power                               # one read(); V/I/P or ERROR <code>
+ *
  * Handler exit codes follow the esp_console convention: 0 on OK, 1 on ERR.
  *
  * State is plain pointers/PODs set from app_main — no non-trivial static
@@ -64,10 +82,13 @@
 
 #include "esp_console.h"
 
+#include "board/board.h"
 #include "interfaces/IConfigStore.h"
 #include "interfaces/IDataStorage.h"
 #include "interfaces/IEnvironmentalSensor.h"
+#include "interfaces/ILevelSensor.h"
 #include "interfaces/IModbusClient.h"
+#include "interfaces/IPowerSensor.h"
 #include "interfaces/ISoilSensor.h"
 #include "interfaces/IWaterPump.h"
 
@@ -81,11 +102,27 @@ struct PumpSlot {
     int lastStartedDurationS;
 };
 
-// Trivially initialized — safe before app_main (no static constructors).
-PumpSlot s_slots[2] = {
+// One slot per pump that EXISTS on this board (feature 006 capability
+// flag): single-pump boards compile the reservoir slot out entirely, so
+// `pump reservoir ...` is rejected as usage (the name matches no slot) and
+// `pump status` iterates exactly the existing pumps. Trivially
+// initialized — safe before app_main (no static constructors).
+PumpSlot s_slots[] = {
     {"plant", nullptr, 0},
+#if BOARD_HAS_RESERVOIR_PUMP
     {"reservoir", nullptr, 0},
+#endif
 };
+
+/// Pump command grammar for this board (usage + help text stay truthful:
+/// a rev2 operator is never offered a `reservoir` word that cannot exist).
+#if BOARD_HAS_RESERVOIR_PUMP
+constexpr char kPumpHelp[] =
+    "pump <plant|reservoir> <start <seconds>|stop|status> | pump status";
+#else
+constexpr char kPumpHelp[] =
+    "pump <plant> <start <seconds>|stop|status> | pump status";
+#endif
 
 // Storage instances (set from app_main; expected to be the Locked*
 // decorators — the handlers run on the REPL task, FR-013). Trivially
@@ -101,6 +138,19 @@ IModbusClient *s_modbus = nullptr;
 // Environmental sensor (set from app_main; expected to be the
 // LockedEnvironmentalSensor decorator). Same trivial-initialization rule.
 IEnvironmentalSensor *s_env = nullptr;
+
+// Level sensors (set from app_main; expected to be the LockedLevelSensor
+// decorators — the handler runs on the REPL task, concurrently with the
+// main-loop update()). Same trivial-initialization rule.
+ILevelSensor *s_level_low = nullptr;
+ILevelSensor *s_level_high = nullptr;
+
+#if BOARD_HAS_INA226
+// Power sensor (set from app_main; expected to be the LockedPowerSensor
+// decorator). Same trivial-initialization rule. Compiled out together
+// with the `power` command on boards without an INA226.
+IPowerSensor *s_power = nullptr;
+#endif
 
 const char *stop_reason_str(StopReason reason)
 {
@@ -133,8 +183,7 @@ void print_status(const PumpSlot &slot)
 
 int print_usage(void)
 {
-    printf("ERR usage: pump <plant|reservoir> <start <seconds>|stop|status> "
-           "| pump status\n");
+    printf("ERR usage: %s\n", kPumpHelp);
     return 1;
 }
 
@@ -647,13 +696,103 @@ int env_cmd(int argc, char **argv)
     return 0;
 }
 
+// --- level command (feature 006 HIL verification path) -------------------
+
+/// One sensor's console word: "not_yet_valid" is a DISTINCT state, never
+/// conflated with wet/dry (FR-001/FR-003/FR-012 — a settling or warming-up
+/// sensor must not read as an empty or full reservoir).
+const char *level_state_str(ILevelSensor &sensor)
+{
+    // isValid() and isWaterPresent() are separate locked calls; a main-loop
+    // update() interleaving between them can only make a just-valid reading
+    // report not_yet_valid, or a reading that lost validity in the gap
+    // print "dry" — benign either way, because isWaterPresent() returns
+    // false whenever invalid (ILevelSensor contract): never a stale or
+    // phantom "water". One-poll diagnostic glitch only; TODO(PR-11):
+    // migrate to the snapshot helper in LockedLevelSensor.h (PR-14 keeps
+    // relying on this console path).
+    if (!sensor.isValid()) {
+        return "not_yet_valid";
+    }
+    return sensor.isWaterPresent() ? "water" : "dry";
+}
+
+/// `level`: both sensors' logical + raw + validity; thin wrapper, no logic.
+/// The raw pin level is diagnostics (polarity NOT absorbed — see board.h).
+int level_cmd(int argc, char **argv)
+{
+    (void)argv;
+    if (argc != 1) {
+        printf("ERR usage: level\n");
+        return 1;
+    }
+    if (s_level_low == nullptr || s_level_high == nullptr) {
+        printf("ERR level sensors not available\n");
+        return 1;
+    }
+    printf("OK low=%s (raw=%d) high=%s (raw=%d)\n",
+           level_state_str(*s_level_low), s_level_low->rawState() ? 1 : 0,
+           level_state_str(*s_level_high), s_level_high->rawState() ? 1 : 0);
+    return 0;
+}
+
+#if BOARD_HAS_INA226
+
+// --- power command (feature 006, PR-14 bring-up path) ---------------------
+
+/// `power`: one read() through the locked sensor; thin wrapper, no logic.
+/// Failure output is the binding contract format `ERROR <code>` with a
+/// hint distinguishing error 1 (sensor not found — no ACK at 0x40 or a
+/// foreign device failed the identity check) from error 2 (read failed —
+/// device identified but communication broke).
+int power_cmd(int argc, char **argv)
+{
+    (void)argv;
+    if (argc != 1) {
+        printf("ERR usage: power\n");
+        return 1;
+    }
+    if (s_power == nullptr) {
+        printf("ERR power sensor not available\n");
+        return 1;
+    }
+    if (!s_power->read()) {
+        // read() and getLastError() are separate locked calls; when
+        // PR-09/PR-11 add readers an interleaving read can reset the
+        // error to 0 between them (benign cross-lock race, TODO(PR-11)
+        // snapshot helper in LockedPowerSensor.h) — hint accordingly.
+        const int error = s_power->getLastError();
+        const char *hint = (error == 1)   ? "sensor not found"
+                           : (error == 2) ? "read failed"
+                           : (error == 0)
+                               ? "state changed concurrently - retry"
+                               : "unknown error";
+        printf("ERROR %d (%s)\n", error, hint);
+        return 1;
+    }
+    printf("OK bus=%.3f V current=%.3f A power=%.3f W\n",
+           static_cast<double>(s_power->getBusVoltage()),
+           static_cast<double>(s_power->getCurrent()),
+           static_cast<double>(s_power->getPower()));
+    return 0;
+}
+
+#endif  // BOARD_HAS_INA226
+
 }  // namespace
 
+#if BOARD_HAS_RESERVOIR_PUMP
 void diag_console_register_pumps(IWaterPump& plant, IWaterPump& reservoir)
 {
     s_slots[0].pump = &plant;
     s_slots[1].pump = &reservoir;
 }
+#else
+void diag_console_register_pumps(IWaterPump& plant)
+{
+    s_slots[0].pump = &plant;
+}
+#endif
 
 void diag_console_register_storage(IConfigStore& config, IDataStorage& storage)
 {
@@ -672,6 +811,19 @@ void diag_console_register_env(IEnvironmentalSensor& sensor)
     s_env = &sensor;
 }
 
+void diag_console_register_level(ILevelSensor& low, ILevelSensor& high)
+{
+    s_level_low = &low;
+    s_level_high = &high;
+}
+
+#if BOARD_HAS_INA226
+void diag_console_register_power(IPowerSensor& sensor)
+{
+    s_power = &sensor;
+}
+#endif
+
 esp_err_t diag_console_start(void)
 {
     esp_console_repl_t *repl = nullptr;
@@ -689,8 +841,7 @@ esp_err_t diag_console_start(void)
 
     const esp_console_cmd_t cmd = {
         .command = "pump",
-        .help = "pump <plant|reservoir> <start <seconds>|stop|status> "
-                "| pump status",
+        .help = kPumpHelp,
         .hint = nullptr,
         .func = &pump_cmd,
         .argtable = nullptr,
@@ -818,6 +969,38 @@ esp_err_t diag_console_start(void)
     if (err != ESP_OK) {
         return err;
     }
+
+    const esp_console_cmd_t cmd_level = {
+        .command = "level",
+        .help = "level — both level sensors: logical + raw state "
+                "(not_yet_valid distinct from water/dry)",
+        .hint = nullptr,
+        .func = &level_cmd,
+        .argtable = nullptr,
+        .func_w_context = nullptr,
+        .context = nullptr,
+    };
+    err = esp_console_cmd_register(&cmd_level);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+#if BOARD_HAS_INA226
+    const esp_console_cmd_t cmd_power = {
+        .command = "power",
+        .help = "power — one INA226 read (bus V / current A / power W or "
+                "error code)",
+        .hint = nullptr,
+        .func = &power_cmd,
+        .argtable = nullptr,
+        .func_w_context = nullptr,
+        .context = nullptr,
+    };
+    err = esp_console_cmd_register(&cmd_power);
+    if (err != ESP_OK) {
+        return err;
+    }
+#endif
 
     return esp_console_start_repl(repl);
 }

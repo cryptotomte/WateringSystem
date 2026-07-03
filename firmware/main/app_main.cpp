@@ -2,10 +2,13 @@
  * @file app_main.cpp
  * @brief WateringSystem firmware entry point.
  *
- * The very first action at boot is to force both pump outputs to a safe
- * OFF state. This fail-safe MUST stay first in app_main in all future
- * phases: pumps are always off after power-on, watchdog reset and OTA
- * restart, before any other initialization runs.
+ * The very first action at boot is to force every pump output that exists
+ * on this board to a safe OFF state. This fail-safe MUST stay first in
+ * app_main in all future phases: pumps are always off after power-on,
+ * watchdog reset and OTA restart, before any other initialization runs.
+ * The pump set is capability-aware (feature 006): rev1 has two pumps,
+ * rev2 is a single-pump node (BOARD_HAS_RESERVOIR_PUMP = 0) — the
+ * invariant "every pump that exists is OFF first" is unchanged.
  *
  * Corollary: no translation unit in this firmware may contain non-trivial
  * static/global constructors — they run before app_main and would execute
@@ -31,11 +34,20 @@
 #include "actuators/GpioWaterPump.h"
 #include "actuators/LockedWaterPump.h"
 #include "sensors/Bme280Sensor.h"
+#include "sensors/DebouncedLevelSensor.h"
 #include "sensors/EspI2cBus.h"
 #include "sensors/EspModbusClient.h"
+#include "sensors/GpioLevelSensor.h"
 #include "sensors/LockedEnvironmentalSensor.h"
+#include "sensors/LockedLevelSensor.h"
 #include "sensors/LockedSoilSensor.h"
 #include "sensors/ModbusSoilSensor.h"
+#if BOARD_HAS_INA226
+// INA226 headers only on equipped boards: Ina226Sensor.cpp is not in the
+// rev1 target build at all (sensors/CMakeLists.txt) — FR-011.
+#include "sensors/Ina226Sensor.h"
+#include "sensors/LockedPowerSensor.h"
+#endif
 #include "storage/LittleFsDataStorage.h"
 #include "storage/LockedConfigStore.h"
 #include "storage/LockedDataStorage.h"
@@ -48,7 +60,14 @@
 static const char *TAG = "app_main";
 
 /**
- * @brief Drive both pump GPIOs to a safe OFF state (output, level 0).
+ * @brief Drive every pump GPIO that exists on this board to a safe OFF
+ * state (output, level 0).
+ *
+ * Capability-aware (feature 006, FR-007): on two-pump boards (rev1) both
+ * the plant and the reservoir pump are forced off; on single-pump boards
+ * (BOARD_HAS_RESERVOIR_PUMP == 0, rev2) exactly the plant pump is — the
+ * reservoir pin does not exist there and any unguarded reference is a
+ * compile error (board.h enforcement pattern).
  *
  * Pumps are switched by N-channel MOSFET gates and are active high,
  * so level 0 means pump off.
@@ -59,9 +78,12 @@ static const char *TAG = "app_main";
  */
 static void pumps_force_off(void)
 {
+    uint64_t pump_mask = 1ULL << BOARD_PIN_MAIN_PUMP;
+#if BOARD_HAS_RESERVOIR_PUMP
+    pump_mask |= 1ULL << BOARD_PIN_RESERVOIR_PUMP;
+#endif
     const gpio_config_t pump_cfg = {
-        .pin_bit_mask = (1ULL << BOARD_PIN_MAIN_PUMP) |
-                        (1ULL << BOARD_PIN_RESERVOIR_PUMP),
+        .pin_bit_mask = pump_mask,
         .mode = GPIO_MODE_OUTPUT,
         .pull_up_en = GPIO_PULLUP_DISABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -75,11 +97,13 @@ static void pumps_force_off(void)
         ESP_LOGE(TAG, "FATAL: pump fail-safe init failed: %s", esp_err_to_name(err));
         abort();
     }
+#if BOARD_HAS_RESERVOIR_PUMP
     err = gpio_set_level(static_cast<gpio_num_t>(BOARD_PIN_RESERVOIR_PUMP), 0);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "FATAL: pump fail-safe init failed: %s", esp_err_to_name(err));
         abort();
     }
+#endif
     err = gpio_config(&pump_cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "FATAL: pump fail-safe init failed: %s", esp_err_to_name(err));
@@ -89,7 +113,8 @@ static void pumps_force_off(void)
 
 extern "C" void app_main(void)
 {
-    // Fail-safe first: both pumps off before anything else happens.
+    // Fail-safe first: every pump that exists on this board off before
+    // anything else happens.
     pumps_force_off();
 
     const esp_app_desc_t *app_desc = esp_app_get_description();
@@ -103,28 +128,36 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "==========================================");
     ESP_LOGI(TAG, "Pumps forced OFF (fail-safe boot state)");
 
-    // Pump driver instances. Function-local statics (NOT globals): they are
-    // constructed here, strictly after pumps_force_off(), so no constructor
-    // can run ahead of the boot fail-safe.
-    static EspTimeProvider time_provider;
-    static GpioWaterPump plant_pump(
-        static_cast<gpio_num_t>(BOARD_PIN_MAIN_PUMP), "plant",
-        time_provider);
-    static GpioWaterPump reservoir_pump(
-        static_cast<gpio_num_t>(BOARD_PIN_RESERVOIR_PUMP), "reservoir",
-        time_provider);
-
+    // Pump driver instances — one per pump that exists on this board
+    // (BOARD_HAS_RESERVOIR_PUMP, feature 006). Function-local statics (NOT
+    // globals): they are constructed here, strictly after
+    // pumps_force_off(), so no constructor can run ahead of the boot
+    // fail-safe.
+    //
     // Mutex-serializing wrappers: the pumps are touched by two tasks (this
     // main loop's update() and the esp_console REPL task's commands), so
     // EVERY access from here on goes through the wrappers — never through
     // the GpioWaterPump objects directly.
+    static EspTimeProvider time_provider;
+    static GpioWaterPump plant_pump(
+        static_cast<gpio_num_t>(BOARD_PIN_MAIN_PUMP), "plant",
+        time_provider);
     static LockedWaterPump plant(plant_pump);
+#if BOARD_HAS_RESERVOIR_PUMP
+    static GpioWaterPump reservoir_pump(
+        static_cast<gpio_num_t>(BOARD_PIN_RESERVOIR_PUMP), "reservoir",
+        time_provider);
     static LockedWaterPump reservoir(reservoir_pump);
+#endif
 
     // initialize() re-asserts OFF (glitch-free) before arming the drivers.
     // Failure here is fatal: a pump whose output state is unknown must not
     // be left powered (same policy as pumps_force_off above).
-    if (!plant.initialize() || !reservoir.initialize()) {
+    bool pumps_armed = plant.initialize();
+#if BOARD_HAS_RESERVOIR_PUMP
+    pumps_armed = pumps_armed && reservoir.initialize();
+#endif
+    if (!pumps_armed) {
         ESP_LOGE(TAG, "FATAL: pump driver initialization failed");
         abort();
     }
@@ -221,11 +254,103 @@ extern "C" void app_main(void)
                  env_sensor.getLastError());
     }
 
+#if BOARD_HAS_INA226
+    // INA226 pump power monitor (feature 006, rev2 only). Rides the SAME
+    // EspI2cBus instance as the BME280 — the bus-sharing contract from
+    // PR-03: one bus owner, every I2C driver receives it, never a second
+    // bus on these pins. Not safety-critical: a failed init is logged and
+    // the system keeps running — lazy re-init recovers on later attempts
+    // (US3 semantics). Function-local statics after pumps_force_off()
+    // (boot fail-safe rule). Wrapped in the mutex-serializing decorator:
+    // reached from the console REPL task only in this PR, but wrapped
+    // already per the established rule (PR-09 web + PR-11 controller add
+    // readers), so EVERY access goes through the wrapper.
+    static Ina226Sensor power_sensor_raw(i2c_bus, BOARD_INA226_ADDR,
+                                         CONFIG_WS_INA226_SHUNT_MILLIOHM);
+    static LockedPowerSensor power_sensor(power_sensor_raw);
+
+    if (power_sensor.initialize()) {
+        ESP_LOGI(TAG, "INA226 power monitor up at 0x%02x (shunt %d mOhm)",
+                 BOARD_INA226_ADDR, CONFIG_WS_INA226_SHUNT_MILLIOHM);
+    } else {
+        ESP_LOGW(TAG, "INA226 init failed (error %d) — power readings "
+                 "unavailable until recovery",
+                 power_sensor.getLastError());
+    }
+#endif
+
+    // Reservoir level sensors (feature 006). Not safety-critical at boot:
+    // a failed GPIO init is logged and the system keeps running — the
+    // affected sensor is latched Faulted (markFaulted below), so it
+    // reports not-yet-valid forever instead of debouncing a floating pin
+    // into a "valid" reading, and PR-11's fail-safe treats invalid as
+    // "do not act". Function-local statics
+    // after pumps_force_off() (boot fail-safe rule). Split per research
+    // R1: GpioLevelSensor is the raw pin read (input + pull-up, no logic);
+    // DebouncedLevelSensor holds ALL policy — polarity (FW-5), debounce
+    // and settle gating (FW-3) from the board macros. Wrapped in the
+    // mutex-serializing decorators: updated from this main loop at 10 Hz
+    // and read by the console REPL task (`level`), so EVERY access from
+    // here on goes through the wrappers.
+    static GpioLevelSensor level_low_input(BOARD_PIN_LEVEL_LOW);
+    static GpioLevelSensor level_high_input(BOARD_PIN_LEVEL_HIGH);
+    static DebouncedLevelSensor level_low_raw(
+        level_low_input, time_provider, BOARD_LEVEL_ACTIVE_LOW != 0,
+        BOARD_LEVEL_DEBOUNCE_MS, BOARD_LEVEL_SETTLE_MS);
+    static DebouncedLevelSensor level_high_raw(
+        level_high_input, time_provider, BOARD_LEVEL_ACTIVE_LOW != 0,
+        BOARD_LEVEL_DEBOUNCE_MS, BOARD_LEVEL_SETTLE_MS);
+    static LockedLevelSensor level_low(level_low_raw);
+    static LockedLevelSensor level_high(level_high_raw);
+
+    // Both inits run unconditionally (no short-circuit): a low-input
+    // failure must never skip the high-input init.
+    const bool level_low_ok = level_low_input.initialize();
+    const bool level_high_ok = level_high_input.initialize();
+
+    // FW-3: the sensor rail is on from power-up (rail *control* arrives in
+    // PR-14) — arm the settle gate once at boot. On rev1 the settle window
+    // is 0 ms, so this only re-affirms the construction-time gating.
+    level_low.notifyPowerOn();
+    level_high.notifyPowerOn();
+
+    // A failed GPIO init leaves that pin unconfigured and floating: latch
+    // the sensor Faulted so isValid() stays false — markFaulted() is on
+    // the concrete DebouncedLevelSensor by design (not ILevelSensor), so
+    // it is called here at the wiring site, on the raw objects; safe
+    // because no other task touches the sensors yet (console registration
+    // and the main loop come later). Ordered AFTER the boot
+    // notifyPowerOn() above, which is the deliberate re-arm that clears a
+    // fault (recovery: PR-14 rail control or an operator power cycle).
+    if (!level_low_ok) {
+        level_low_raw.markFaulted();
+        ESP_LOGE(TAG, "level LOW sensor GPIO init failed (pin %d) — sensor "
+                 "faulted, readings invalid until a power-on re-arm",
+                 BOARD_PIN_LEVEL_LOW);
+    }
+    if (!level_high_ok) {
+        level_high_raw.markFaulted();
+        ESP_LOGE(TAG, "level HIGH sensor GPIO init failed (pin %d) — sensor "
+                 "faulted, readings invalid until a power-on re-arm",
+                 BOARD_PIN_LEVEL_HIGH);
+    }
+
     // Serial diagnostic REPL (rig testing; contracts/serial-diagnostic.md).
+    // Pump registration is capability-aware: single-pump boards register
+    // exactly the plant pump — `pump reservoir` does not exist there
+    // (compile-time absence, PR-14 contract).
+#if BOARD_HAS_RESERVOIR_PUMP
     diag_console_register_pumps(plant, reservoir);
+#else
+    diag_console_register_pumps(plant);
+#endif
     diag_console_register_storage(config, storage);
     diag_console_register_soil(soil_sensor, modbus_client);
     diag_console_register_env(env_sensor);
+    diag_console_register_level(level_low, level_high);
+#if BOARD_HAS_INA226
+    diag_console_register_power(power_sensor);
+#endif
     esp_err_t err = diag_console_start();
     if (err != ESP_OK) {
         // Console is a diagnostic aid, not a safety function: log and keep
@@ -238,11 +363,18 @@ extern "C" void app_main(void)
     // sensor failed init above — lazy re-init recovers later (parity).
     sensor_task_start(env_sensor);
 
-    // Main loop: poll pump enforcement at 10 Hz. update() applies the timed
-    // self-stop and the hard 300 s max-runtime cap.
+    // Main loop: poll pump enforcement (every pump that exists on this
+    // board) and the level sensors at 10 Hz. Pump update() applies the
+    // timed self-stop and the hard 300 s max-runtime cap; level update()
+    // samples the raw pins and advances the settle/debounce state
+    // machines (~3 samples per 300 ms window).
     while (true) {
         plant.update();
+#if BOARD_HAS_RESERVOIR_PUMP
         reservoir.update();
+#endif
+        level_low.update();
+        level_high.update();
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }

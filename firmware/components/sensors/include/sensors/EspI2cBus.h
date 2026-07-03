@@ -68,6 +68,8 @@ public:
     bool readRegisters(uint8_t address7, uint8_t startReg, uint8_t* buf,
                        size_t len) override;
     bool writeRegister(uint8_t address7, uint8_t reg, uint8_t value) override;
+    bool writeRegister16(uint8_t address7, uint8_t reg,
+                         uint16_t value) override;
 
 private:
     /// Enough for BME280 (one of two addresses) + PR-05's INA226 devices.

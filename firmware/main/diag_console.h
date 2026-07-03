@@ -11,21 +11,34 @@
 #ifndef WATERINGSYSTEM_MAIN_DIAG_CONSOLE_H
 #define WATERINGSYSTEM_MAIN_DIAG_CONSOLE_H
 
+#include "board/board.h"
 #include "esp_err.h"
 #include "interfaces/IConfigStore.h"
 #include "interfaces/IDataStorage.h"
 #include "interfaces/IEnvironmentalSensor.h"
+#include "interfaces/ILevelSensor.h"
 #include "interfaces/IModbusClient.h"
+#include "interfaces/IPowerSensor.h"
 #include "interfaces/ISoilSensor.h"
 #include "interfaces/IWaterPump.h"
 
 /**
  * @brief Register the pump instances the console commands operate on.
  *
+ * Capability-aware signature (feature 006, FR-007): on single-pump boards
+ * (BOARD_HAS_RESERVOIR_PUMP == 0) only the plant pump is registered and
+ * `pump reservoir ...` does not exist — compile-time absence, so PR-14's
+ * "exactly one pump" check sees a usage error, never a runtime
+ * "unavailable".
+ *
  * Must be called before diag_console_start(). Plain pointer registration —
  * no static constructors involved (boot fail-safe rule).
  */
+#if BOARD_HAS_RESERVOIR_PUMP
 void diag_console_register_pumps(IWaterPump& plant, IWaterPump& reservoir);
+#else
+void diag_console_register_pumps(IWaterPump& plant);
+#endif
 
 /**
  * @brief Register the storage instances the `config`/`storage` commands
@@ -60,6 +73,34 @@ void diag_console_register_soil(ISoilSensor& sensor, IModbusClient& client);
  * registration.
  */
 void diag_console_register_env(IEnvironmentalSensor& sensor);
+
+/**
+ * @brief Register the two level sensors the `level` command operates on
+ *        (HIL verification path for feature 006).
+ *
+ * Pass the LockedLevelSensor decorators, never the raw sensors — the
+ * console handler runs on the REPL task, concurrently with the 10 Hz
+ * main-loop update(). Must be called before diag_console_start(); plain
+ * pointer registration.
+ *
+ * @param low  Low-mark sensor (BOARD_PIN_LEVEL_LOW).
+ * @param high High-mark sensor (BOARD_PIN_LEVEL_HIGH).
+ */
+void diag_console_register_level(ILevelSensor& low, ILevelSensor& high);
+
+#if BOARD_HAS_INA226
+/**
+ * @brief Register the power sensor the `power` command operates on
+ *        (bring-up path for PR-14; feature 006).
+ *
+ * Only exists on INA226-equipped boards (rev2) — the `power` command is
+ * compiled out elsewhere. Pass the LockedPowerSensor decorator, never the
+ * raw sensor — the console handler runs on the REPL task, and PR-09/PR-11
+ * add further readers. Must be called before diag_console_start(); plain
+ * pointer registration.
+ */
+void diag_console_register_power(IPowerSensor& sensor);
+#endif
 
 /**
  * @brief Start the UART REPL (prompt "ws>") and register the commands.

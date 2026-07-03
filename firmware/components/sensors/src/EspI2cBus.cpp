@@ -206,3 +206,33 @@ bool EspI2cBus::writeRegister(uint8_t address7, uint8_t reg, uint8_t value)
     }
     return true;
 }
+
+bool EspI2cBus::writeRegister16(uint8_t address7, uint8_t reg, uint16_t value)
+{
+    i2c_master_dev_handle_t dev =
+        static_cast<i2c_master_dev_handle_t>(deviceHandle(address7));
+    if (dev == nullptr) {
+        return false;
+    }
+    // Register pointer + two data bytes BIG-ENDIAN in ONE transaction
+    // (II2cBus contract — the INA226 latches a 16-bit value per write, so
+    // this is never split into two single-byte writes).
+    const uint8_t payload[3] = {reg, static_cast<uint8_t>(value >> 8),
+                                static_cast<uint8_t>(value & 0xFF)};
+    const esp_err_t err =
+        i2c_master_transmit(dev, payload, sizeof(payload), kTimeoutMs);
+    if (err != ESP_OK) {
+        // Same classification as writeRegister(): expected NACK
+        // (ESP_ERR_INVALID_RESPONSE on IDF v6 transactions) at debug,
+        // timeout/unexpected errors at warning.
+        if (err == ESP_ERR_INVALID_RESPONSE || err == ESP_ERR_NOT_FOUND) {
+            ESP_LOGD(TAG, "writeRegister16(0x%02x, 0x%02x, 0x%04x): %s",
+                     address7, reg, value, esp_err_to_name(err));
+        } else {
+            ESP_LOGW(TAG, "writeRegister16(0x%02x, 0x%02x, 0x%04x): %s",
+                     address7, reg, value, esp_err_to_name(err));
+        }
+        return false;
+    }
+    return true;
+}

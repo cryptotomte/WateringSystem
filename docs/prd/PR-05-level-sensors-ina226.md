@@ -15,7 +15,7 @@ watering-pump channel on rev2.
 ### Level sensors (XKC-Y26, GPIO 32 low / GPIO 33 high)
 
 - `LevelSensor` abstraction returning logical *water present / not present*; raw GPIO
-  polarity selected by `BOARD_LEVEL_SENSOR_ACTIVE_LOW` from the board component.
+  polarity selected by `BOARD_LEVEL_ACTIVE_LOW` from the board component.
 - Polarity facts (master PRD FR5, from the 2026-04-12 fix branch, verified against the
   KiCad schematic): XKC-Y26 OUT is **active HIGH** (water = HIGH). Rev1 routes OUT
   directly via TXS0108E (non-inverting) ⇒ GPIO active HIGH. Rev2 routes via a 2N7002

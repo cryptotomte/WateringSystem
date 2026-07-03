@@ -18,6 +18,8 @@ void run_config_store_tests(void);
 void run_data_storage_tests(void);
 void run_soil_sensor_tests(void);
 void run_bme280_tests(void);
+void run_level_sensor_tests(void);
+void run_ina226_tests(void);
 
 // Unity requires setUp/tearDown definitions (shared by all suites).
 extern "C" void setUp(void) {}
@@ -31,5 +33,7 @@ extern "C" void app_main(void)
     run_data_storage_tests();
     run_soil_sensor_tests();
     run_bme280_tests();
+    run_level_sensor_tests();
+    run_ina226_tests();
     std::exit(UNITY_END());
 }
