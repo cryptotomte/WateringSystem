@@ -30,11 +30,19 @@ must stay green.
 
 Logic is unit-tested natively, no ESP32 needed: pump enforcement, config
 store, data storage, the soil sensor decode/validation/calibration
-(`test_soil_sensor.cpp`, real `ModbusSoilSensor` over `MockModbusClient`)
-and the BME280 probe/calibration/compensation logic (`test_bme280.cpp`,
+(`test_soil_sensor.cpp`, real `ModbusSoilSensor` over `MockModbusClient`),
+the BME280 probe/calibration/compensation logic (`test_bme280.cpp`,
 real `Bme280Sensor` over `MockI2cBus` — Bosch reference vectors, error
 paths, address variants, sensor-task log policy, `MockEnvironmentalSensor`
-consistency). The test executable's exit code equals the Unity failure
+consistency), the level-sensor state machine (`test_level_sensor.cpp`,
+real `DebouncedLevelSensor` over a scripted input + `FakeTimeProvider` —
+debounce/settle/polarity, per-board fail-direction truths,
+`MockLevelSensor` coherence) and the INA226 driver (`test_ina226.cpp`,
+real `Ina226Sensor` over `MockI2cBus` — datasheet scaling vectors,
+identity/absent/recovery paths, 16-bit bus extension). Two
+`test_board_contract_rev*.cpp` TUs compile the REAL `board.h` under each
+board selector and static_assert the capability contract (passing =
+compiling). The test executable's exit code equals the Unity failure
 count (CI gate, job `host-test`):
 
 ```bash
@@ -58,7 +66,7 @@ firmware/
 │   ├── app_main.cpp            # Entry point — pumps forced OFF first, always
 │   ├── diag_console.cpp/.h     # esp_console UART REPL (prompt "ws>")
 │   ├── sensor_task.cpp/.h      # 5 s environmental poll task (feature 005)
-│   ├── Kconfig.projbuild       # Board revision choice
+│   ├── Kconfig.projbuild       # Board revision choice + WS_INA226_SHUNT_MILLIOHM
 │   └── idf_component.yml       # Pinned managed deps (esp-modbus, littlefs)
 ├── components/
 │   ├── board/                  # Board abstraction (header-only)
@@ -67,23 +75,30 @@ firmware/
 │   │   └── include/interfaces/ # IActuator, IWaterPump, ITimeProvider,
 │   │                           # IConfigStore, IDataStorage,
 │   │                           # IModbusClient, ISoilSensor,
-│   │                           # IEnvironmentalSensor, II2cBus
+│   │                           # IEnvironmentalSensor, II2cBus,
+│   │                           # IDigitalInput, ILevelSensor, IPowerSensor
 │   ├── actuators/              # Pump drivers
 │   │   ├── include/actuators/  # WaterPump (pure C++ logic), GpioWaterPump,
 │   │   │                       # EspTimeProvider (esp32-only header),
 │   │   │                       # testing/ (MockWaterPump, FakeTimeProvider)
 │   │   └── src/                # GpioWaterPump.cpp excluded on linux target
-│   ├── sensors/                # Soil sensor (feature 004) + BME280 (005)
-│   │   ├── include/sensors/    # ModbusSoilSensor, Bme280Sensor (pure C++
-│   │   │                       # logic), EspModbusClient, EspI2cBus,
-│   │   │                       # LockedSoilSensor,
+│   ├── sensors/                # Soil sensor (004) + BME280 (005) +
+│   │   │                       # level sensors + INA226 (006)
+│   │   ├── include/sensors/    # ModbusSoilSensor, Bme280Sensor,
+│   │   │                       # DebouncedLevelSensor, Ina226Sensor (pure
+│   │   │                       # C++ logic), EspModbusClient, EspI2cBus,
+│   │   │                       # GpioLevelSensor, LockedSoilSensor,
 │   │   │                       # LockedEnvironmentalSensor,
+│   │   │                       # LockedLevelSensor, LockedPowerSensor,
 │   │   │                       # SensorTaskLogPolicy, testing/
 │   │   │                       # (MockModbusClient, MockSoilSensor,
-│   │   │                       # MockI2cBus, MockEnvironmentalSensor)
-│   │   └── src/                # EspModbusClient.cpp + esp-modbus dep and
-│   │                           # EspI2cBus.cpp + esp_driver_i2c dep
-│   │                           # excluded on linux target
+│   │   │                       # MockI2cBus, MockEnvironmentalSensor,
+│   │   │                       # MockLevelSensor)
+│   │   └── src/                # EspModbusClient.cpp + esp-modbus dep,
+│   │                           # EspI2cBus.cpp + esp_driver_i2c dep and
+│   │                           # GpioLevelSensor.cpp excluded on linux
+│   │                           # target; Ina226Sensor.cpp on linux always
+│   │                           # + on target only when CONFIG_BOARD_REV2
 │   └── storage/                # Config + data persistence (feature 003)
 │       ├── include/storage/    # NvsConfigStore, LittleFsDataStorage (POSIX,
 │       │                       # host-runnable), StorageMount (esp32-only),
@@ -95,7 +110,10 @@ firmware/
     └── host/                   # Host test app (linux preview target, Unity):
                                 # pump + config store + data storage +
                                 # soil sensor (test_soil_sensor.cpp) +
-                                # BME280 (test_bme280.cpp) suites
+                                # BME280 (test_bme280.cpp) +
+                                # level sensors (test_level_sensor.cpp) +
+                                # INA226 (test_ina226.cpp) suites +
+                                # board-contract TUs (compile-time)
 ```
 
 Future components (drivers, controllers, web server) are added as siblings
@@ -124,8 +142,13 @@ are normative in `specs/002-pump-gpio-board/contracts/serial-diagnostic.md`:
 pump <plant|reservoir> start <seconds>   # timed run; 1..300
 pump <plant|reservoir> stop
 pump <plant|reservoir> status
-pump status                              # both pumps
+pump status                              # every existing pump
 ```
+
+The pump set is capability-aware (feature 006): on
+`BOARD_HAS_RESERVOIR_PUMP=0` boards (rev2, single-pump node) the
+`reservoir` word is compiled out — `pump reservoir ...` is a usage error
+and `pump status` reports exactly one pump (PR-14 contract).
 
 Feature 003 adds `config` and `storage` subcommands (HIL verification path; the
 handlers are thin interface calls, no logic). Credential values are never echoed
@@ -152,6 +175,17 @@ from error 2 "read failed" — SC-006):
 
 ```
 env                                      # one read(); T/RH/P with units or ERROR <code> (<hint>)
+```
+
+Feature 006 adds the level-status command (both boards; the output
+distinguishes `not_yet_valid` from `water`/`dry` — a settling sensor never
+reads as an empty or full reservoir) and the power-telemetry command
+(`BOARD_HAS_INA226` builds only — compile-time absent on rev1; the PR-14
+bring-up path, same error-1-vs-2 hint convention as `env`):
+
+```
+level                                    # both sensors: logical + raw pin state
+power                                    # one read(); bus V / current A / power W or ERROR <code> (<hint>)
 ```
 
 ## Storage (config + data persistence)
@@ -208,9 +242,13 @@ Two board revisions exist, selected via Kconfig (`main/Kconfig.projbuild`):
   Rev2 pins are provisional until hardware sync 1 (`TODO(SYNC1)` markers).
 
 All pins and polarity/feature flags come from `board/board.h`
-(`BOARD_PIN_*`, `BOARD_HAS_RS485_DE`, `BOARD_LEVEL_ACTIVE_LOW`,
-`BOARD_HAS_INA226`, `BOARD_NAME`). Never hard-code GPIO numbers elsewhere.
-Board-conditional code uses `#if CONFIG_BOARD_REV2` / `#if BOARD_HAS_INA226`.
+(`BOARD_PIN_*`, `BOARD_HAS_RS485_DE`, `BOARD_HAS_RESERVOIR_PUMP`,
+`BOARD_LEVEL_ACTIVE_LOW`, `BOARD_HAS_INA226`, `BOARD_NAME`). Never
+hard-code GPIO numbers elsewhere. Board-conditional code uses
+`#if CONFIG_BOARD_REV2` / `#if BOARD_HAS_INA226`. Enforcement pattern: a
+capability flag at 0 leaves its pin/address macro UNDEFINED
+(`BOARD_PIN_RS485_DE`, `BOARD_PIN_RESERVOIR_PUMP`, `BOARD_INA226_ADDR`),
+so an unguarded reference is a compile error, never a phantom GPIO.
 
 ## BME280 environmental sensor (I2C)
 
@@ -249,6 +287,61 @@ from the legacy driver (address probing, last-good getters, live
 availability probe, locked access) are recorded in
 `docs/parity-checklist.md` §6.
 
+## Reservoir level sensors (XKC-Y26)
+
+Feature 006 (PR-05). Two independent `ILevelSensor` instances (low mark
+GPIO 32, high mark GPIO 33) — PR-11's controller composes its reservoir
+truth table from them; this layer never aggregates. Split at the
+`IDigitalInput` seam: `DebouncedLevelSensor` is pure C++ and holds ALL
+policy — the SETTLING → WARMUP → TRACKING state machine, the
+stability-window debounce (`BOARD_LEVEL_DEBOUNCE_MS`, 300 ms; any raw flip
+restarts the window) and the polarity mapping — host-tested against a
+scripted input + `FakeTimeProvider`; `GpioLevelSensor` is the only
+hardware touchpoint (input + internal pull-up on BOTH boards, one
+`gpio_get_level`, no logic) and is excluded from the linux build.
+
+**Polarity is board configuration (FW-5), never application `#ifdef`s:**
+rev1 reads the XKC-Y26 directly (active HIGH), rev2 goes through a 2N7002
+inverter (active LOW) — `BOARD_LEVEL_ACTIVE_LOW` is passed to the
+constructor at the wiring site. **Settle gating (FW-3):** readings report
+not-yet-valid for `BOARD_LEVEL_SETTLE_MS` after a power-on event (rev1 0,
+rev2 500 ms); `notifyPowerOn()` re-arms the gate — app_main calls it once
+at boot, real rail control (`SENS_PWR_EN`) arrives with PR-14. Consumers
+MUST gate on `isValid()`: not-yet-valid is a distinct state, never wet or
+dry. Fail direction (pinned by host tests, parity checklist line 97): a
+disconnected input reads pulled-HIGH ⇒ rev1 "water present" (fill pump
+stays off), rev2 "water absent" (drawing node does not pump) — both fail
+safe for their pump topology. `update()` is polled from the 10 Hz main
+loop; cross-task access (console `level`) goes through
+`LockedLevelSensor`. The capability flag `BOARD_HAS_RESERVOIR_PUMP`
+(rev1 1, rev2 0 — single-pump decision, master PRD FR4) gates ALL
+reservoir-pump wiring: instance, boot force-OFF and console registration
+exist only where the pump does; on rev2 the pin macro is removed so
+unguarded references fail the build.
+
+## INA226 pump power monitor (I2C, rev2 only)
+
+Feature 006 (PR-05). `Ina226Sensor` is pure C++ over `II2cBus`
+(`IPowerSensor`: bus V / signed current A / power W) and clones the
+BME280 architecture: identity check at init (manufacturer 0xFE == 0x5449,
+die 0xFF == 0x2260 — foreign devices rejected with error 1), error codes
+0/1/2, last-good getters with NaN placeholders, lazy re-init and
+uninitialize-on-bus-error recovery. Config (AVG ×16, 1.1 ms conversions,
+continuous shunt+bus — value derivation in `Ina226Sensor.cpp`) and
+calibration (`CAL = 0.00512 / (Current_LSB × R_shunt)`, Current_LSB fixed
+0.5 mA) are written at init; the shunt comes from Kconfig
+(`CONFIG_WS_INA226_SHUNT_MILLIOHM`, default 5 mΩ ⇒ CAL 2048).
+
+**Shared-bus rule:** the driver receives app_main's ONE `EspI2cBus`
+instance (the same the BME280 uses) — never a second bus on these pins.
+Reads are on-demand (console `power` now, PR-09 API later; no periodic
+task); cross-task access goes through `LockedPowerSensor`. Build gating
+(FR-011): `Ina226Sensor.cpp` builds on linux always (host tests) and on
+target only when `CONFIG_BOARD_REV2` — the rev1 binary contains no INA226
+code. **Hardware validation is deferred to PR-14** (no INA226 on the rev1
+rig): the driver is host-verified only, and the written config value
+carries a `TODO(PR-14)` bench confirmation.
+
 ## Partition layout (4MB flash)
 
 nvs (0x9000, 16K) | otadata (0xd000, 8K) | phy_init (0xf000, 4K) |
@@ -261,8 +354,9 @@ must fit in 1.5MB per slot.
 - **C++ with IDF-native APIs only.** No Arduino compatibility layers.
   IDF v6 defaults to gnu++26; stick to ~C++23 features.
 - **`extern "C" void app_main(void)`** — app_main has C linkage.
-- **Fail-safe first:** the first statements in `app_main` drive both pump
-  GPIOs to OFF. This invariant must survive every future change.
+- **Fail-safe first:** the first statements in `app_main` drive every pump
+  GPIO that exists on the board to OFF (capability-aware since feature
+  006). This invariant must survive every future change.
 - **No non-trivial static/global constructors.** They run before `app_main`
   and would execute ahead of (and thus bypass) the pump fail-safe. All
   initialization is explicit, inside or after `pumps_force_off()`.

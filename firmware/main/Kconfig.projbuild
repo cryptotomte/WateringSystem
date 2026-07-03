@@ -7,4 +7,17 @@ menu "WateringSystem"
         config BOARD_REV2
             bool "Rev 2 — custom PCB (THVD1426 auto-direction, INA226, CP2102N)"
     endchoice
+
+    config WS_INA226_SHUNT_MILLIOHM
+        int "INA226 pump shunt resistance (milliohm)"
+        depends on BOARD_REV2
+        default 5
+        range 1 1000
+        help
+            Shunt resistor value on the pump 12 V supply, in milliohms.
+            The INA226 calibration register is derived from it at boot
+            (CAL = 0.00512 / (Current_LSB x R_shunt), Current_LSB fixed at
+            0.5 mA — 2048 at the default 5 mOhm, rev2 BOM R1 5 mOhm 2512).
+            Only change this when the fitted shunt changes; the current
+            resolution is a compile-time driver constant (research.md R9).
 endmenu

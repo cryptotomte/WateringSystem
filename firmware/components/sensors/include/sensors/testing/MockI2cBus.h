@@ -14,8 +14,18 @@
  * records BIG-ENDIAN into the same per-address byte map (so byte-level
  * assertions stay valid) and into the call log, and shares the write
  * outcome queue with the 8-bit writes (one FIFO covers a mixed-width write
- * sequence). Never compiled into target builds (only included from test
- * code). No IDF includes.
+ * sequence).
+ *
+ * Two register models coexist (feature 006): the BYTE map models
+ * auto-incrementing byte registers (BME280 — an N-byte burst walks N
+ * consecutive register addresses), while the WORD overlay
+ * (setRegister16()) models pointer-addressed 16-bit registers (INA226 — a
+ * 2-byte read at one pointer returns THAT register's MSB,LSB and never
+ * spills into the numerically next register, so adjacent word registers
+ * like 0x02/0x03/0x04 or 0xFE/0xFF do not collide). An exact 2-byte read
+ * is served from the word overlay when the register is scripted there;
+ * everything else falls through to the byte map. Never compiled into
+ * target builds (only included from test code). No IDF includes.
  */
 
 #ifndef WATERINGSYSTEM_SENSORS_TESTING_MOCKI2CBUS_H
@@ -64,8 +74,13 @@ public:
     void addDevice(uint8_t address7) { devices_[address7]; }
 
     /// Remove @p address7: probes NACK, reads/writes fail (unplug scenario).
-    /// The register map is discarded — re-adding yields a fresh device.
-    void removeDevice(uint8_t address7) { devices_.erase(address7); }
+    /// The register maps (byte + word) are discarded — re-adding yields a
+    /// fresh device.
+    void removeDevice(uint8_t address7)
+    {
+        devices_.erase(address7);
+        wordRegisters_.erase(address7);
+    }
 
     /// Script one register byte on a device (added implicitly if absent).
     void setRegister(uint8_t address7, uint8_t reg, uint8_t value)
@@ -83,6 +98,19 @@ public:
         for (size_t i = 0; i < values.size(); ++i) {
             map[static_cast<uint8_t>(startReg + i)] = values[i];
         }
+    }
+
+    /**
+     * @brief Script one 16-bit WORD register (INA226 model — see the file
+     * comment: pointer-addressed, adjacent word registers never collide).
+     *
+     * Served big-endian by readRegisters()/readRegister16() for exact
+     * 2-byte reads at @p reg. The device is added implicitly if absent.
+     */
+    void setRegister16(uint8_t address7, uint8_t reg, uint16_t value)
+    {
+        devices_[address7];  // implicit add, setRegister() convention
+        wordRegisters_[address7][reg] = value;
     }
 
     /**
@@ -115,6 +143,22 @@ public:
         if (device == devices_.end() || !nextOutcome(readOutcomes_)) {
             calls.push_back(call);
             return false;
+        }
+        // WORD-overlay hit: an exact 2-byte read of a scripted 16-bit
+        // register serves that register big-endian (INA226 model — never
+        // spills into the numerically next register).
+        if (len == 2) {
+            const auto words = wordRegisters_.find(address7);
+            if (words != wordRegisters_.end()) {
+                const auto word = words->second.find(startReg);
+                if (word != words->second.end()) {
+                    buf[0] = static_cast<uint8_t>(word->second >> 8);
+                    buf[1] = static_cast<uint8_t>(word->second & 0xFF);
+                    call.succeeded = true;
+                    calls.push_back(call);
+                    return true;
+                }
+            }
         }
         for (size_t i = 0; i < len; ++i) {
             buf[i] = device->second[static_cast<uint8_t>(startReg + i)];
@@ -154,6 +198,9 @@ public:
         device->second[reg] = static_cast<uint8_t>(value >> 8);
         device->second[static_cast<uint8_t>(reg + 1)] =
             static_cast<uint8_t>(value & 0xFF);
+        // Also into the WORD overlay, so a write-then-read16 round trip is
+        // coherent for pointer-addressed devices (INA226 config readback).
+        wordRegisters_[address7][reg] = value;
         call.succeeded = true;
         calls.push_back(call);
         return true;
@@ -172,6 +219,9 @@ private:
     }
 
     std::map<uint8_t, std::array<uint8_t, 256>> devices_;
+    /// Pointer-addressed 16-bit registers (setRegister16(), INA226 model);
+    /// consulted only for exact 2-byte reads.
+    std::map<uint8_t, std::map<uint8_t, uint16_t>> wordRegisters_;
     std::vector<bool> readOutcomes_;
     std::vector<bool> writeOutcomes_;
 };

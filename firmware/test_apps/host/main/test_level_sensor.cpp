@@ -16,8 +16,11 @@
  * polarity equivalence (both board polarities produce identical logical
  * results for the same physical scenario), chatter collapsing to a single
  * transition, update-stream purity (time without update() changes
- * nothing) and the LockedLevelSensor delegation check. Fail-direction
- * truth tests (checklist line 97) arrive with T022.
+ * nothing) and the LockedLevelSensor delegation check. T021 (US4) adds
+ * the MockLevelSensor consumer-style tests (SC-006: all four PR-11
+ * truth-table states across two instances, with coherent validity), and
+ * T022 the per-board fail-direction truths (docs/parity-checklist.md
+ * line 97 pinned as host-tested constants).
  *
  * Timing convention (DebouncedLevelSensor contract): a window of N ms is
  * complete on the first update() where at least N ms have elapsed since
@@ -32,6 +35,7 @@
 #include "interfaces/IDigitalInput.h"
 #include "sensors/DebouncedLevelSensor.h"
 #include "sensors/LockedLevelSensor.h"
+#include "sensors/testing/MockLevelSensor.h"
 
 namespace {
 
@@ -405,6 +409,119 @@ void test_locked_level_sensor_delegates(void)
     TEST_ASSERT_FALSE(sensor.isValid());
 }
 
+// ---------------------------------------------------------------------------
+// Fail direction per board (T022, docs/parity-checklist.md line 97):
+// a disconnected sensor input is pulled HIGH by the pull-up (internal on
+// both boards, external 10 kΩ additionally on rev2 — research R4). The
+// resulting LOGICAL state differs per board polarity, and BOTH directions
+// fail safe for their pump topology — these tests pin the documented
+// truths so a future polarity or pull change trips loudly.
+// ---------------------------------------------------------------------------
+
+void test_fail_direction_rev1_disconnected_reads_water_present(void)
+{
+    // rev1 (two-pump node, active HIGH — non-inverting TXS0108E path):
+    // pulled-HIGH = "water present" at every mark ⇒ the reservoir looks
+    // full, so the FILL pump stays off. Fails toward "do not pump"
+    // (checklist line 97; legacy src/main.cpp:231-233 behavior preserved).
+    ScriptedInput input;
+    input.level = true;  // disconnected: the pull-up pins the raw input HIGH
+    FakeTimeProvider time;
+    DebouncedLevelSensor sensor(input, time, /*activeLow=*/false,
+                                kDebounceMs, /*settleMs=*/0);
+
+    sensor.update();
+    step(sensor, time, kDebounceMs);
+    TEST_ASSERT_TRUE(sensor.isValid());
+    TEST_ASSERT_TRUE(sensor.isWaterPresent());
+}
+
+void test_fail_direction_rev2_disconnected_reads_water_absent(void)
+{
+    // rev2 (single-pump DRAWING node, active LOW — 2N7002 inverter):
+    // pulled-HIGH = "water absent" at every mark ⇒ the node believes the
+    // reservoir is empty and PR-11's controller will not run the plant
+    // pump dry. The opposite direction of rev1 — and exactly as safe,
+    // because the pump topology is opposite: rev1 fills a reservoir
+    // (phantom water = no overfill), rev2 draws from one (phantom
+    // emptiness = no dry run). Checklist line 97.
+    ScriptedInput input;
+    input.level = true;  // disconnected: the pull-up pins the raw input HIGH
+    FakeTimeProvider time;
+    DebouncedLevelSensor sensor(input, time, /*activeLow=*/true,
+                                kDebounceMs, kSettleMs);
+
+    sensor.update();
+    step(sensor, time, kSettleMs);   // rev2 settle gate (FW-3)
+    step(sensor, time, kDebounceMs); // debounce warm-up
+    TEST_ASSERT_TRUE(sensor.isValid());
+    TEST_ASSERT_FALSE(sensor.isWaterPresent());
+}
+
+// ---------------------------------------------------------------------------
+// MockLevelSensor (T021): SC-006 consumer-style tests — two instances
+// express all four PR-11 truth-table states with coherent validity.
+// ---------------------------------------------------------------------------
+
+void test_mock_level_sensor_expresses_pr11_truth_table(void)
+{
+    // The four reservoir states PR-11's controller decides on (legacy
+    // truth table, docs/parity-checklist.md §3 / src/main.cpp:533-550),
+    // scripted exactly as a consumer will: gate on validity first, then
+    // read both logical states.
+    MockLevelSensor low;
+    MockLevelSensor high;
+
+    struct Row {
+        bool lowWet;
+        bool highWet;
+    };
+    // both wet (full) | low-only wet (sufficient) | both dry (start fill)
+    // | low dry + high wet (physically invalid — REPORTED as-is, this
+    // layer never masks it; interpreting it is PR-11's job).
+    const Row rows[] = {
+        {true, true}, {true, false}, {false, false}, {false, true}};
+
+    for (const Row& row : rows) {
+        low.scriptValidState(row.lowWet);
+        high.scriptValidState(row.highWet);
+        TEST_ASSERT_TRUE(low.isValid());
+        TEST_ASSERT_TRUE(high.isValid());
+        TEST_ASSERT_EQUAL(row.lowWet, low.isWaterPresent());
+        TEST_ASSERT_EQUAL(row.highWet, high.isWaterPresent());
+    }
+}
+
+void test_mock_level_sensor_invalid_is_coherent(void)
+{
+    MockLevelSensor sensor;
+
+    // Freshly constructed: not yet valid (the real sensor's settle/warm-up
+    // start) and the meaningless logical state reads false, never true.
+    TEST_ASSERT_FALSE(sensor.isValid());
+    TEST_ASSERT_FALSE(sensor.isWaterPresent());
+
+    // A valid wet reading that goes invalid must NEVER leave a stale
+    // "water present" behind — the consistency the helpers enforce
+    // (PR-04 lesson: incoherent mock states hide consumer bugs).
+    sensor.scriptValidState(true);
+    TEST_ASSERT_TRUE(sensor.isWaterPresent());
+    sensor.scriptInvalid();
+    TEST_ASSERT_FALSE(sensor.isValid());
+    TEST_ASSERT_FALSE(sensor.isWaterPresent());
+
+    // notifyPowerOn() mirrors the real settle re-arm: invalidates and is
+    // counted; update() only counts (scripted state is poll-stable).
+    sensor.scriptValidState(false);
+    sensor.notifyPowerOn();
+    TEST_ASSERT_FALSE(sensor.isValid());
+    TEST_ASSERT_EQUAL_INT(1, sensor.notifyPowerOnCalls);
+    sensor.update();
+    sensor.update();
+    TEST_ASSERT_EQUAL_INT(2, sensor.updateCalls);
+    TEST_ASSERT_FALSE(sensor.isValid());  // updates never revalidate a mock
+}
+
 }  // namespace
 
 void run_level_sensor_tests(void)
@@ -421,4 +538,8 @@ void run_level_sensor_tests(void)
     RUN_TEST(test_chatter_single_transition);
     RUN_TEST(test_raw_state_is_undebounced);
     RUN_TEST(test_locked_level_sensor_delegates);
+    RUN_TEST(test_fail_direction_rev1_disconnected_reads_water_present);
+    RUN_TEST(test_fail_direction_rev2_disconnected_reads_water_absent);
+    RUN_TEST(test_mock_level_sensor_expresses_pr11_truth_table);
+    RUN_TEST(test_mock_level_sensor_invalid_is_coherent);
 }

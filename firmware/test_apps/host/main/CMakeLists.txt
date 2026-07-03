@@ -7,5 +7,10 @@ idf_component_register(
          "test_bme280.cpp"
          "test_level_sensor.cpp"
          "test_ina226.cpp"
-    REQUIRES unity actuators interfaces storage nvs_flash sensors
+         # Compile-time board-contract TUs (T016): each defines one board
+         # selector before including the REAL board/board.h — passing =
+         # compiling (static_asserts only, nothing registers with Unity).
+         "test_board_contract_rev1.cpp"
+         "test_board_contract_rev2.cpp"
+    REQUIRES unity actuators interfaces storage nvs_flash sensors board
 )
