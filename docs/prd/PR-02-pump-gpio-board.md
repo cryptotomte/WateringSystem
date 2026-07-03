@@ -18,7 +18,7 @@ board feature flags.
     level 33, status LED 2, buttons 5 / 18.
   - **REV2** provisional pin table + feature flags: `BOARD_HAS_RS485_DE` (rev1 only,
     rev2 THVD1426 is auto-direction), `BOARD_HAS_INA226` (rev2 only),
-    `BOARD_LEVEL_SENSOR_ACTIVE_LOW` (rev2 only, 2N7002 inverter). Final rev2 pin
+    `BOARD_LEVEL_ACTIVE_LOW` (rev2 only, 2N7002 inverter). Final rev2 pin
     numbers land at **SYNC 1**.
 - `IActuator` / `IWaterPump` interfaces ported to pure C++ (no Arduino types,
   `std::string` instead of `String`), placed so host tests can include them without

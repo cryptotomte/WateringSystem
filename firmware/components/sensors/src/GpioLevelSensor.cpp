@@ -6,9 +6,11 @@
  *
  * Error handling is explicit (not ESP_ERROR_CHECK): a misconfigured level
  * input must be visible in the logs regardless of the configured assertion
- * level, and must never abort — level sensing is not boot-critical (the
- * DebouncedLevelSensor above reports not-yet-valid/garbage-gated states,
- * and PR-11's fail-safe treats invalid as "do not act").
+ * level, and must never abort — level sensing is not boot-critical. On an
+ * initialize() failure the wiring site (app_main) latches the
+ * DebouncedLevelSensor above into its Faulted state (markFaulted), so the
+ * floating, unconfigured pin is never debounced into a valid reading and
+ * PR-11's fail-safe treats invalid as "do not act".
  */
 
 #include "sensors/GpioLevelSensor.h"

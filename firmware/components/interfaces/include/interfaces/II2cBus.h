@@ -28,8 +28,8 @@
 #include <cstdint>
 
 /**
- * @brief I2C master: probe + 8-bit register reads/writes, one transaction
- * per call.
+ * @brief I2C master: probe + 8/16-bit register reads/writes, one
+ * transaction per call.
  *
  * All addresses are 7-bit. Every method returns false on NACK, bus error
  * or timeout; there are NO retries at this layer — recovery policy belongs

@@ -47,8 +47,9 @@ with a settle duration and starts gated): readings report invalid until
 on — constructor starts ungated... rev1 also gets debounce warm-up, which subsumes
 settle=0), rev2 = **500 ms** (FW-3). Rail *control* (IO25/`SENS_PWR_EN`) is PR-14;
 this PR only guarantees the abstraction honors a power-on notification, and
-app_main on rev2 calls it once at boot (rail is on by default at power-up per the
-rev2 design; PR-14 wires real switching to it).
+app_main calls it once at boot on BOTH boards (no-op effect on rev1, where
+settle = 0 leaves only the standard debounce warm-up; on rev2 the rail is on by
+default at power-up per the rev2 design; PR-14 wires real switching to it).
 
 **Rationale**: encodes the FW-3 invariant now so PR-14 is wiring, not redesign;
 rev1 unaffected.

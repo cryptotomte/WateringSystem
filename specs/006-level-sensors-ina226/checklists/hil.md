@@ -36,7 +36,7 @@
       surfaces in `level` output (window restart behavior; host-tested
       deterministically — this bench item is a spot check)
 
-## C. Fail direction: disconnect (US4, checklist line 97)
+## C. Fail direction: disconnect (US4, parity checklist §3, "Pull-up + active-HIGH consequence" item)
 
 - [ ] C1. Disconnect the LOW sensor signal wire mid-run → after ~0.3 s
       `level` reads `low=water` (pull-up ⇒ HIGH ⇒ rev1 active HIGH =
@@ -44,8 +44,8 @@
       flapping
 - [ ] C2. Reconnect → the true state returns within one debounce window
 - [ ] C3. Confirm the direction is logged/annotated in the parity
-      checklist line 97 item (rev2's inverted direction is host-tested
-      only — no rev2 hardware yet)
+      checklist §3 "Pull-up + active-HIGH consequence" item (rev2's
+      inverted direction is host-tested only — no rev2 hardware yet)
 
 ## D. Pump + console regression (US2, SC-004)
 

@@ -129,8 +129,8 @@ private:
     static constexpr uint8_t kRegDieId = 0xFF;
 
     /// Configuration register value: AVG ×16, VBUSCT = VSHCT = 1.1 ms,
-    /// MODE = continuous shunt + bus. Bit-field derivation at the write
-    /// site in Ina226Sensor.cpp; asserted byte-exact by host tests.
+    /// MODE = continuous shunt + bus. Bit-field derivation at the top of
+    /// Ina226Sensor.cpp; asserted byte-exact by host tests.
     static constexpr uint16_t kConfigValue = 0x4527;
 
     /// Probe the address and verify manufacturer + die ID.

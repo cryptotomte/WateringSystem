@@ -26,8 +26,8 @@
  * on rev1 (legacy src/main.cpp:231-233 uses INPUT_PULLUP,
  * docs/parity-checklist.md line 95), redundant-but-harmless on rev2 on top
  * of the external 10 kΩ. The pull-up also pins the documented fail
- * direction: a disconnected input reads HIGH (docs/parity-checklist.md
- * line 97).
+ * direction: a disconnected input reads HIGH (docs/parity-checklist.md §3,
+ * "Pull-up + active-HIGH consequence" item).
  */
 class GpioLevelSensor : public IDigitalInput {
 public:
@@ -48,8 +48,10 @@ public:
      * @brief Configure the pin as input with the internal pull-up enabled.
      *
      * @return true on success; false is logged by the implementation —
-     *         read() then still returns the (unconfigured) pin level and
-     *         the caller decides how loudly to complain.
+     *         read() then still returns the (unconfigured) pin level, and
+     *         the wiring site latches the consuming DebouncedLevelSensor
+     *         Faulted (markFaulted) so that garbage never becomes a valid
+     *         reading.
      */
     bool initialize();
 

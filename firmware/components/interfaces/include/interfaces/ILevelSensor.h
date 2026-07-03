@@ -36,7 +36,8 @@
  * @brief Polled, debounced, polarity-absorbed water-level state with
  * explicit validity.
  *
- * Fail direction (pinned by host tests, docs/parity-checklist.md line 97):
+ * Fail direction (pinned by host tests, docs/parity-checklist.md §3,
+ * "Pull-up + active-HIGH consequence" item):
  * a disconnected input is pulled HIGH by the board's pull-up, so rev1
  * (active HIGH) reads "water present" — the fill pump stays off — while
  * rev2 (active LOW, 2N7002 inverter) reads "water absent" — the drawing
@@ -62,9 +63,12 @@ public:
      *
      * False during settle gating (after construction or notifyPowerOn(),
      * FW-3) and during debounce warm-up (until the raw input has held one
-     * value for a full stability window). Consumers MUST gate on this —
-     * "not yet valid" is a distinct state, never to be conflated with
-     * wet or dry (SC-005/FR-012).
+     * value for a full stability window). Implementations may additionally
+     * pin this false for a latched fault (DebouncedLevelSensor::
+     * markFaulted() — a wiring-site concept, deliberately not part of this
+     * interface). Consumers MUST gate on this — "not yet valid" is a
+     * distinct state, never to be conflated with wet or dry
+     * (FR-001/FR-003/FR-012).
      */
     virtual bool isValid() = 0;
 
@@ -76,8 +80,8 @@ public:
      * raw-polarity value except through rawState(). Debounced: the value
      * changes only after the raw input has been stable in the new state
      * for the board's debounce window; any flip restarts the window.
-     * Meaningful ONLY while isValid() returns true (returns false before
-     * the first stable window, by definition without meaning).
+     * Meaningful ONLY while isValid() returns true (returns false whenever
+     * invalid — never a stale or phantom value).
      */
     virtual bool isWaterPresent() = 0;
 

@@ -12,15 +12,19 @@
  *
  * Coverage maps to tasks.md T009 (US1): debounce boundary (change only
  * after a full window; every flip restarts it), warm-up not-yet-valid,
- * settle gating (the 500 ms rev2 case incl. notifyPowerOn() re-arm),
+ * settle gating (the 500 ms rev2 case incl. notifyPowerOn() re-arm,
+ * window-opens-at-first-update, chatter inside the settle window),
  * polarity equivalence (both board polarities produce identical logical
  * results for the same physical scenario), chatter collapsing to a single
  * transition, update-stream purity (time without update() changes
- * nothing) and the LockedLevelSensor delegation check. T021 (US4) adds
- * the MockLevelSensor consumer-style tests (SC-006: all four PR-11
+ * nothing), the invalid ⇒ isWaterPresent()-false structural guarantee,
+ * the markFaulted() latch (GPIO-init-failure wiring path) and the
+ * LockedLevelSensor delegation check. T021 (US4) adds the
+ * MockLevelSensor consumer-style tests (SC-006: all four PR-11
  * truth-table states across two instances, with coherent validity), and
- * T022 the per-board fail-direction truths (docs/parity-checklist.md
- * line 97 pinned as host-tested constants).
+ * T022 the per-board fail-direction truths (docs/parity-checklist.md §3,
+ * "Pull-up + active-HIGH consequence" item, pinned as host-tested
+ * constants).
  *
  * Timing convention (DebouncedLevelSensor contract): a window of N ms is
  * complete on the first update() where at least N ms have elapsed since
@@ -237,6 +241,12 @@ void test_settle_gating_500ms(void)
     input.level = true;
     sensor.update();  // settle window opens at the FIRST update
     TEST_ASSERT_FALSE(sensor.isValid());
+    // rawState() is polarity-INDEPENDENT diagnostics — the one place board
+    // polarity must NOT be absorbed: the pin is electrically HIGH, so
+    // rawState() reads true even though active LOW maps HIGH to "water
+    // absent" (and the sensor is not even valid yet).
+    TEST_ASSERT_TRUE(sensor.rawState());
+    TEST_ASSERT_FALSE(sensor.isWaterPresent());
 
     // 499 ms: still settling — the raw value is not even being timed yet.
     step(sensor, time, kSettleMs - 1);
@@ -250,8 +260,61 @@ void test_settle_gating_500ms(void)
     TEST_ASSERT_FALSE(sensor.isValid());
     step(sensor, time, 1);
     TEST_ASSERT_TRUE(sensor.isValid());
-    // Active LOW: raw HIGH = water absent.
+    // Active LOW: raw HIGH = water absent — while rawState() still reports
+    // the electrical level unmapped.
     TEST_ASSERT_FALSE(sensor.isWaterPresent());
+    TEST_ASSERT_TRUE(sensor.rawState());
+}
+
+void test_settle_window_opens_at_first_update_after_construction(void)
+{
+    ScriptedInput input;
+    input.level = true;
+    FakeTimeProvider time;
+    DebouncedLevelSensor sensor(input, time, /*activeLow=*/true,
+                                kDebounceMs, kSettleMs);
+
+    // Dead time between CONSTRUCTION and the owner's first poll must not
+    // be consumed by the settle window: it opens at the first update()
+    // (same contract the notifyPowerOn() re-arm test pins for that case).
+    time.advance(10'000);
+    sensor.update();  // settle window opens HERE, not at construction
+    step(sensor, time, kSettleMs - 1);
+    TEST_ASSERT_FALSE(sensor.isValid());
+    step(sensor, time, 1);  // settle done, warm-up opens
+    TEST_ASSERT_FALSE(sensor.isValid());
+    step(sensor, time, kDebounceMs);
+    TEST_ASSERT_TRUE(sensor.isValid());
+}
+
+void test_chatter_during_settle_validity_at_exactly_settle_plus_debounce(void)
+{
+    ScriptedInput input;
+    FakeTimeProvider time;
+    DebouncedLevelSensor sensor(input, time, /*activeLow=*/false,
+                                kDebounceMs, kSettleMs);
+
+    // Raw chatters every 100 ms THROUGHOUT the settle window: pre-settle
+    // flips neither restart settling nor pre-latch the debounce candidate.
+    sensor.update();  // settle window opens at t=0
+    for (int i = 1; i <= 4; ++i) {  // flips observed at t=100..400
+        input.level = (i % 2) != 0;
+        step(sensor, time, 100);
+        TEST_ASSERT_FALSE(sensor.isValid());
+    }
+
+    // Stable from before the settle boundary: warm-up opens at t=500 on
+    // the then-current raw value, so validity arrives at EXACTLY
+    // settle + debounce (t=800) — any earlier candidate latch or settle
+    // restart would move this boundary.
+    input.level = true;
+    step(sensor, time, 100);  // t=500: settle elapses, warm-up opens
+    TEST_ASSERT_FALSE(sensor.isValid());
+    step(sensor, time, kDebounceMs - 1);  // t=799: one short
+    TEST_ASSERT_FALSE(sensor.isValid());
+    step(sensor, time, 1);  // t=800 = settle + debounce exactly
+    TEST_ASSERT_TRUE(sensor.isValid());
+    TEST_ASSERT_TRUE(sensor.isWaterPresent());
 }
 
 void test_notify_power_on_rearms_settle(void)
@@ -283,6 +346,104 @@ void test_notify_power_on_rearms_settle(void)
     step(sensor, time, 1);  // settle done, warm-up opens
     TEST_ASSERT_FALSE(sensor.isValid());
     step(sensor, time, kDebounceMs);
+    TEST_ASSERT_TRUE(sensor.isValid());
+    TEST_ASSERT_TRUE(sensor.isWaterPresent());
+}
+
+// ---------------------------------------------------------------------------
+// Invalid ⇒ isWaterPresent() false, structurally (ILevelSensor contract:
+// never a stale or phantom value). The active-LOW (rev2) config is the
+// sharp case: a naive polarity map of the constructed stableRaw_ = false
+// would read !false = "water present" — a phantom.
+// ---------------------------------------------------------------------------
+
+void test_invalid_reads_false_active_low(void)
+{
+    ScriptedInput input;
+    input.level = true;  // raw HIGH = dry on rev2
+    FakeTimeProvider time;
+    DebouncedLevelSensor sensor(input, time, /*activeLow=*/true,
+                                kDebounceMs, kSettleMs);
+
+    // Freshly constructed and during settle: false, never the phantom.
+    TEST_ASSERT_FALSE(sensor.isValid());
+    TEST_ASSERT_FALSE(sensor.isWaterPresent());
+    sensor.update();  // settle window opens
+    step(sensor, time, kSettleMs - 1);
+    TEST_ASSERT_FALSE(sensor.isValid());
+    TEST_ASSERT_FALSE(sensor.isWaterPresent());
+
+    // Reach TRACKING with water PRESENT (raw LOW on rev2).
+    input.level = false;
+    step(sensor, time, 1);           // settle done, warm-up opens on LOW
+    step(sensor, time, kDebounceMs); // warm-up complete
+    TEST_ASSERT_TRUE(sensor.isValid());
+    TEST_ASSERT_TRUE(sensor.isWaterPresent());
+
+    // After notifyPowerOn(): invalid again, and the stale "water present"
+    // must NOT leak — false until re-validated.
+    sensor.notifyPowerOn();
+    TEST_ASSERT_FALSE(sensor.isValid());
+    TEST_ASSERT_FALSE(sensor.isWaterPresent());
+    sensor.update();  // settle window re-opens
+    step(sensor, time, kSettleMs - 1);
+    TEST_ASSERT_FALSE(sensor.isWaterPresent());
+    step(sensor, time, 1);
+    step(sensor, time, kDebounceMs - 1);
+    TEST_ASSERT_FALSE(sensor.isWaterPresent());  // still warming up
+
+    // Re-validated (raw held LOW throughout): the true reading returns.
+    step(sensor, time, 1);
+    TEST_ASSERT_TRUE(sensor.isValid());
+    TEST_ASSERT_TRUE(sensor.isWaterPresent());
+}
+
+// ---------------------------------------------------------------------------
+// markFaulted(): the GPIO-init-failure latch (wiring-site concept)
+// ---------------------------------------------------------------------------
+
+void test_faulted_sensor_never_becomes_valid(void)
+{
+    ScriptedInput input;
+    input.level = true;  // perfectly stable input — must not matter
+    FakeTimeProvider time;
+    DebouncedLevelSensor sensor(input, time, /*activeLow=*/false,
+                                kDebounceMs, /*settleMs=*/0);
+    sensor.markFaulted();
+
+    // However long and stable the update stream, a faulted sensor stays
+    // invalid (a floating unconfigured pin must never debounce its way to
+    // isValid()) and its logical state reads false.
+    sensor.update();
+    for (int i = 0; i < 20; ++i) {
+        step(sensor, time, 100);  // 2 s total ≫ settle + debounce
+        TEST_ASSERT_FALSE(sensor.isValid());
+        TEST_ASSERT_FALSE(sensor.isWaterPresent());
+    }
+    // rawState() diagnostics still follow the pin even while faulted.
+    TEST_ASSERT_TRUE(sensor.rawState());
+}
+
+void test_notify_power_on_clears_fault(void)
+{
+    ScriptedInput input;
+    input.level = true;
+    FakeTimeProvider time;
+    DebouncedLevelSensor sensor(input, time, /*activeLow=*/false,
+                                kDebounceMs, /*settleMs=*/0);
+    sensor.markFaulted();
+    step(sensor, time, 1000);
+    TEST_ASSERT_FALSE(sensor.isValid());
+
+    // notifyPowerOn() is the deliberate re-arm (PR-14 rail control / an
+    // operator power cycle): the fault clears and the normal settle +
+    // warm-up sequence runs from the next update().
+    sensor.notifyPowerOn();
+    TEST_ASSERT_FALSE(sensor.isValid());  // re-armed, not instantly valid
+    sensor.update();                      // warm-up opens (settle 0)
+    step(sensor, time, kDebounceMs - 1);
+    TEST_ASSERT_FALSE(sensor.isValid());
+    step(sensor, time, 1);
     TEST_ASSERT_TRUE(sensor.isValid());
     TEST_ASSERT_TRUE(sensor.isWaterPresent());
 }
@@ -410,7 +571,8 @@ void test_locked_level_sensor_delegates(void)
 }
 
 // ---------------------------------------------------------------------------
-// Fail direction per board (T022, docs/parity-checklist.md line 97):
+// Fail direction per board (T022, docs/parity-checklist.md §3, "Pull-up +
+// active-HIGH consequence" item):
 // a disconnected sensor input is pulled HIGH by the pull-up (internal on
 // both boards, external 10 kΩ additionally on rev2 — research R4). The
 // resulting LOGICAL state differs per board polarity, and BOTH directions
@@ -423,7 +585,8 @@ void test_fail_direction_rev1_disconnected_reads_water_present(void)
     // rev1 (two-pump node, active HIGH — non-inverting TXS0108E path):
     // pulled-HIGH = "water present" at every mark ⇒ the reservoir looks
     // full, so the FILL pump stays off. Fails toward "do not pump"
-    // (checklist line 97; legacy src/main.cpp:231-233 behavior preserved).
+    // (checklist §3 "Pull-up + active-HIGH consequence" item; legacy
+    // src/main.cpp:231-233 behavior preserved).
     ScriptedInput input;
     input.level = true;  // disconnected: the pull-up pins the raw input HIGH
     FakeTimeProvider time;
@@ -444,7 +607,8 @@ void test_fail_direction_rev2_disconnected_reads_water_absent(void)
     // pump dry. The opposite direction of rev1 — and exactly as safe,
     // because the pump topology is opposite: rev1 fills a reservoir
     // (phantom water = no overfill), rev2 draws from one (phantom
-    // emptiness = no dry run). Checklist line 97.
+    // emptiness = no dry run). Checklist §3 "Pull-up + active-HIGH
+    // consequence" item.
     ScriptedInput input;
     input.level = true;  // disconnected: the pull-up pins the raw input HIGH
     FakeTimeProvider time;
@@ -533,7 +697,12 @@ void run_level_sensor_tests(void)
     RUN_TEST(test_tracking_flip_restarts_window);
     RUN_TEST(test_tracking_flip_back_cancels_pending_change);
     RUN_TEST(test_settle_gating_500ms);
+    RUN_TEST(test_settle_window_opens_at_first_update_after_construction);
+    RUN_TEST(test_chatter_during_settle_validity_at_exactly_settle_plus_debounce);
     RUN_TEST(test_notify_power_on_rearms_settle);
+    RUN_TEST(test_invalid_reads_false_active_low);
+    RUN_TEST(test_faulted_sensor_never_becomes_valid);
+    RUN_TEST(test_notify_power_on_clears_fault);
     RUN_TEST(test_polarity_equivalence);
     RUN_TEST(test_chatter_single_transition);
     RUN_TEST(test_raw_state_is_undebounced);

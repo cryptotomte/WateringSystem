@@ -308,7 +308,8 @@ not-yet-valid for `BOARD_LEVEL_SETTLE_MS` after a power-on event (rev1 0,
 rev2 500 ms); `notifyPowerOn()` re-arms the gate — app_main calls it once
 at boot, real rail control (`SENS_PWR_EN`) arrives with PR-14. Consumers
 MUST gate on `isValid()`: not-yet-valid is a distinct state, never wet or
-dry. Fail direction (pinned by host tests, parity checklist line 97): a
+dry. Fail direction (pinned by host tests, parity checklist §3, "Pull-up +
+active-HIGH consequence" item): a
 disconnected input reads pulled-HIGH ⇒ rev1 "water present" (fill pump
 stays off), rev2 "water absent" (drawing node does not pump) — both fail
 safe for their pump topology. `update()` is polled from the 10 Hz main

@@ -18,9 +18,11 @@ DebouncedLevelSensor::DebouncedLevelSensor(IDigitalInput& input,
     : input_(input),
       time_(time),
       activeLow_(activeLow),
-      debounceMs_(debounceMs),
-      settleMs_(settleMs)
+      debounceMs_(debounceMs < 0 ? 0 : debounceMs),
+      settleMs_(settleMs < 0 ? 0 : settleMs)
 {
+    // Negative windows are clamped to 0 (document-and-clamp, header
+    // contract): a window that "completed in the past" must never exist.
     // Starts in SETTLING with the settle window armed but not started —
     // the first update() opens it (no time read in the constructor; all
     // state motion belongs to the update() stream).
@@ -73,6 +75,12 @@ void DebouncedLevelSensor::update()
             stableRaw_ = candidateRaw_;
         }
         break;
+
+    case State::Faulted:
+        // Latched (markFaulted): no progress on any update — only
+        // notifyPowerOn(), a deliberate re-arm, leaves this state. raw_
+        // above still tracks the pin for rawState() diagnostics.
+        break;
     }
 }
 
@@ -84,11 +92,12 @@ bool DebouncedLevelSensor::isValid()
 bool DebouncedLevelSensor::isWaterPresent()
 {
     // Polarity absorbed here (FW-5): logical = stable raw XOR active-low.
-    // Meaningful only while isValid() (ILevelSensor contract); before the
-    // first stable window stableRaw_ is the constructed false, and after a
-    // notifyPowerOn() it holds the last stable value — consumers gate on
-    // isValid(), never on this value alone.
-    return activeLow_ ? !stableRaw_ : stableRaw_;
+    // Structurally false whenever invalid (ILevelSensor contract: never a
+    // stale or phantom value) — outside TRACKING there is no stable value
+    // to map, so nothing meaningless can leak even to a consumer that
+    // forgot to gate on isValid().
+    return state_ == State::Tracking &&
+           (activeLow_ ? !stableRaw_ : stableRaw_);
 }
 
 bool DebouncedLevelSensor::rawState()
@@ -98,10 +107,21 @@ bool DebouncedLevelSensor::rawState()
 
 void DebouncedLevelSensor::notifyPowerOn()
 {
-    // Re-arm settle gating (FW-3) from ANY state: readings are invalid
-    // again until the settle window AND a fresh debounce warm-up complete.
-    // The settle window opens at the next update() (kNotStarted), keeping
+    // Re-arm settle gating (FW-3) from ANY state — including FAULTED,
+    // where this deliberate re-arm is the documented recovery path (PR-14
+    // rail control / an operator power cycle): readings are invalid again
+    // until the settle window AND a fresh debounce warm-up complete. The
+    // settle window opens at the next update() (kNotStarted), keeping
     // validity a pure function of the update stream.
     state_ = State::Settling;
     settleStartMs_ = kNotStarted;
+}
+
+void DebouncedLevelSensor::markFaulted()
+{
+    // Latched fault (header contract): called at the wiring site when the
+    // raw input's GPIO init failed — a floating, unconfigured pin must
+    // never debounce its way to isValid(). Cleared only by
+    // notifyPowerOn().
+    state_ = State::Faulted;
 }

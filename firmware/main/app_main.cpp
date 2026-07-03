@@ -113,7 +113,8 @@ static void pumps_force_off(void)
 
 extern "C" void app_main(void)
 {
-    // Fail-safe first: both pumps off before anything else happens.
+    // Fail-safe first: every pump that exists on this board off before
+    // anything else happens.
     pumps_force_off();
 
     const esp_app_desc_t *app_desc = esp_app_get_description();
@@ -280,8 +281,10 @@ extern "C" void app_main(void)
 
     // Reservoir level sensors (feature 006). Not safety-critical at boot:
     // a failed GPIO init is logged and the system keeps running — the
-    // sensors report not-yet-valid/garbage-gated states and PR-11's
-    // fail-safe treats invalid as "do not act". Function-local statics
+    // affected sensor is latched Faulted (markFaulted below), so it
+    // reports not-yet-valid forever instead of debouncing a floating pin
+    // into a "valid" reading, and PR-11's fail-safe treats invalid as
+    // "do not act". Function-local statics
     // after pumps_force_off() (boot fail-safe rule). Split per research
     // R1: GpioLevelSensor is the raw pin read (input + pull-up, no logic);
     // DebouncedLevelSensor holds ALL policy — polarity (FW-5), debounce
@@ -300,16 +303,37 @@ extern "C" void app_main(void)
     static LockedLevelSensor level_low(level_low_raw);
     static LockedLevelSensor level_high(level_high_raw);
 
-    if (!level_low_input.initialize() || !level_high_input.initialize()) {
-        ESP_LOGE(TAG, "level sensor GPIO init failed — level readings "
-                 "unreliable");
-    }
+    // Both inits run unconditionally (no short-circuit): a low-input
+    // failure must never skip the high-input init.
+    const bool level_low_ok = level_low_input.initialize();
+    const bool level_high_ok = level_high_input.initialize();
 
     // FW-3: the sensor rail is on from power-up (rail *control* arrives in
     // PR-14) — arm the settle gate once at boot. On rev1 the settle window
     // is 0 ms, so this only re-affirms the construction-time gating.
     level_low.notifyPowerOn();
     level_high.notifyPowerOn();
+
+    // A failed GPIO init leaves that pin unconfigured and floating: latch
+    // the sensor Faulted so isValid() stays false — markFaulted() is on
+    // the concrete DebouncedLevelSensor by design (not ILevelSensor), so
+    // it is called here at the wiring site, on the raw objects; safe
+    // because no other task touches the sensors yet (console registration
+    // and the main loop come later). Ordered AFTER the boot
+    // notifyPowerOn() above, which is the deliberate re-arm that clears a
+    // fault (recovery: PR-14 rail control or an operator power cycle).
+    if (!level_low_ok) {
+        level_low_raw.markFaulted();
+        ESP_LOGE(TAG, "level LOW sensor GPIO init failed (pin %d) — sensor "
+                 "faulted, readings invalid until a power-on re-arm",
+                 BOARD_PIN_LEVEL_LOW);
+    }
+    if (!level_high_ok) {
+        level_high_raw.markFaulted();
+        ESP_LOGE(TAG, "level HIGH sensor GPIO init failed (pin %d) — sensor "
+                 "faulted, readings invalid until a power-on re-arm",
+                 BOARD_PIN_LEVEL_HIGH);
+    }
 
     // Serial diagnostic REPL (rig testing; contracts/serial-diagnostic.md).
     // Pump registration is capability-aware: single-pump boards register

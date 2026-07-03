@@ -61,8 +61,8 @@ public:
      * together.
      *
      * Atomic: either all three getters are refreshed, or the call fails
-     * (error 1 when the lazy (re-)initialization finds no sensor, error 2
-     * on a bus error during the data reads) and the last-good values
+     * (error 1 or 2 from a failed lazy (re-)initialization, error 2 on a
+     * bus error during the data reads) and the last-good values
      * remain untouched. A bus error marks the driver uninitialized, so
      * the next call re-probes the identity (recovery). No retries —
      * recovery comes from the caller's poll cadence.

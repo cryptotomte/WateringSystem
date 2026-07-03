@@ -109,7 +109,7 @@
  * defined when BOARD_HAS_RESERVOIR_PUMP is 0: any reference that is not
  * guarded by #if BOARD_HAS_RESERVOIR_PUMP becomes a compile error instead
  * of driving a phantom GPIO (same enforcement pattern as
- * BOARD_PIN_RS485_DE below). */
+ * BOARD_PIN_RS485_DE above). */
 #define BOARD_PIN_MAIN_PUMP             26  // TODO(SYNC1): final rev2 pin map frozen at hardware sync 1
 #define BOARD_HAS_RESERVOIR_PUMP        0
 

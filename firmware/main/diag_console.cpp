@@ -52,8 +52,8 @@
  *
  * Level sensor command (HIL verification path for feature 006; console
  * contract in specs/006-level-sensors-ina226/contracts/interfaces.md — the
- * output distinguishes "not_yet_valid" from wet/dry, SC-005/FR-012, and
- * shows the logical + raw state per sensor):
+ * output distinguishes "not_yet_valid" from wet/dry, FR-001/FR-003/FR-012,
+ * and shows the logical + raw state per sensor):
  *
  *   level                               # both sensors: logical + raw + validity
  *
@@ -699,14 +699,18 @@ int env_cmd(int argc, char **argv)
 // --- level command (feature 006 HIL verification path) -------------------
 
 /// One sensor's console word: "not_yet_valid" is a DISTINCT state, never
-/// conflated with wet/dry (SC-005/FR-012 — a settling or warming-up sensor
-/// must not read as an empty or full reservoir).
+/// conflated with wet/dry (FR-001/FR-003/FR-012 — a settling or warming-up
+/// sensor must not read as an empty or full reservoir).
 const char *level_state_str(ILevelSensor &sensor)
 {
     // isValid() and isWaterPresent() are separate locked calls; a main-loop
     // update() interleaving between them can only make a just-valid reading
-    // report not_yet_valid or vice versa (benign cross-lock race,
-    // TODO(PR-11) snapshot helper in LockedLevelSensor.h).
+    // report not_yet_valid, or a reading that lost validity in the gap
+    // print "dry" — benign either way, because isWaterPresent() returns
+    // false whenever invalid (ILevelSensor contract): never a stale or
+    // phantom "water". One-poll diagnostic glitch only; TODO(PR-11):
+    // migrate to the snapshot helper in LockedLevelSensor.h (PR-14 keeps
+    // relying on this console path).
     if (!sensor.isValid()) {
         return "not_yet_valid";
     }

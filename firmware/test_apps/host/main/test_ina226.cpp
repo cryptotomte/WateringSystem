@@ -19,10 +19,11 @@
  * asserted big-endian in order, the 5 mΩ/0.5 mA operating point
  * (CAL = 2048), scaling vectors hand-computed from the SBOS547 formulas
  * (LSB units, a realistic pump vector, a negative-current vector),
- * identity mismatch / absent device → error 1, mid-read bus error →
- * error 2 + last-good retention + re-probe recovery, mid-init write
- * failure → error 2, live isAvailable() probe, and the LockedPowerSensor
- * delegation check.
+ * identity mismatch / absent device / ACK-then-identity-read failure →
+ * error 1, mid-read bus error → error 2 + last-good retention + re-probe
+ * recovery, mid-triple publish-last atomicity, mid-init write failure
+ * (config leg and calibration leg) → error 2 + full-sequence re-run, live
+ * isAvailable() probe, and the LockedPowerSensor delegation check.
  */
 
 #include <cmath>
@@ -191,6 +192,14 @@ void test_mock_word_registers_adjacent_no_collision(void)
     // byte-map model their MSB/LSB pairs would overwrite each other
     // (0x02's LSB slot is 0x03's MSB slot). The word overlay keeps each
     // 16-bit register independent — the model real hardware implements.
+    //
+    // This test also pins the surviving half of the mock's loud-failure
+    // contract: EXACT 2-byte reads of setRegister16()-scripted registers
+    // are served from the overlay. The other half — a mis-shaped read
+    // overlapping such a register aborts the process — cannot appear as a
+    // passing Unity test by construction (abort() kills the test binary);
+    // it is documented in MockI2cBus.h and exists to make a bad test
+    // script fail loudly instead of silently reading byte-map zeros.
     bus.setRegister16(kAddr, kRegBusVoltage, 0x2580);
     bus.setRegister16(kAddr, kRegPower, 0x0F00);
     bus.setRegister16(kAddr, kRegCurrent, 0x1F40);
@@ -223,6 +232,16 @@ void script_readings(MockI2cBus& bus, uint16_t rawBus, uint16_t rawPower,
     bus.setRegister16(kAddr, kRegBusVoltage, rawBus);
     bus.setRegister16(kAddr, kRegPower, rawPower);
     bus.setRegister16(kAddr, kRegCurrent, rawCurrent);
+}
+
+/// Number of recorded calls of @p type (probe/write16 sequence counting).
+size_t count_calls(const MockI2cBus& bus, MockI2cBus::Call::Type type)
+{
+    size_t n = 0;
+    for (const MockI2cBus::Call& call : bus.calls) {
+        n += call.type == type ? 1 : 0;
+    }
+    return n;
 }
 
 // --- initialization: write sequence + operating point ---------------------
@@ -436,6 +455,59 @@ void test_ina226_mid_init_write_failure_is_error_2(void)
     TEST_ASSERT_EQUAL(probesBefore + 1, probesAfter);
 }
 
+void test_ina226_ack_but_identity_read_failure_is_error_1(void)
+{
+    MockI2cBus bus;
+    script_identity(bus);
+    Ina226Sensor sensor(bus, kAddr, kShuntMilliOhm);
+
+    // The device ACKs its address but the identity READ itself fails: the
+    // device never identified, so this is DELIBERATELY error 1 ("not
+    // found"), not error 2 ("after identification") — pins the
+    // classification at Ina226Sensor::probeAndIdentify().
+    bus.queueReadOutcome(false);
+    TEST_ASSERT_FALSE(sensor.initialize());
+    TEST_ASSERT_EQUAL_INT(1, sensor.getLastError());
+
+    // No identity ⇒ the config/calibration writes never happen.
+    TEST_ASSERT_EQUAL(
+        0, count_calls(bus, MockI2cBus::Call::Type::Write16));
+
+    // Transient: the next attempt (read queue exhausted = success) runs
+    // the full sequence and recovers.
+    TEST_ASSERT_TRUE(sensor.initialize());
+    TEST_ASSERT_EQUAL_INT(0, sensor.getLastError());
+}
+
+void test_ina226_calibration_write_failure_is_error_2(void)
+{
+    MockI2cBus bus;
+    script_identity(bus);
+    Ina226Sensor sensor(bus, kAddr, kShuntMilliOhm);
+
+    // The device identified and the CONFIG write succeeded, but the
+    // CALIBRATION write (second leg of the init sequence) fails: error 2,
+    // and the driver stays uninitialized.
+    bus.queueWriteOutcome(true);   // config write
+    bus.queueWriteOutcome(false);  // calibration write fails
+    TEST_ASSERT_FALSE(sensor.initialize());
+    TEST_ASSERT_EQUAL_INT(2, sensor.getLastError());
+
+    // Uninitialized means the next attempt re-runs the FULL sequence: a
+    // fresh probe + identity AND both writes (config again, not just the
+    // failed calibration).
+    const size_t probesBefore =
+        count_calls(bus, MockI2cBus::Call::Type::Probe);
+    const size_t writesBefore =
+        count_calls(bus, MockI2cBus::Call::Type::Write16);
+    TEST_ASSERT_TRUE(sensor.initialize());
+    TEST_ASSERT_EQUAL_INT(0, sensor.getLastError());
+    TEST_ASSERT_EQUAL(probesBefore + 1,
+                      count_calls(bus, MockI2cBus::Call::Type::Probe));
+    TEST_ASSERT_EQUAL(writesBefore + 2,
+                      count_calls(bus, MockI2cBus::Call::Type::Write16));
+}
+
 void test_ina226_mid_read_bus_error_lastgood_and_recovery(void)
 {
     MockI2cBus bus;
@@ -477,6 +549,31 @@ void test_ina226_mid_read_bus_error_lastgood_and_recovery(void)
         write16After += call.type == MockI2cBus::Call::Type::Write16 ? 1 : 0;
     }
     TEST_ASSERT_EQUAL(write16Before + 2, write16After);  // re-configured
+}
+
+void test_ina226_mid_triple_read_failure_keeps_full_lastgood_triple(void)
+{
+    MockI2cBus bus;
+    script_identity(bus);
+    script_readings(bus, 0x2580, 0x0F00, 0x1F40);  // 12 V / 48 W / 4 A
+    Ina226Sensor sensor(bus, kAddr, kShuntMilliOhm);
+    TEST_ASSERT_TRUE(sensor.read());
+
+    // The device now serves DIFFERENT values (12.5 V / 25 W / 2 A), and
+    // the failure hits MID-triple: the bus-voltage read succeeds (it sees
+    // the fresh 12.5 V), then the power read fails. Publication must be
+    // all-or-nothing (fetch-all-then-publish in Ina226Sensor::read()):
+    // ALL THREE getters still hold the previous complete triple —
+    // including bus voltage, whose register read succeeded — never a
+    // fresh voltage next to a stale power.
+    script_readings(bus, 0x2710, 0x07D0, 0x0FA0);
+    bus.queueReadOutcome(true);   // bus-voltage read succeeds
+    bus.queueReadOutcome(false);  // power read fails mid-triple
+    TEST_ASSERT_FALSE(sensor.read());
+    TEST_ASSERT_EQUAL_INT(2, sensor.getLastError());
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 12.0f, sensor.getBusVoltage());
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 4.0f, sensor.getCurrent());
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 48.0f, sensor.getPower());
 }
 
 void test_ina226_is_available_live_probe(void)
@@ -545,8 +642,11 @@ void run_ina226_tests(void)
     RUN_TEST(test_ina226_negative_current_sign_preserved);
     RUN_TEST(test_ina226_identity_mismatch_is_error_1);
     RUN_TEST(test_ina226_absent_device_is_error_1);
+    RUN_TEST(test_ina226_ack_but_identity_read_failure_is_error_1);
     RUN_TEST(test_ina226_mid_init_write_failure_is_error_2);
+    RUN_TEST(test_ina226_calibration_write_failure_is_error_2);
     RUN_TEST(test_ina226_mid_read_bus_error_lastgood_and_recovery);
+    RUN_TEST(test_ina226_mid_triple_read_failure_keeps_full_lastgood_triple);
     RUN_TEST(test_ina226_is_available_live_probe);
     RUN_TEST(test_locked_power_sensor_delegates);
 }

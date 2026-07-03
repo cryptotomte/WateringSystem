@@ -22,17 +22,26 @@ Contract:
   of the update stream, never of wall-clock reads alone.
 - `isWaterPresent()` is meaningful only when `isValid()` — consumers gate on
   validity (PR-11's truth table treats invalid as "do not act"). Before the first
-  stable window and during settle gating: `isValid()` false.
+  stable window and during settle gating: `isValid()` false, and
+  `isWaterPresent()` returns false whenever invalid (never a stale or phantom
+  value).
 - Polarity is fully absorbed here via board configuration (FW-5); no consumer ever
   sees a raw-polarity value except through `rawState()` (diagnostics only).
 - `notifyPowerOn()` re-arms settle gating (rev2 ≥500 ms; rev1 0 ms). Rail control
-  itself is PR-14 (CP1 decision A) — app_main calls this once at boot on rev2.
+  itself is PR-14 (CP1 decision A) — app_main calls this once at boot on BOTH
+  boards (no-op effect on rev1, where settle = 0 leaves only the standard
+  debounce warm-up).
 - Debounce: reported state changes only after `BOARD_LEVEL_DEBOUNCE_MS` of raw
   stability; any flip restarts the window (deliberate divergence from legacy's
   bare reads — parity-checklist §6 entry).
-- Fail direction (pinned by host tests, checklist line 97): disconnected input is
+- Fail direction (pinned by host tests, `docs/parity-checklist.md` §3, "Pull-up +
+  active-HIGH consequence" item): disconnected input is
   pulled HIGH ⇒ rev1 reads "water present" (fill pump stays off), rev2 reads
   "water absent" (drawing node does not pump). Both fail safe for their topology.
+- Fault latch (implementation-level, NOT part of this interface):
+  `DebouncedLevelSensor::markFaulted()` pins `isValid()` false when the raw
+  input's GPIO init failed; app_main calls it at the wiring site (concrete type
+  known there). `notifyPowerOn()` is the deliberate re-arm that clears it.
 
 ## `IPowerSensor` (interfaces component, header-only, no IDF includes)
 
@@ -95,6 +104,15 @@ as `LockedEnvironmentalSensor` (TODO(PR-11) snapshot helper applies here too).
 - `EspI2cBus` and `MockI2cBus` updated accordingly; `MockI2cBus` records 16-bit
   writes into the per-address byte map (big-endian) so existing byte assertions
   remain valid. BME280 call sites are untouched.
+- `MockI2cBus` word-register overlay: `setRegister16()` scripts pointer-addressed
+  16-bit registers (INA226 model — adjacent word registers like 0x02/0x03/0x04
+  never collide), served ONLY by exact 2-byte reads; it is deliberately NOT
+  mirrored into the byte map. A read that is not an exact 2-byte hit but whose
+  range overlaps such a byte-incoherent word register fails loudly
+  (`abort()` with a stderr message, host-only code) instead of silently serving
+  byte-map zeros. `writeRegister16()` keeps both models coherent (byte map
+  big-endian + overlay), so byte-level reads of driver-written registers stay
+  valid.
 
 ## Board contract (board.h)
 
@@ -102,6 +120,9 @@ Per data-model.md table. Enforcement: `BOARD_HAS_RESERVOIR_PUMP=0` ⇒
 `BOARD_PIN_RESERVOIR_PUMP` undefined (compile error on unguarded use — RS485-DE
 pattern); consistency asserts flag⇒pin; existing reservoir-pin sanity checks
 flag-guarded; level pins distinct from each other/I2C/RS485 pins (compile-time).
+Kconfig: `WS_INA226_SHUNT_MILLIOHM` (`main/Kconfig.projbuild`) carries
+`depends on BOARD_REV2` — the option does not exist in rev1 configurations
+(implementation decision, matching the FR-011 compile-out).
 
 ## Console commands (main/diag_console, thin wrappers)
 
@@ -110,7 +131,8 @@ level                 # both sensors: logical + raw + validity   (both boards)
 power                 # INA226 V/I/P or ERROR <code> + hint      (BOARD_HAS_INA226 only)
 ```
 
-- `level` output must distinguish "not yet valid" from wet/dry (SC-005/FR-012).
+- `level` output must distinguish "not yet valid" from wet/dry
+  (FR-001/FR-003/FR-012).
 - `power` failure output distinguishes error 1 (not found) from 2 (read failed).
 - `pump reservoir ...` registration is compiled out on `BOARD_HAS_RESERVOIR_PUMP=0`
   builds — rev2 console lists exactly one pump (PR-14 contract).
@@ -121,7 +143,10 @@ Function-local statics after `pumps_force_off()` (which becomes capability-aware
 only existing pumps are forced off — the invariant "every pump that exists is OFF
 first" is unchanged). Level sensors: two `GpioLevelSensor` + `DebouncedLevelSensor`
 + `Locked*` wrappers; `update()` called from the 10 Hz main loop; `notifyPowerOn()`
-once at boot on rev2. INA226 (rev2): `Ina226Sensor` on the SAME `EspI2cBus`
+once at boot on both boards (no-op effect on rev1, settle = 0); a failed
+`GpioLevelSensor::initialize()` latches the corresponding sensor via
+`markFaulted()` (per-sensor, logged separately). INA226 (rev2): `Ina226Sensor`
+on the SAME `EspI2cBus`
 instance as the BME280 (bus-sharing contract from PR-03 — never a second bus).
 
 ## Deliberate divergences from legacy (parity-checklist §6 candidates)

@@ -16,8 +16,10 @@
  * Consistency helpers from the start (PR-04 lesson, MockEnvironmentalSensor
  * pattern): scriptValidState()/scriptInvalid() keep validity and the
  * logical state coherent — an invalid sensor never serves a stale
- * "water present" (the interface contract: isWaterPresent() is meaningful
- * ONLY while isValid(), and returns false when it carries no meaning).
+ * "water present". This matches the interface contract exactly:
+ * isWaterPresent() returns false whenever invalid (never a stale or
+ * phantom value), which the real DebouncedLevelSensor also guarantees
+ * structurally.
  * rawState() is a separate plain scripted field: it is diagnostics-only
  * and polarity-dependent, which a board-agnostic mock cannot derive from
  * the logical state — no coherence is defined between the two (matching
@@ -60,8 +62,8 @@ public:
     }
 
     /// Script a NOT-YET-VALID sensor (settling/warming up/faulted): the
-    /// logical state loses meaning and is served as false per the
-    /// interface contract — never a stale previous value.
+    /// logical state loses meaning and is served as false — the interface
+    /// contract shared with the real sensor, never a stale previous value.
     void scriptInvalid()
     {
         valid_ = false;

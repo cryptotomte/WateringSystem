@@ -27,7 +27,7 @@ the greenhouse and retire the Arduino unit after a two-week unattended soak.
     Greenhouse reservoir is refilled manually until the central reservoir unit
     exists (multi-zone, future PRD).
   - **Inverted level sensors:** XKC-Y26 through 2N7002 inverter ⇒ GPIO active LOW;
-    wet/dry bench measurement confirms `BOARD_LEVEL_SENSOR_ACTIVE_LOW` mapping
+    wet/dry bench measurement confirms `BOARD_LEVEL_ACTIVE_LOW` mapping
     (counterpart of the PR-05 rev1 verification).
   - **JTAG smoke test:** attach debugger on header J6, halt/resume, read a variable —
     proves the debug path for future use.

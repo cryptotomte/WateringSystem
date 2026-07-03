@@ -44,12 +44,20 @@
  *   TRACKING: a raw flip opens a stability window; the reported state
  *             changes only once the new value has held for debounceMs;
  *             every flip restarts the window.
+ *   markFaulted() ──▶ FAULTED   from any state (latched: update() does not
+ *                           progress, isValid() stays false); only
+ *                           notifyPowerOn() — a deliberate re-arm — leaves
+ *                           it, back to SETTLING.
  *
  * All time is measured from the update() stream: the settle window starts
  * at the FIRST update() after construction/notifyPowerOn() (never at the
  * event itself — "no update ⇒ no state change", ILevelSensor contract; the
  * slight lateness is in the safe direction). A window of N ms is complete
  * on the first update() where at least N ms have elapsed since it opened.
+ * Sampled-system caveat: the raw value only has to be identical at the
+ * samples the owner takes — with a starved poll cadence a window can
+ * complete from just two samples spanning it, not a continuously observed
+ * hold.
  */
 class DebouncedLevelSensor : public ILevelSensor {
 public:
@@ -65,10 +73,13 @@ public:
      *                   means water present (rev2's 2N7002 inverter); pass
      *                   BOARD_LEVEL_ACTIVE_LOW from board.h.
      * @param debounceMs Stability window before a reported state change
-     *                   (BOARD_LEVEL_DEBOUNCE_MS).
+     *                   (BOARD_LEVEL_DEBOUNCE_MS). Negative values are
+     *                   clamped to 0 (document-and-clamp — never
+     *                   already-in-the-past window math).
      * @param settleMs   Invalidity window after a power-on event
      *                   (BOARD_LEVEL_SETTLE_MS; 0 = no settle gating
-     *                   beyond the debounce warm-up).
+     *                   beyond the debounce warm-up). Negative values are
+     *                   clamped to 0.
      */
     DebouncedLevelSensor(IDigitalInput& input, ITimeProvider& time,
                          bool activeLow, int64_t debounceMs,
@@ -86,8 +97,22 @@ public:
     bool rawState() override;
     void notifyPowerOn() override;
 
+    /**
+     * @brief Latch the sensor in a FAULTED state: isValid() is pinned
+     * false and update() no longer progresses the state machine.
+     *
+     * Deliberately NOT part of ILevelSensor (the interface surface stays
+     * unchanged): faulting is a wiring-site decision — app_main calls this
+     * on the concrete object when the raw input's GPIO init failed, so an
+     * unconfigured, floating pin can never debounce its way to a "valid"
+     * reading. Recovery is a deliberate re-arm only: notifyPowerOn()
+     * returns the sensor to Settling (PR-14 rail control, or an operator
+     * power cycle — which reboots and re-runs the GPIO init anyway).
+     */
+    void markFaulted();
+
 private:
-    enum class State { Settling, Warmup, Tracking };
+    enum class State { Settling, Warmup, Tracking, Faulted };
 
     /// Sentinel: the settle window has not started yet (armed, waiting for
     /// the first update()).

@@ -24,8 +24,15 @@
  * spills into the numerically next register, so adjacent word registers
  * like 0x02/0x03/0x04 or 0xFE/0xFF do not collide). An exact 2-byte read
  * is served from the word overlay when the register is scripted there;
- * everything else falls through to the byte map. Never compiled into
- * target builds (only included from test code). No IDF includes.
+ * everything else falls through to the byte map — EXCEPT when the read
+ * range touches a register whose only truth is the word overlay
+ * (setRegister16() scripted, byte map incoherent): that is a mis-shaped
+ * test script, and instead of silently serving byte-map zeros the mock
+ * fails loudly (abort(), host-only code — see readRegisters()).
+ * writeRegister16() keeps the byte map coherent (big-endian mirror), so
+ * byte-level reads of driver-written registers remain valid. Never
+ * compiled into target builds (only included from test code). No IDF
+ * includes.
  */
 
 #ifndef WATERINGSYSTEM_SENSORS_TESTING_MOCKI2CBUS_H
@@ -34,7 +41,10 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <map>
+#include <set>
 #include <vector>
 
 #include "interfaces/II2cBus.h"
@@ -80,6 +90,7 @@ public:
     {
         devices_.erase(address7);
         wordRegisters_.erase(address7);
+        byteIncoherentWords_.erase(address7);
     }
 
     /// Script one register byte on a device (added implicitly if absent).
@@ -111,6 +122,11 @@ public:
     {
         devices_[address7];  // implicit add, setRegister() convention
         wordRegisters_[address7][reg] = value;
+        // The byte map is deliberately NOT mirrored (a pointer-addressed
+        // register has no byte-map representation): mark the register
+        // byte-incoherent so a mis-shaped read fails loudly instead of
+        // serving byte-map zeros (see readRegisters()).
+        byteIncoherentWords_[address7].insert(reg);
     }
 
     /**
@@ -160,6 +176,30 @@ public:
                 }
             }
         }
+        // Loud-failure guard (host-only code): a read that is NOT an exact
+        // 2-byte overlay hit but whose range touches a register that ONLY
+        // exists in the word overlay (setRegister16() scripted, never
+        // writeRegister16()-mirrored into the byte map) would silently
+        // serve byte-map zeros — always a mis-shaped test script, never a
+        // modeled bus behavior. Abort with a message instead; this path
+        // can therefore not appear as a passing test, only as a build-time
+        // documented contract (see the file comment).
+        const auto incoherent = byteIncoherentWords_.find(address7);
+        if (incoherent != byteIncoherentWords_.end()) {
+            for (size_t i = 0; i < len; ++i) {
+                const uint8_t r = static_cast<uint8_t>(startReg + i);
+                if (incoherent->second.count(r) != 0) {
+                    std::fprintf(
+                        stderr,
+                        "MockI2cBus: read [reg 0x%02x, len %zu] at addr "
+                        "0x%02x overlaps word-scripted register 0x%02x "
+                        "without an exact 2-byte hit — mis-shaped test "
+                        "script (use readRegister16/exact 2-byte reads)\n",
+                        startReg, len, address7, r);
+                    std::abort();
+                }
+            }
+        }
         for (size_t i = 0; i < len; ++i) {
             buf[i] = device->second[static_cast<uint8_t>(startReg + i)];
         }
@@ -200,7 +240,10 @@ public:
             static_cast<uint8_t>(value & 0xFF);
         // Also into the WORD overlay, so a write-then-read16 round trip is
         // coherent for pointer-addressed devices (INA226 config readback).
+        // The byte map is now coherent for this register — clear any
+        // setRegister16() incoherence mark (loud-failure guard above).
         wordRegisters_[address7][reg] = value;
+        byteIncoherentWords_[address7].erase(reg);
         call.succeeded = true;
         calls.push_back(call);
         return true;
@@ -222,6 +265,10 @@ private:
     /// Pointer-addressed 16-bit registers (setRegister16(), INA226 model);
     /// consulted only for exact 2-byte reads.
     std::map<uint8_t, std::map<uint8_t, uint16_t>> wordRegisters_;
+    /// Word registers whose byte-map view is NOT valid (setRegister16()
+    /// scripted and not since writeRegister16()-mirrored): any non-exact
+    /// read touching one aborts loudly (see readRegisters()).
+    std::map<uint8_t, std::set<uint8_t>> byteIncoherentWords_;
     std::vector<bool> readOutcomes_;
     std::vector<bool> writeOutcomes_;
 };
