@@ -31,6 +31,7 @@ else()
     idf_component_register(
         SRCS "src/WifiManager.cpp"
              "src/ProvisioningPortal.cpp"
+             "src/EspWifiDriver.cpp"
         INCLUDE_DIRS "include"
         REQUIRES interfaces board
         PRIV_REQUIRES esp_wifi esp_netif esp_event esp_http_server

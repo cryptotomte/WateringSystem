@@ -21,6 +21,7 @@
 #include "interfaces/IPowerSensor.h"
 #include "interfaces/ISoilSensor.h"
 #include "interfaces/IWaterPump.h"
+#include "network/WifiManager.h"
 
 /**
  * @brief Register the pump instances the console commands operate on.
@@ -101,6 +102,21 @@ void diag_console_register_level(ILevelSensor& low, ILevelSensor& high);
  */
 void diag_console_register_power(IPowerSensor& sensor);
 #endif
+
+/**
+ * @brief Register the WiFi manager the `wifi` status command reads (feature
+ *        007 US2).
+ *
+ * Pass the station-mode WifiManager, or nullptr when the device booted in
+ * provisioning mode (no station manager exists) — the `wifi` command then
+ * reports "not available". The command only reads the manager's immutable
+ * snapshot() (single acquisition), never the raw state, and never echoes
+ * credentials (FR-004). Must be called before diag_console_start(); plain
+ * pointer registration.
+ *
+ * @param manager Station manager, or nullptr in provisioning/unconfigured mode.
+ */
+void diag_console_register_wifi(WifiManager* manager);
 
 /**
  * @brief Start the UART REPL (prompt "ws>") and register the commands.

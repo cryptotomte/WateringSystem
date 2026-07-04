@@ -91,6 +91,7 @@
 #include "interfaces/IPowerSensor.h"
 #include "interfaces/ISoilSensor.h"
 #include "interfaces/IWaterPump.h"
+#include "network/WifiManager.h"
 
 namespace {
 
@@ -151,6 +152,11 @@ ILevelSensor *s_level_high = nullptr;
 // with the `power` command on boards without an INA226.
 IPowerSensor *s_power = nullptr;
 #endif
+
+// WiFi station manager (set from app_main; nullptr when the device booted in
+// provisioning mode — no station manager exists then). Same trivial-
+// initialization rule. The `wifi` command reads only its snapshot().
+WifiManager *s_wifi = nullptr;
 
 const char *stop_reason_str(StopReason reason)
 {
@@ -779,6 +785,52 @@ int power_cmd(int argc, char **argv)
 
 #endif  // BOARD_HAS_INA226
 
+// --- wifi command (feature 007 US2 status path) --------------------------
+
+/// WifiState -> stable console word (never a credential value).
+const char *wifi_state_str(WifiState state)
+{
+    switch (state) {
+    case WifiState::Provisioning:
+        return "provisioning";
+    case WifiState::Connecting:
+        return "connecting";
+    case WifiState::Connected:
+        return "connected";
+    case WifiState::Reconnecting:
+        return "reconnecting";
+    case WifiState::ReconnectPaused:
+        return "reconnect_paused";
+    default:
+        return "unknown";
+    }
+}
+
+/// `wifi`: one immutable snapshot of the station manager — state, RSSI and the
+/// reconnect/disconnect counters. Never echoes SSID or password (FR-004); the
+/// snapshot carries no credential fields by design.
+int wifi_cmd(int argc, char **argv)
+{
+    (void)argv;
+    if (argc != 1) {
+        printf("ERR usage: wifi\n");
+        return 1;
+    }
+    if (s_wifi == nullptr) {
+        // Provisioning/unconfigured boot: no station manager to report.
+        printf("ERR wifi station manager not available (provisioning or "
+               "unconfigured)\n");
+        return 1;
+    }
+    const WifiConnectionSnapshot snap = s_wifi->snapshot();
+    printf("OK state=%s ip=%s rssi=%d dBm failures=%u disconnects=%lu\n",
+           wifi_state_str(snap.state), snap.ipAcquired ? "yes" : "no",
+           static_cast<int>(snap.rssi),
+           static_cast<unsigned>(snap.consecutiveFailures),
+           static_cast<unsigned long>(snap.disconnectCount));
+    return 0;
+}
+
 }  // namespace
 
 #if BOARD_HAS_RESERVOIR_PUMP
@@ -823,6 +875,12 @@ void diag_console_register_power(IPowerSensor& sensor)
     s_power = &sensor;
 }
 #endif
+
+void diag_console_register_wifi(WifiManager* manager)
+{
+    // nullptr is valid: provisioning/unconfigured boot has no station manager.
+    s_wifi = manager;
+}
 
 esp_err_t diag_console_start(void)
 {
@@ -1001,6 +1059,21 @@ esp_err_t diag_console_start(void)
         return err;
     }
 #endif
+
+    const esp_console_cmd_t cmd_wifi = {
+        .command = "wifi",
+        .help = "wifi — station connection status (state / rssi / counters; "
+                "no credentials)",
+        .hint = nullptr,
+        .func = &wifi_cmd,
+        .argtable = nullptr,
+        .func_w_context = nullptr,
+        .context = nullptr,
+    };
+    err = esp_console_cmd_register(&cmd_wifi);
+    if (err != ESP_OK) {
+        return err;
+    }
 
     return esp_console_start_repl(repl);
 }

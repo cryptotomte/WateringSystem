@@ -50,8 +50,11 @@
 #include "sensors/Ina226Sensor.h"
 #include "sensors/LockedPowerSensor.h"
 #endif
+#include "network/EspWifiDriver.h"
 #include "network/ProvisioningPortal.h"
 #include "network/WifiBootMode.h"
+#include "network/WifiManager.h"
+#include "network/WifiState.h"
 #include "storage/LittleFsDataStorage.h"
 #include "storage/LockedConfigStore.h"
 #include "storage/LockedDataStorage.h"
@@ -60,6 +63,7 @@
 
 #include "diag_console.h"
 #include "sensor_task.h"
+#include "wifi_task.h"
 
 static const char *TAG = "app_main";
 
@@ -194,8 +198,8 @@ extern "C" void app_main(void)
     // they are created once, here, after NVS (esp_wifi persists calibration
     // in NVS) and before any WiFi object. Not safety-critical: a failure is
     // logged and the system keeps running — WiFi is simply unavailable, and
-    // the watering path never depends on the network (FR-014). No WiFi
-    // objects are constructed yet in this phase.
+    // the watering path never depends on the network (FR-014). The WiFi driver
+    // and manager are constructed below, after this init.
     esp_err_t netif_err = esp_netif_init();
     if (netif_err != ESP_OK) {
         ESP_LOGE(TAG, "esp_netif_init failed: %s (WiFi unavailable)",
@@ -244,13 +248,36 @@ extern "C" void app_main(void)
     const WifiBootMode wifi_boot_mode =
         decideBootMode(wifi_credentials_present, config_button_held);
 
+    // The single WiFi driver (one hardware touchpoint) — a function-local
+    // static after pumps_force_off() (boot fail-safe rule: the constructor is
+    // trivial, all IDF work is in init()). Both boot modes use it: provisioning
+    // brings up the SoftAP through it, station drives STA connect/reconnect.
+    // init() creates the STA + AP netifs, esp_wifi_init and the event queue on
+    // top of the netif/event-loop init done above; a failure is non-fatal
+    // (logged) — WiFi is simply unavailable and the watering path is
+    // unaffected (FR-014).
+    static EspWifiDriver wifi_driver;
+    const esp_err_t wifi_init_err = wifi_driver.init();
+    if (wifi_init_err != ESP_OK) {
+        ESP_LOGE(TAG, "WiFi driver init failed: %s (WiFi unavailable)",
+                 esp_err_to_name(wifi_init_err));
+    }
+
+    // Set later in the station branch; used both to start the wifi task and to
+    // register the manager with the diag console below. Stays nullptr in
+    // provisioning mode (the console `wifi` command then reports unavailable).
+    WifiManager *wifi_manager = nullptr;
+
     if (wifi_boot_mode == WifiBootMode::Provisioning) {
         ESP_LOGI(TAG, "WiFi: provisioning mode (SoftAP setup portal)");
-        // TODO(US2/T018): bring up the SoftAP radio via EspWifiDriver::apStart
-        //   using CONFIG_WS_PROV_AP_SSID / CONFIG_WS_PROV_AP_PASSWORD (WPA2).
-        //   EspWifiDriver arrives with US2; until the radio is up the portal
-        //   is started here but not yet reachable over the air. The portal
-        //   only depends on the config store, so it is wired now.
+        // Bring up the SoftAP radio BEFORE the portal starts serving so the
+        // page is reachable over the air the moment it is registered (T018).
+        // Credential VALUES are never logged (FR-004): the AP SSID is not a
+        // secret, the WPA2 password is.
+        if (!wifi_driver.apStart(CONFIG_WS_PROV_AP_SSID,
+                                 CONFIG_WS_PROV_AP_PASSWORD)) {
+            ESP_LOGE(TAG, "SoftAP failed to start (portal may be unreachable)");
+        }
         // Function-local static (boot fail-safe rule: no non-trivial
         // static/global constructors). Constructed only on this branch, kept
         // alive for the program lifetime so it keeps serving.
@@ -262,10 +289,32 @@ extern "C" void app_main(void)
         }
     } else {
         ESP_LOGI(TAG, "WiFi: station mode (stored credentials present)");
-        // TODO(US2/T020): construct EspWifiDriver + WifiManager,
-        //   begin(WifiBootMode::Station) and wifi_task_start(manager). The
-        //   station connect/reconnect path is deferred to US2; no STA connect
-        //   is issued in this PR.
+        // Reconnect timing from Kconfig (parity defaults, docs/parity-
+        // checklist.md §7): 10 s retry, +60 s pause after 5 consecutive
+        // failures, 5 s health monitor. The pure WifiManager owns all cadence
+        // above the IWifiDriver seam.
+        const ReconnectPolicy wifi_policy = {
+            .retryIntervalMs =
+                static_cast<uint32_t>(CONFIG_WS_WIFI_RETRY_INTERVAL_MS),
+            .failuresBeforePause =
+                static_cast<uint8_t>(CONFIG_WS_WIFI_FAILS_BEFORE_PAUSE),
+            .pauseMs = static_cast<uint32_t>(CONFIG_WS_WIFI_PAUSE_MS),
+            .monitorIntervalMs =
+                static_cast<uint32_t>(CONFIG_WS_WIFI_MONITOR_INTERVAL_MS),
+        };
+        // Function-local static (boot fail-safe rule). Reuses the app_main
+        // EspTimeProvider (the same monotonic clock the pump/level layer uses)
+        // and the shared config store; holds NO watering/pump/sensor reference
+        // (FR-014, structurally enforced by the constructor signature). begin()
+        // issues the first STA connect; the wifi task then ticks it.
+        static WifiManager wifi_manager_inst(wifi_driver, config, time_provider,
+                                             wifi_policy);
+        wifi_manager_inst.begin(WifiBootMode::Station);
+        wifi_manager = &wifi_manager_inst;
+
+        // Separate FreeRTOS task from the 10 Hz pump/level loop — no shared
+        // mutex with watering (FR-014). Drives the status LED too (T021).
+        wifi_task_start(wifi_manager_inst);
     }
 
     // RS485 Modbus soil sensor (feature 004). Not safety-critical: a failed
@@ -409,6 +458,8 @@ extern "C" void app_main(void)
 #if BOARD_HAS_INA226
     diag_console_register_power(power_sensor);
 #endif
+    // nullptr in provisioning mode — the `wifi` command reports unavailable.
+    diag_console_register_wifi(wifi_manager);
     esp_err_t err = diag_console_start();
     if (err != ESP_OK) {
         // Console is a diagnostic aid, not a safety function: log and keep
