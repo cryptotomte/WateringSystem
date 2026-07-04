@@ -9,15 +9,16 @@
 # build (research.md, same mechanism as the other components).
 #
 # US1 (feature 007): the pure credential-validation and boot-mode logic is
-# header-only (WifiCredentialValidation.h, WifiBootMode.h — no .cpp), so the
-# host branch stays INCLUDE_DIRS-only. The provisioning HTTP portal
-# (ProvisioningPortal.cpp) is the first hardware touchpoint and is target-
-# only. WifiManager.cpp and EspWifiDriver.cpp arrive with US2 — pure sources
-# then go to SRCS on BOTH branches, hardware sources on the target branch
-# only.
+# header-only (WifiCredentialValidation.h, WifiBootMode.h — no .cpp). US2 adds
+# the pure WifiManager state machine (WifiManager.cpp) — a pure source that
+# goes to SRCS on BOTH branches (host tests + target). The provisioning HTTP
+# portal (ProvisioningPortal.cpp) and EspWifiDriver.cpp are hardware
+# touchpoints and stay target-only.
 if(${IDF_TARGET} STREQUAL "linux")
-    # Host build: pure sources only (validation + boot-mode are header-only).
+    # Host build: pure sources only (validation + boot-mode are header-only;
+    # WifiManager is the pure state machine, host-tested over MockWifiDriver).
     idf_component_register(
+        SRCS "src/WifiManager.cpp"
         INCLUDE_DIRS "include"
         REQUIRES interfaces board
     )
@@ -28,7 +29,8 @@ else()
     # (same rule as storage's littlefs and sensors' esp-modbus): the portal
     # header holds the server handle as an opaque pointer.
     idf_component_register(
-        SRCS "src/ProvisioningPortal.cpp"
+        SRCS "src/WifiManager.cpp"
+             "src/ProvisioningPortal.cpp"
         INCLUDE_DIRS "include"
         REQUIRES interfaces board
         PRIV_REQUIRES esp_wifi esp_netif esp_event esp_http_server
