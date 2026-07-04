@@ -23,8 +23,10 @@
 
 #include "board/board.h"
 #include "esp_app_desc.h"
+#include "esp_event.h"
 #include "esp_idf_version.h"
 #include "esp_log.h"
+#include "esp_netif.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -183,6 +185,24 @@ extern "C" void app_main(void)
     if (nvs_err != ESP_OK) {
         ESP_LOGE(TAG, "NVS init failed: %s (config falls back to defaults)",
                  esp_err_to_name(nvs_err));
+    }
+
+    // System network init (feature 007). The TCP/IP stack and the default
+    // event loop must exist before any WiFi driver is constructed (US1/US2);
+    // they are created once, here, after NVS (esp_wifi persists calibration
+    // in NVS) and before any WiFi object. Not safety-critical: a failure is
+    // logged and the system keeps running — WiFi is simply unavailable, and
+    // the watering path never depends on the network (FR-014). No WiFi
+    // objects are constructed yet in this phase.
+    esp_err_t netif_err = esp_netif_init();
+    if (netif_err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_netif_init failed: %s (WiFi unavailable)",
+                 esp_err_to_name(netif_err));
+    }
+    esp_err_t event_err = esp_event_loop_create_default();
+    if (event_err != ESP_OK) {
+        ESP_LOGE(TAG, "default event loop create failed: %s (WiFi unavailable)",
+                 esp_err_to_name(event_err));
     }
 
     // littlefs mount-or-format of the `storage` partition at /storage
