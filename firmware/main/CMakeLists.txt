@@ -1,9 +1,10 @@
 idf_component_register(
     SRCS "app_main.cpp" "diag_console.cpp" "sensor_task.cpp" "wifi_task.cpp"
+         "system_observer.cpp"
     PRIV_REQUIRES board esp_driver_gpio esp_app_format
                   actuators interfaces console esp_timer
                   storage nvs_flash sensors esp_netif esp_event
-                  network time
+                  network time events esp_system
 )
 
 # Build-time littlefs image of the committed seed directory

@@ -15,5 +15,5 @@ idf_component_register(
          # compiling (static_asserts only, nothing registers with Unity).
          "test_board_contract_rev1.cpp"
          "test_board_contract_rev2.cpp"
-    REQUIRES unity actuators interfaces storage nvs_flash sensors board network time
+    REQUIRES unity actuators interfaces storage nvs_flash sensors board network time events
 )

@@ -27,6 +27,7 @@
 #include "esp_idf_version.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_system.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -35,6 +36,7 @@
 #include "actuators/EspTimeProvider.h"
 #include "actuators/GpioWaterPump.h"
 #include "actuators/LockedWaterPump.h"
+#include "events/EventLogger.h"
 #include "sensors/Bme280Sensor.h"
 #include "sensors/DebouncedLevelSensor.h"
 #include "sensors/EspI2cBus.h"
@@ -60,9 +62,11 @@
 #include "storage/LockedDataStorage.h"
 #include "storage/NvsConfigStore.h"
 #include "storage/StorageMount.h"
+#include "time/SystemWallClock.h"
 
 #include "diag_console.h"
 #include "sensor_task.h"
+#include "system_observer.h"
 #include "wifi_task.h"
 
 static const char *TAG = "app_main";
@@ -323,6 +327,23 @@ extern "C" void app_main(void)
                                             StorageMount::statsProvider());
     static LockedConfigStore config(config_store);
     static LockedDataStorage storage(data_storage);
+
+    // Persistent event logger (feature 008 US2). Function-local statics after
+    // pumps_force_off() (boot fail-safe rule): the SystemWallClock is trivial
+    // (reads time(nullptr); SNTP steps it in US3) and the EventLogger only
+    // stores references. It composes the SAME cross-task LockedDataStorage
+    // (`storage`) so events written from the main loop and later producers
+    // serialize with every other store access. A failed store is counted, never
+    // thrown — logging never blocks or crashes watering (FR-014).
+    static SystemWallClock wall_clock;
+    static EventLogger event_logger(storage, wall_clock);
+
+    // Record why this boot happened (watchdog/panic/brownout/power-on) exactly
+    // once, before anything else can reset the reason. The pump fail-safe still
+    // ran first (top of app_main); this only observes the cause.
+    const esp_reset_reason_t reset_reason = esp_reset_reason();
+    event_logger.logReset(static_cast<int>(reset_reason),
+                          resetReasonName(static_cast<int>(reset_reason)));
 
     // One-line usage report (parity: storage usage in the serial status
     // block; FR-008).
@@ -594,6 +615,10 @@ extern "C" void app_main(void)
 #endif
     // nullptr in provisioning mode — the `wifi` command reports unavailable.
     diag_console_register_wifi(wifi_manager);
+    // TODO(US3/T018): construct SntpClient + register the time console
+    // (diag_console_register_time(&wall_clock, &sntp_client.syncStatus())).
+    // The SyncStatus owner is SntpClient, built in US3 — do NOT construct it
+    // here.
     esp_err_t err = diag_console_start();
     if (err != ESP_OK) {
         // Console is a diagnostic aid, not a safety function: log and keep
@@ -606,11 +631,26 @@ extern "C" void app_main(void)
     // sensor failed init above — lazy re-init recovers later (parity).
     sensor_task_start(env_sensor);
 
+    // System observer (feature 008 US2): edge-detects WiFi state changes and
+    // pump start/stop and forwards them to the event log. Function-local static
+    // after pumps_force_off() (boot fail-safe rule): it stores only references/
+    // pointers and never touches pump control. wifi_manager is nullptr in
+    // provisioning/headless mode (the observer null-guards it); the pump set is
+    // capability-aware (rev2 single-pump node passes no reservoir). Polled from
+    // the 10 Hz loop below.
+#if BOARD_HAS_RESERVOIR_PUMP
+    static SystemObserver observer(event_logger, wifi_manager, &plant,
+                                   &reservoir);
+#else
+    static SystemObserver observer(event_logger, wifi_manager, &plant);
+#endif
+
     // Main loop: poll pump enforcement (every pump that exists on this
     // board) and the level sensors at 10 Hz. Pump update() applies the
     // timed self-stop and the hard 300 s max-runtime cap; level update()
     // samples the raw pins and advances the settle/debounce state
-    // machines (~3 samples per 300 ms window).
+    // machines (~3 samples per 300 ms window). observer.poll() then records
+    // any WiFi/pump transition — best-effort logging, never blocking watering.
     while (true) {
         plant.update();
 #if BOARD_HAS_RESERVOIR_PUMP
@@ -618,6 +658,7 @@ extern "C" void app_main(void)
 #endif
         level_low.update();
         level_high.update();
+        observer.poll();
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
