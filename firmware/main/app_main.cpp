@@ -50,6 +50,8 @@
 #include "sensors/Ina226Sensor.h"
 #include "sensors/LockedPowerSensor.h"
 #endif
+#include "network/ProvisioningPortal.h"
+#include "network/WifiBootMode.h"
 #include "storage/LittleFsDataStorage.h"
 #include "storage/LockedConfigStore.h"
 #include "storage/LockedDataStorage.h"
@@ -229,6 +231,42 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "Storage: %lu/%lu KiB used",
              static_cast<unsigned long>(stats.usedBytes / 1024),
              static_cast<unsigned long>(stats.totalBytes / 1024));
+
+    // WiFi boot-mode decision (feature 007, US1). A missing stored SSID (the
+    // factory/unconfigured state) OR a held config button forces first-boot/
+    // recovery provisioning; a configured device otherwise comes up in
+    // station mode. The config-button read is US3/T024 — until then the
+    // button is reported as released. Credential VALUES are never logged: we
+    // only test whether an SSID is present. WiFi never touches the watering
+    // path (FR-014); everything below stays after the pump fail-safe.
+    const bool wifi_credentials_present = !config.getWifiSsid().empty();
+    const bool config_button_held = false;  // TODO(US3/T024): read BOARD_PIN_BTN_CONFIG at boot
+    const WifiBootMode wifi_boot_mode =
+        decideBootMode(wifi_credentials_present, config_button_held);
+
+    if (wifi_boot_mode == WifiBootMode::Provisioning) {
+        ESP_LOGI(TAG, "WiFi: provisioning mode (SoftAP setup portal)");
+        // TODO(US2/T018): bring up the SoftAP radio via EspWifiDriver::apStart
+        //   using CONFIG_WS_PROV_AP_SSID / CONFIG_WS_PROV_AP_PASSWORD (WPA2).
+        //   EspWifiDriver arrives with US2; until the radio is up the portal
+        //   is started here but not yet reachable over the air. The portal
+        //   only depends on the config store, so it is wired now.
+        // Function-local static (boot fail-safe rule: no non-trivial
+        // static/global constructors). Constructed only on this branch, kept
+        // alive for the program lifetime so it keeps serving.
+        static ProvisioningPortal provisioning_portal(config);
+        const esp_err_t prov_err = provisioning_portal.start();
+        if (prov_err != ESP_OK) {
+            ESP_LOGE(TAG, "provisioning portal failed to start: %s",
+                     esp_err_to_name(prov_err));
+        }
+    } else {
+        ESP_LOGI(TAG, "WiFi: station mode (stored credentials present)");
+        // TODO(US2/T020): construct EspWifiDriver + WifiManager,
+        //   begin(WifiBootMode::Station) and wifi_task_start(manager). The
+        //   station connect/reconnect path is deferred to US2; no STA connect
+        //   is issued in this PR.
+    }
 
     // RS485 Modbus soil sensor (feature 004). Not safety-critical: a failed
     // client init is logged and the system keeps running — the sensor layer
