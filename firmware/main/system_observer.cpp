@@ -51,6 +51,17 @@ void SystemObserver::pollWifi()
         lastWifiState_ = state;
         haveWifiState_ = true;
     }
+
+    // Start SNTP the first time the station reaches Connected — SNTP needs an
+    // IP, so starting it before the link is up is pointless. start() is
+    // idempotent and non-fatal (server unreachable is retried by the service,
+    // never a boot/watering failure, FR-014); the guard keeps it to one call.
+    // sntp_ is nullptr in provisioning/headless mode, so SNTP is simply never
+    // started there.
+    if (state == WifiState::Connected && sntp_ != nullptr && !sntpStarted_) {
+        sntp_->start();
+        sntpStarted_ = true;
+    }
 }
 
 void SystemObserver::pollPump(IWaterPump* pump, const char* name,

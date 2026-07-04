@@ -24,6 +24,7 @@
 #include "freertos/task.h"
 
 #include "sensors/SensorTaskLogPolicy.h"
+#include "task_watchdog.h"
 
 static const char *TAG = "sensor_task";
 
@@ -42,11 +43,20 @@ constexpr UBaseType_t kPriority = 1;    ///< parity priority (R7)
     // (e.g. booting with no sensor attached) WARNs exactly once.
     SensorTaskLogPolicy logPolicy;
 
+    // Watering-critical task: subscribe to the task WDT (feature 008 US3). The
+    // 20 s default timeout has a safe margin over this 5 s cycle. A stalled
+    // read never blocks (the driver is bounded), so the feed each cycle is the
+    // liveness proof the WDT needs.
+    watchdog_subscribe_current_task();
+
     TickType_t lastWake = xTaskGetTickCount();
     while (true) {
         // First poll one period after start — the NORMAL-mode first
         // conversion completes well within 5 s (research.md R9).
         vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(kPeriodMs));
+
+        // Feed once per 5 s cycle: this task is alive and servicing the WDT.
+        watchdog_feed();
 
         const bool ok = sensor.read();
         switch (logPolicy.onReadResult(ok)) {

@@ -28,6 +28,7 @@
 #include "interfaces/IWaterPump.h"
 #include "network/WifiManager.h"
 #include "network/WifiState.h"
+#include "time/SntpClient.h"
 
 /**
  * @brief Detects WiFi/pump state transitions and forwards them to EventLogger.
@@ -40,17 +41,24 @@
 class SystemObserver {
 public:
     /**
-     * @brief Inject the logger, the (nullable) WifiManager and the pump handles.
+     * @brief Inject the logger, the (nullable) WifiManager, the SNTP client and
+     *        the pump handles.
      *
      * @param logger    Typed event sink (borrowed; must outlive this observer).
      * @param wifi      WiFi state source, or nullptr in provisioning/headless
      *                  mode (WiFi transitions are then simply not observed).
+     * @param sntp      SNTP client to start on the first Connected transition,
+     *                  or nullptr to never start SNTP (borrowed). SNTP is thus
+     *                  never started in provisioning/headless mode (wifi is
+     *                  nullptr) nor when no client is injected — the wall clock
+     *                  simply stays "time not set" (feature 008 US3).
      * @param plant     Plant pump handle, or nullptr if absent.
      * @param reservoir Reservoir pump handle, or nullptr on single-pump boards.
      */
-    SystemObserver(EventLogger& logger, WifiManager* wifi, IWaterPump* plant,
-                   IWaterPump* reservoir = nullptr)
-        : logger_(logger), wifi_(wifi), plant_(plant), reservoir_(reservoir)
+    SystemObserver(EventLogger& logger, WifiManager* wifi, SntpClient* sntp,
+                   IWaterPump* plant, IWaterPump* reservoir = nullptr)
+        : logger_(logger), wifi_(wifi), sntp_(sntp), plant_(plant),
+          reservoir_(reservoir)
     {
     }
 
@@ -69,6 +77,7 @@ private:
 
     EventLogger& logger_;
     WifiManager* wifi_;
+    SntpClient* sntp_;
     IWaterPump* plant_;
     IWaterPump* reservoir_;
 
@@ -76,6 +85,11 @@ private:
     // the initial state is logged exactly once.
     WifiState lastWifiState_ = WifiState::Provisioning;
     bool haveWifiState_ = false;
+
+    // SNTP is started exactly once, on the first transition into Connected.
+    // SntpClient::start() is itself idempotent; this guard avoids calling it on
+    // every later Connected transition.
+    bool sntpStarted_ = false;
 
     // Pumps are forced OFF at boot (app_main invariant), so "not running" is
     // the correct initial edge baseline — no spurious start on the first poll.

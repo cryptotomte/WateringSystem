@@ -62,11 +62,13 @@
 #include "storage/LockedDataStorage.h"
 #include "storage/NvsConfigStore.h"
 #include "storage/StorageMount.h"
+#include "time/SntpClient.h"
 #include "time/SystemWallClock.h"
 
 #include "diag_console.h"
 #include "sensor_task.h"
 #include "system_observer.h"
+#include "task_watchdog.h"
 #include "wifi_task.h"
 
 static const char *TAG = "app_main";
@@ -338,6 +340,17 @@ extern "C" void app_main(void)
     static SystemWallClock wall_clock;
     static EventLogger event_logger(storage, wall_clock);
 
+    // SNTP wall-clock synchroniser (feature 008 US3). Function-local static
+    // after pumps_force_off() (boot fail-safe rule): the constructor only zeroes
+    // its SyncStatus, no IDF work. Install the Swedish timezone (CET/CEST) now
+    // so any local-time rendering is correct the moment the clock is first
+    // stepped. The SNTP service itself is NOT started here: the SystemObserver
+    // starts it lazily on the first transition into WifiState::Connected (SNTP
+    // needs an IP), and never in provisioning/headless mode. SNTP runs outside
+    // the watering path and is non-fatal (FR-014).
+    static SntpClient sntp;
+    sntp.applyTimezone();
+
     // Record why this boot happened (watchdog/panic/brownout/power-on) exactly
     // once, before anything else can reset the reason. The pump fail-safe still
     // ran first (top of app_main); this only observes the cause.
@@ -351,6 +364,14 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "Storage: %lu/%lu KiB used",
              static_cast<unsigned long>(stats.usedBytes / 1024),
              static_cast<unsigned long>(stats.totalBytes / 1024));
+
+    // Task watchdog (feature 008 US3). Reconfigure the boot-time WDT to the
+    // Kconfig timeout with panic (reboot) on a non-serviced subscribed task.
+    // Placed here — after storage/netif init and AFTER the reset-reason event
+    // was logged above (so a prior TASK_WDT reset is recorded), and before the
+    // watering-critical tasks start and subscribe. Non-fatal on failure (logged
+    // inside): the watering path still runs, just unwatched.
+    watchdog_init();
 
     // WiFi boot-mode decision (feature 007, US1 + US3). A missing stored SSID
     // (the factory/unconfigured state) OR a held config button forces
@@ -615,10 +636,12 @@ extern "C" void app_main(void)
 #endif
     // nullptr in provisioning mode — the `wifi` command reports unavailable.
     diag_console_register_wifi(wifi_manager);
-    // TODO(US3/T018): construct SntpClient + register the time console
-    // (diag_console_register_time(&wall_clock, &sntp_client.syncStatus())).
-    // The SyncStatus owner is SntpClient, built in US3 — do NOT construct it
-    // here.
+    // Wall clock + SNTP sync status (feature 008 US3): the `time` command reads
+    // the local time and reports the sync state. The SyncStatus is owned by the
+    // SntpClient (constructed above); the observer starts the SNTP service on
+    // the first Connected transition, so before the first sync `time` reports
+    // "time not set".
+    diag_console_register_time(&wall_clock, &sntp.status());
     esp_err_t err = diag_console_start();
     if (err != ESP_OK) {
         // Console is a diagnostic aid, not a safety function: log and keep
@@ -639,10 +662,10 @@ extern "C" void app_main(void)
     // capability-aware (rev2 single-pump node passes no reservoir). Polled from
     // the 10 Hz loop below.
 #if BOARD_HAS_RESERVOIR_PUMP
-    static SystemObserver observer(event_logger, wifi_manager, &plant,
+    static SystemObserver observer(event_logger, wifi_manager, &sntp, &plant,
                                    &reservoir);
 #else
-    static SystemObserver observer(event_logger, wifi_manager, &plant);
+    static SystemObserver observer(event_logger, wifi_manager, &sntp, &plant);
 #endif
 
     // Main loop: poll pump enforcement (every pump that exists on this
@@ -651,6 +674,13 @@ extern "C" void app_main(void)
     // samples the raw pins and advances the settle/debounce state
     // machines (~3 samples per 300 ms window). observer.poll() then records
     // any WiFi/pump transition — best-effort logging, never blocking watering.
+    //
+    // This main loop is a watering-critical task: subscribe it to the task WDT
+    // (feature 008 US3) once here, then feed it every iteration. A stall in the
+    // pump/level enforcement path therefore forces a panic reboot (pumps OFF at
+    // the next boot, reset reason logged as TASK_WDT). The 100 ms cadence is far
+    // under the 20 s default timeout.
+    watchdog_subscribe_current_task();
     while (true) {
         plant.update();
 #if BOARD_HAS_RESERVOIR_PUMP
@@ -659,6 +689,7 @@ extern "C" void app_main(void)
         level_low.update();
         level_high.update();
         observer.poll();
+        watchdog_feed();
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
