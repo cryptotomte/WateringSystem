@@ -48,4 +48,28 @@ inline WifiBootMode decideBootMode(bool credentialsPresent,
     return WifiBootMode::Station;
 }
 
+/**
+ * @brief Whether the stored WiFi credentials must be cleared before entering
+ * provisioning at boot.
+ *
+ * The emergency-reset path (data-model.md boot rule): only when a device that
+ * DOES have stored credentials is forced into provisioning by a held config
+ * button do we wipe them first, so re-provisioning starts from a clean
+ * unconfigured state and cannot silently keep the old network. An already
+ * unconfigured device has nothing to clear, and a normal station boot (button
+ * released) must never touch the credentials.
+ *
+ * Pure boolean intent, host-tested; the actual `clearWifiCredentials()` side
+ * effect lives at the app_main wiring site (T025).
+ *
+ * @param credentialsPresent true when a non-empty SSID is stored.
+ * @param configButtonHeld true when the config button is held at boot.
+ * @return true iff (credentialsPresent && configButtonHeld).
+ */
+inline bool shouldClearCredentialsOnBoot(bool credentialsPresent,
+                                         bool configButtonHeld)
+{
+    return credentialsPresent && configButtonHeld;
+}
+
 #endif /* WATERINGSYSTEM_NETWORK_WIFIBOOTMODE_H */

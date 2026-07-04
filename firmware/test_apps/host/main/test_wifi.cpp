@@ -383,6 +383,92 @@ static void test_wifi_isolation_no_block_no_watering_dep(void)
     TEST_ASSERT_EQUAL_UINT8(0, snap.consecutiveFailures);
 }
 
+// ===========================================================================
+// US3 — recovery paths (T022/T023).
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// T022 — no boot loop under permanent failure (FR-013). An infinite
+// ConnectFailed stream over many rounds keeps the machine in the failure cycle
+// (Connecting / Reconnecting / ReconnectPaused) forever: it never reaches
+// Connected, never falls back to Provisioning, never requests a restart (the
+// pure WifiManager has no reboot surface at all), and its counters stay bounded
+// (consecutiveFailures never exceeds failuresBeforePause — reset to 0 when the
+// pause elapses; no overflow/UB). (contract §Timing 5)
+// ---------------------------------------------------------------------------
+static void test_wifi_no_boot_loop_under_permanent_failure(void)
+{
+    MockWifiDriver driver;
+    MockConfigStore config;
+    FakeTimeProvider clock;
+    seedCredentials(config);
+
+    const ReconnectPolicy policy{};  // parity defaults (10 s / 5 / 60 s)
+    WifiManager manager(driver, config, clock, policy);
+    manager.begin(WifiBootMode::Station);  // attempt #1 → Connecting
+
+    // Drive 800 rounds of pure failure. Each round either fails an in-flight
+    // Connecting attempt or advances past whatever wait the machine is in
+    // (60 s covers both the 10 s retry and the 60 s pause), so the machine
+    // marches Connecting → Reconnecting → … → ReconnectPaused → Connecting
+    // indefinitely. One ReconnectPaused occurs roughly every 10 rounds (5
+    // failures + their retries), so 800 rounds drives well over 50 retry/pause
+    // cycles.
+    int pausesSeen = 0;
+    for (int round = 0; round < 800; ++round) {
+        if (manager.snapshot().state == WifiState::Connecting) {
+            driver.scriptConnectFailure();
+        } else {
+            clock.advance(60000);
+        }
+        manager.tick();
+
+        const WifiConnectionSnapshot snap = manager.snapshot();
+        // Only the three failure-cycle states are ever legal here: no
+        // Connected (nothing ever succeeds) and no Provisioning (the machine
+        // never reboots into a different boot mode) — FR-013 no boot loop.
+        const bool inCycle = snap.state == WifiState::Connecting ||
+                             snap.state == WifiState::Reconnecting ||
+                             snap.state == WifiState::ReconnectPaused;
+        TEST_ASSERT_TRUE(inCycle);
+        // Counter never exceeds the pause threshold (bounded — no overflow).
+        TEST_ASSERT_TRUE(snap.consecutiveFailures <= policy.failuresBeforePause);
+        if (snap.state == WifiState::ReconnectPaused) {
+            ++pausesSeen;
+        }
+    }
+
+    // The pause path was exercised many times (proving real retry/pause
+    // cycling, not a stuck state), and the machine is still in the failure
+    // cycle with a bounded counter at the end.
+    TEST_ASSERT_TRUE(pausesSeen >= 50);
+    const WifiConnectionSnapshot finalSnap = manager.snapshot();
+    TEST_ASSERT_TRUE(finalSnap.state != WifiState::Connected &&
+                     finalSnap.state != WifiState::Provisioning);
+    TEST_ASSERT_TRUE(finalSnap.consecutiveFailures <= policy.failuresBeforePause);
+}
+
+// ---------------------------------------------------------------------------
+// T023 — emergency-reset boot decision + the paired clear-credentials intent.
+// decideBootMode forces Provisioning when the config button is held on a
+// configured device; the pure shouldClearCredentialsOnBoot helper (wired into
+// app_main's provisioning branch, T025) is true ONLY when both hold, so a
+// forced re-provisioning starts from a clean unconfigured state. (contract
+// "Boot-mode contract" row 4 + data-model.md boot rule)
+// ---------------------------------------------------------------------------
+static void test_wifi_emergency_reset_clear_intent(void)
+{
+    // The emergency-reset entry: configured device + button held → Provisioning.
+    TEST_ASSERT_EQUAL(modeInt(WifiBootMode::Provisioning),
+                      modeInt(decideBootMode(true, true)));
+
+    // Clear-credentials intent: true only for (configured && button held).
+    TEST_ASSERT_TRUE(shouldClearCredentialsOnBoot(true, true));    // forced reset
+    TEST_ASSERT_FALSE(shouldClearCredentialsOnBoot(true, false));  // normal station
+    TEST_ASSERT_FALSE(shouldClearCredentialsOnBoot(false, true));  // nothing stored
+    TEST_ASSERT_FALSE(shouldClearCredentialsOnBoot(false, false)); // first boot
+}
+
 void run_wifi_tests(void)
 {
     // T008 — credential validation.
@@ -399,4 +485,8 @@ void run_wifi_tests(void)
     RUN_TEST(test_wifi_ap_mode_suspends);
     // T016 — FR-014 isolation / non-blocking tick.
     RUN_TEST(test_wifi_isolation_no_block_no_watering_dep);
+    // T022 — no boot loop under permanent failure (FR-013).
+    RUN_TEST(test_wifi_no_boot_loop_under_permanent_failure);
+    // T023 — emergency-reset boot decision + clear-credentials intent.
+    RUN_TEST(test_wifi_emergency_reset_clear_intent);
 }

@@ -67,6 +67,15 @@
 
 static const char *TAG = "app_main";
 
+// Config-button emergency-provisioning hold (feature 007, US3). Parity
+// (docs/parity-checklist.md §7): the config button held >= 5 s during startup
+// forces WiFi provisioning; the status LED blinks every 100 ms while the hold
+// is being confirmed so the operator sees the reset registering (§7/§9). This
+// 100 ms button-hold blink is distinct from the wifi task's 500 ms
+// connect-attempt toggle (that one runs later, from wifi_task.cpp).
+static constexpr uint32_t kConfigButtonHoldMs = 5000;   // hold to force prov.
+static constexpr uint32_t kConfigButtonBlinkMs = 100;   // LED toggle interval
+
 /**
  * @brief Drive every pump GPIO that exists on this board to a safe OFF
  * state (output, level 0).
@@ -117,6 +126,88 @@ static void pumps_force_off(void)
         ESP_LOGE(TAG, "FATAL: pump fail-safe init failed: %s", esp_err_to_name(err));
         abort();
     }
+}
+
+/**
+ * @brief Read the config button at boot and confirm a >= 5 s hold (feature
+ * 007, US3/T024/T026).
+ *
+ * The config button (BOARD_PIN_BTN_CONFIG, GPIO18) is wired to GND and read
+ * with an internal pull-up, so it is active LOW: held == logic 0 (parity: the
+ * legacy INPUT_PULLUP idiom, same as the level-sensor inputs). Semantics:
+ *
+ *  - Not pressed at boot → return false immediately, no delay (the common,
+ *    fast path: a normal boot must not stall).
+ *  - Pressed at boot → enter a bounded hold-confirm loop of at most
+ *    kConfigButtonHoldMs (5 s), sampling every kConfigButtonBlinkMs (100 ms)
+ *    and toggling BOARD_PIN_STATUS_LED each sample so the operator sees the
+ *    reset registering (parity §7/§9). Released before the window elapses →
+ *    return false (treated as not held). Held for the whole window → return
+ *    true (forced provisioning).
+ *
+ * The loop is bounded by kConfigButtonHoldMs and runs strictly AFTER
+ * pumps_force_off() (pumps already safe) and before the WiFi/sensor tasks
+ * start. Not safety-critical: a GPIO-config failure is logged and reported as
+ * "released" so a stuck read can never wedge boot into provisioning.
+ */
+static bool config_button_held_at_boot(void)
+{
+    const gpio_config_t btn_cfg = {
+        .pin_bit_mask = 1ULL << BOARD_PIN_BTN_CONFIG,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    const esp_err_t err = gpio_config(&btn_cfg);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "config button gpio_config failed: %s (treated as released)",
+                 esp_err_to_name(err));
+        return false;
+    }
+
+    // Active LOW: a released button reads 1 (pulled up). Fast path — no delay
+    // on a normal boot.
+    if (gpio_get_level(static_cast<gpio_num_t>(BOARD_PIN_BTN_CONFIG)) != 0) {
+        return false;
+    }
+
+    ESP_LOGI(TAG, "config button down at boot — hold %lu ms to force provisioning",
+             static_cast<unsigned long>(kConfigButtonHoldMs));
+
+    // Drive the status LED for the hold-confirm blink. Non-fatal: a failure
+    // only costs the visual cue, never the hold decision.
+    const gpio_config_t led_cfg = {
+        .pin_bit_mask = 1ULL << BOARD_PIN_STATUS_LED,
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    if (gpio_config(&led_cfg) != ESP_OK) {
+        ESP_LOGW(TAG, "status LED gpio_config failed during config-button hold");
+    }
+
+    // Bounded hold-confirm loop: at most kConfigButtonHoldMs, sampled every
+    // kConfigButtonBlinkMs. Toggle the LED each sample (100 ms blink, parity
+    // §7/§9). Any early release aborts.
+    bool led_on = false;
+    for (uint32_t elapsed_ms = 0; elapsed_ms < kConfigButtonHoldMs;
+         elapsed_ms += kConfigButtonBlinkMs) {
+        vTaskDelay(pdMS_TO_TICKS(kConfigButtonBlinkMs));
+        if (gpio_get_level(static_cast<gpio_num_t>(BOARD_PIN_BTN_CONFIG)) != 0) {
+            gpio_set_level(static_cast<gpio_num_t>(BOARD_PIN_STATUS_LED), 0);
+            ESP_LOGI(TAG, "config button released early — not forcing provisioning");
+            return false;
+        }
+        led_on = !led_on;
+        gpio_set_level(static_cast<gpio_num_t>(BOARD_PIN_STATUS_LED),
+                       led_on ? 1 : 0);
+    }
+    gpio_set_level(static_cast<gpio_num_t>(BOARD_PIN_STATUS_LED), 0);
+    ESP_LOGI(TAG, "config button held >= %lu ms — forcing WiFi provisioning",
+             static_cast<unsigned long>(kConfigButtonHoldMs));
+    return true;
 }
 
 extern "C" void app_main(void)
@@ -236,15 +327,18 @@ extern "C" void app_main(void)
              static_cast<unsigned long>(stats.usedBytes / 1024),
              static_cast<unsigned long>(stats.totalBytes / 1024));
 
-    // WiFi boot-mode decision (feature 007, US1). A missing stored SSID (the
-    // factory/unconfigured state) OR a held config button forces first-boot/
-    // recovery provisioning; a configured device otherwise comes up in
-    // station mode. The config-button read is US3/T024 — until then the
-    // button is reported as released. Credential VALUES are never logged: we
-    // only test whether an SSID is present. WiFi never touches the watering
-    // path (FR-014); everything below stays after the pump fail-safe.
+    // WiFi boot-mode decision (feature 007, US1 + US3). A missing stored SSID
+    // (the factory/unconfigured state) OR a held config button forces
+    // first-boot/recovery provisioning; a configured device otherwise comes up
+    // in station mode. The config-button read (US3/T024) samples GPIO18 and
+    // confirms a >= 5 s hold, blinking the status LED at 100 ms while it does
+    // (T026); it runs here — strictly after pumps_force_off() (pumps already
+    // safe) and before the WiFi/sensor tasks start — and is bounded by the
+    // hold window. Credential VALUES are never logged: we only test whether an
+    // SSID is present. WiFi never touches the watering path (FR-014);
+    // everything below stays after the pump fail-safe.
     const bool wifi_credentials_present = !config.getWifiSsid().empty();
-    const bool config_button_held = false;  // TODO(US3/T024): read BOARD_PIN_BTN_CONFIG at boot
+    const bool config_button_held = config_button_held_at_boot();
     const WifiBootMode wifi_boot_mode =
         decideBootMode(wifi_credentials_present, config_button_held);
 
@@ -270,6 +364,21 @@ extern "C" void app_main(void)
 
     if (wifi_boot_mode == WifiBootMode::Provisioning) {
         ESP_LOGI(TAG, "WiFi: provisioning mode (SoftAP setup portal)");
+        // Emergency reset (US3/T025): when the config button forced
+        // provisioning on an ALREADY-configured device, wipe the stored
+        // credentials BEFORE the AP/portal comes up, so re-provisioning starts
+        // from a clean unconfigured state and cannot silently keep the old
+        // network (data-model.md boot rule). An unconfigured device has nothing
+        // to clear. Credential VALUES are never logged (FR-004).
+        if (shouldClearCredentialsOnBoot(wifi_credentials_present,
+                                         config_button_held)) {
+            ESP_LOGI(TAG, "config button forced provisioning on a configured "
+                     "device — clearing stored WiFi credentials");
+            if (!config.clearWifiCredentials()) {
+                ESP_LOGW(TAG, "failed to clear WiFi credentials "
+                         "(continuing to provisioning)");
+            }
+        }
         // Bring up the SoftAP radio BEFORE the portal starts serving so the
         // page is reachable over the air the moment it is registered (T018).
         // Credential VALUES are never logged (FR-004): the AP SSID is not a
