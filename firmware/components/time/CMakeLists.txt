@@ -10,27 +10,23 @@
 # hardware/IDF touchpoints and are excluded from the linux build, same
 # mechanism as storage/sensors/network.
 #
-# TODO(T008-T010): add the SRCS below as the sources are implemented, and
-# uncomment the PRIV_REQUIRES on the target branch. Until then the component
-# is header-only (SyncStatus.h + testing/FakeWallClock.h) so it configures
-# and builds empty on both the linux and target builds.
+# TimeService.cpp is pure and builds on both targets. SystemWallClock.cpp and
+# SntpClient.cpp are the hardware/IDF touchpoints (esp_netif_sntp) and are
+# excluded from the linux build; esp_netif provides esp_netif_sntp.h. Those
+# headers appear only in the target-only .cpp files, never in public headers.
 if(${IDF_TARGET} STREQUAL "linux")
     idf_component_register(
-        # TODO(T008): SRCS "src/TimeService.cpp"
+        SRCS "src/TimeService.cpp"
         INCLUDE_DIRS "include"
         REQUIRES interfaces
     )
 else()
-    # Target build only: SystemWallClock (IWallClock over time(nullptr)) and
-    # the SNTP starter. PRIV: esp_netif provides esp_netif_sntp.h, lwip the
-    # underlying SNTP module; esp_timer/esp_system for scheduling and reset
-    # reason. These headers appear only in the target-only .cpp files, never
-    # in this component's public headers.
     idf_component_register(
-        # TODO(T008-T010): SRCS "src/TimeService.cpp" "src/SystemWallClock.cpp"
-        #                       "src/SntpClient.cpp"
+        SRCS "src/TimeService.cpp"
+             "src/SystemWallClock.cpp"
+             "src/SntpClient.cpp"
         INCLUDE_DIRS "include"
         REQUIRES interfaces
-        # TODO(T009-T010): PRIV_REQUIRES esp_netif lwip esp_timer esp_system
+        PRIV_REQUIRES esp_netif
     )
 endif()
