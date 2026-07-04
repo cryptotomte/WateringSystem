@@ -297,7 +297,11 @@ extern "C" void app_main(void)
                  esp_err_to_name(netif_err));
     }
     esp_err_t event_err = esp_event_loop_create_default();
-    if (event_err != ESP_OK) {
+    if (event_err == ESP_ERR_INVALID_STATE) {
+        // The default loop already exists (created elsewhere) — that is a
+        // usable state, not a failure, so treat it as success below.
+        event_err = ESP_OK;
+    } else if (event_err != ESP_OK) {
         ESP_LOGE(TAG, "default event loop create failed: %s (WiFi unavailable)",
                  esp_err_to_name(event_err));
     }
@@ -357,19 +361,32 @@ extern "C" void app_main(void)
                  esp_err_to_name(wifi_init_err));
     }
 
+    // WiFi is usable only when the full bring-up chain succeeded: the TCP/IP
+    // stack, the default event loop (already-created counts as success) and the
+    // driver init. If any step failed, both provisioning and station bring-up
+    // are skipped below — no apStart, no WifiManager, no wifi task — so the
+    // system runs headless. WiFi never touches the watering path (FR-014).
+    const bool wifi_stack_ok = (netif_err == ESP_OK) &&
+                               (event_err == ESP_OK) &&
+                               (wifi_init_err == ESP_OK);
+
     // Set later in the station branch; used both to start the wifi task and to
     // register the manager with the diag console below. Stays nullptr in
-    // provisioning mode (the console `wifi` command then reports unavailable).
+    // provisioning mode and whenever WiFi init failed (the console `wifi`
+    // command then reports unavailable).
     WifiManager *wifi_manager = nullptr;
 
-    if (wifi_boot_mode == WifiBootMode::Provisioning) {
+    if (!wifi_stack_ok) {
+        ESP_LOGE(TAG, "WiFi unavailable (init failed) — skipping "
+                 "station/provisioning bring-up");
+    } else if (wifi_boot_mode == WifiBootMode::Provisioning) {
         ESP_LOGI(TAG, "WiFi: provisioning mode (SoftAP setup portal)");
         // Emergency reset (US3/T025): when the config button forced
         // provisioning on an ALREADY-configured device, wipe the stored
         // credentials BEFORE the AP/portal comes up, so re-provisioning starts
         // from a clean unconfigured state and cannot silently keep the old
         // network (data-model.md boot rule). An unconfigured device has nothing
-        // to clear. Credential VALUES are never logged (FR-004).
+        // to clear. Credential VALUES are never logged (PR-06 FR-004).
         if (shouldClearCredentialsOnBoot(wifi_credentials_present,
                                          config_button_held)) {
             ESP_LOGI(TAG, "config button forced provisioning on a configured "
@@ -381,10 +398,11 @@ extern "C" void app_main(void)
         }
         // Bring up the SoftAP radio BEFORE the portal starts serving so the
         // page is reachable over the air the moment it is registered (T018).
-        // Credential VALUES are never logged (FR-004): the AP SSID is not a
-        // secret, the WPA2 password is.
-        if (!wifi_driver.apStart(CONFIG_WS_PROV_AP_SSID,
-                                 CONFIG_WS_PROV_AP_PASSWORD)) {
+        // Credential VALUES are never logged (PR-06 FR-004): the AP SSID is not
+        // a secret, the WPA2 password is.
+        const bool ap_ok = wifi_driver.apStart(CONFIG_WS_PROV_AP_SSID,
+                                                CONFIG_WS_PROV_AP_PASSWORD);
+        if (!ap_ok) {
             ESP_LOGE(TAG, "SoftAP failed to start (portal may be unreachable)");
         }
         // Function-local static (boot fail-safe rule: no non-trivial
@@ -395,6 +413,13 @@ extern "C" void app_main(void)
         if (prov_err != ESP_OK) {
             ESP_LOGE(TAG, "provisioning portal failed to start: %s",
                      esp_err_to_name(prov_err));
+        }
+        // Terminal state: with neither the AP radio nor the portal up there is
+        // no way to enter credentials, and provisioning does not fall back to
+        // station. Say so explicitly — the only recovery is a power cycle.
+        if (!ap_ok || prov_err != ESP_OK) {
+            ESP_LOGE(TAG, "Provisioning unavailable (AP/portal failed) — "
+                     "power-cycle to retry");
         }
     } else {
         ESP_LOGI(TAG, "WiFi: station mode (stored credentials present)");

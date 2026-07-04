@@ -35,6 +35,11 @@ namespace {
 /// is plenty; the manager drains the whole queue every tick (250 ms).
 constexpr UBaseType_t kEventQueueLen = 8;
 
+/// Diagnostic count of events dropped because the queue was full. Both event
+/// handlers run on the single default event-loop task, so a plain counter is
+/// race-free here.
+uint32_t droppedEvents = 0;
+
 /// Copy a std::string into a fixed-size, NUL-terminated esp_wifi field
 /// (ssid/password are uint8_t[] arrays in wifi_config_t). Never logs the
 /// content — callers decide what is safe to log.
@@ -69,10 +74,14 @@ void wifiEventHandler(void *arg, esp_event_base_t /*base*/, int32_t id,
     QueueHandle_t queue = static_cast<QueueHandle_t>(arg);
     const WifiEvent event = translateWifiEvent(id);
     if (event != WifiEvent::None && queue != nullptr) {
-        // Non-blocking send: if the queue is somehow full the oldest news is
-        // simply the manager's problem to catch up on next tick — never block
-        // the event loop.
-        (void)xQueueSend(queue, &event, 0);
+        // Non-blocking send: xQueueSend(..., 0) drops the NEWEST event (this
+        // one) when the queue is full rather than blocking the event loop.
+        // A dropped lifecycle edge stays diagnosable via droppedEvents.
+        if (xQueueSend(queue, &event, 0) != pdTRUE) {
+            ++droppedEvents;
+            ESP_LOGW(TAG, "WiFi event queue full — dropped event (total %lu)",
+                     static_cast<unsigned long>(droppedEvents));
+        }
     }
 }
 
@@ -143,18 +152,33 @@ esp_err_t EspWifiDriver::init()
 
     // The handlers receive the queue handle as their arg, so they need no
     // access to the driver instance (keeps them file-local and header-clean).
+    // Capture the instance handles so a failure below can unregister cleanly.
     err = esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
-                                              &wifiEventHandler, queue, nullptr);
+                                              &wifiEventHandler, queue,
+                                              &wifiHandlerInstance_);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "WIFI_EVENT handler register failed: %s",
                  esp_err_to_name(err));
+        // Unwind everything created so far: nothing is registered yet, so just
+        // tear down esp_wifi and the queue and stay uninitialized.
+        esp_wifi_deinit();
+        vQueueDelete(queue);
+        eventQueue_ = nullptr;
         return err;
     }
     err = esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
-                                              &ipEventHandler, queue, nullptr);
+                                              &ipEventHandler, queue,
+                                              &ipHandlerInstance_);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "IP_EVENT handler register failed: %s",
                  esp_err_to_name(err));
+        // The WIFI_EVENT handler is already registered against `queue`; drop it
+        // before the queue is deleted so no handler ever fires on a dead queue.
+        esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID,
+                                              wifiHandlerInstance_);
+        esp_wifi_deinit();
+        vQueueDelete(queue);
+        eventQueue_ = nullptr;
         return err;
     }
 
@@ -193,7 +217,7 @@ bool EspWifiDriver::staConnect(const std::string &ssid,
     copyField(wc.sta.password, sizeof(wc.sta.password), password);
     err = esp_wifi_set_config(WIFI_IF_STA, &wc);
     if (err != ESP_OK) {
-        // Password value never logged (FR-004).
+        // Password value never logged (PR-06 FR-004).
         ESP_LOGE(TAG, "esp_wifi_set_config(STA) failed: %s",
                  esp_err_to_name(err));
         return false;
@@ -257,7 +281,7 @@ bool EspWifiDriver::apStart(const std::string &ssid,
         password.empty() ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
     err = esp_wifi_set_config(WIFI_IF_AP, &wc);
     if (err != ESP_OK) {
-        // Password value never logged (FR-004).
+        // Password value never logged (PR-06 FR-004).
         ESP_LOGE(TAG, "esp_wifi_set_config(AP) failed: %s",
                  esp_err_to_name(err));
         return false;

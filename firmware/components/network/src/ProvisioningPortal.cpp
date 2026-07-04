@@ -191,7 +191,13 @@ esp_err_t wifiConfigPostHandler(httpd_req_t* req)
 
     std::string ssid;
     std::string password;
-    formField(body, "ssid", ssid);
+    // A missing ssid key is a malformed form (not a too-short SSID): report it
+    // distinctly rather than falling through to the credential length error.
+    if (!formField(body, "ssid", ssid)) {
+        ESP_LOGW(TAG, "rejecting form: ssid field missing");
+        return sendHtml(req, "400 Bad Request",
+                        "Invalid form submission: the ssid field is missing.");
+    }
     formField(body, "password", password);  // absent = open network (empty)
 
     // Validate with the same pure rule the host tests cover. Never log the

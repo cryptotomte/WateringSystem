@@ -96,11 +96,16 @@ void WifiManager::startConnect()
 {
     const std::string ssid = config_.getWifiSsid();
     const std::string password = config_.getWifiPassword();
-    // Non-blocking: success/failure of the attempt arrives later as an event.
-    // A synchronous config error (return false) leaves us in Connecting; the
-    // machine never reboots, it just waits — the operator can re-provision.
-    driver_.staConnect(ssid, password);
     state_ = WifiState::Connecting;
+    // Non-blocking: on success the outcome arrives later as an event. A
+    // synchronous config error (staConnect returns false) never yields an
+    // event, so route it straight through the failure path — that advances the
+    // reconnect cadence (Connecting → Reconnecting → … → ReconnectPaused) and
+    // makes the error visible in consecutiveFailures instead of wedging the
+    // machine in Connecting forever. It still never reboots (FR-013).
+    if (!driver_.staConnect(ssid, password)) {
+        handleFailure(time_.nowMs());
+    }
 }
 
 void WifiManager::handleEvent(WifiEvent event)
@@ -136,6 +141,13 @@ void WifiManager::handleEvent(WifiEvent event)
 
 void WifiManager::handleFailure(int64_t now)
 {
+    // A stray Disconnected/ConnectFailed that arrives while already paused must
+    // be ignored: it must not push consecutiveFailures past failuresBeforePause
+    // nor re-arm (delay) the pause deadline. Bail out before touching either.
+    if (state_ == WifiState::ReconnectPaused) {
+        return;
+    }
+
     // A drop from an established connection is a diagnostic disconnect;
     // failures that occur while merely (re)connecting are not counted here.
     if (state_ == WifiState::Connected || ipAcquired_) {

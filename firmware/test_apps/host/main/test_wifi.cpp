@@ -383,6 +383,121 @@ static void test_wifi_isolation_no_block_no_watering_dep(void)
     TEST_ASSERT_EQUAL_UINT8(0, snap.consecutiveFailures);
 }
 
+// ---------------------------------------------------------------------------
+// F1 — a synchronous staConnect failure (driver returns false, never yields an
+// event) is routed through the failure path, so the machine advances the
+// reconnect cadence instead of wedging in Connecting with failures=0.
+// (WifiManager::startConnect false-branch → handleFailure)
+// ---------------------------------------------------------------------------
+static void test_wifi_sync_staconnect_failure_advances_cadence(void)
+{
+    MockWifiDriver driver;
+    MockConfigStore config;
+    FakeTimeProvider clock;
+    seedCredentials(config);
+    driver.staConnectResult = false;  // every staConnect fails synchronously
+
+    const ReconnectPolicy policy{};  // parity defaults (10 s / 5 / 60 s)
+    WifiManager manager(driver, config, clock, policy);
+
+    // begin(Station) issues attempt #1; the synchronous false is routed straight
+    // through handleFailure, so the machine is already Reconnecting with one
+    // counted failure — NOT stuck in Connecting with failures=0.
+    manager.begin(WifiBootMode::Station);
+    TEST_ASSERT_EQUAL(1, driver.staConnectCalls);
+    TEST_ASSERT_EQUAL(stateInt(WifiState::Reconnecting),
+                      stateInt(manager.snapshot().state));
+    TEST_ASSERT_EQUAL_UINT8(1, manager.snapshot().consecutiveFailures);
+
+    // Each retry fails synchronously too, so consecutiveFailures climbs toward
+    // the pause threshold across successive intervals.
+    clock.advance(10000);
+    manager.tick();  // retry #2 fails → failures=2
+    TEST_ASSERT_EQUAL(2, driver.staConnectCalls);
+    TEST_ASSERT_EQUAL_UINT8(2, manager.snapshot().consecutiveFailures);
+
+    clock.advance(10000);
+    manager.tick();  // retry #3 → failures=3
+    clock.advance(10000);
+    manager.tick();  // retry #4 → failures=4
+    clock.advance(10000);
+    manager.tick();  // retry #5 → failures=5 → ReconnectPaused
+    TEST_ASSERT_EQUAL(5, driver.staConnectCalls);
+
+    const WifiConnectionSnapshot snap = manager.snapshot();
+    TEST_ASSERT_EQUAL(stateInt(WifiState::ReconnectPaused), stateInt(snap.state));
+    TEST_ASSERT_EQUAL_UINT8(policy.failuresBeforePause, snap.consecutiveFailures);
+    // Never wedged in Connecting, never Connected, and never rebooted into
+    // Provisioning (the pure manager has no reboot surface).
+    TEST_ASSERT_TRUE(snap.state != WifiState::Connecting);
+    TEST_ASSERT_TRUE(snap.state != WifiState::Connected);
+    TEST_ASSERT_TRUE(snap.state != WifiState::Provisioning);
+}
+
+// ---------------------------------------------------------------------------
+// F4 — a stray Disconnected during ReconnectPaused is ignored: it neither pushes
+// consecutiveFailures past the threshold nor delays the pause deadline. The
+// fresh attempt still fires at the ORIGINAL deadline. (handleFailure paused
+// guard)
+// ---------------------------------------------------------------------------
+static void test_wifi_paused_ignores_stray_disconnect(void)
+{
+    MockWifiDriver driver;
+    MockConfigStore config;
+    FakeTimeProvider clock;
+    seedCredentials(config);
+
+    const ReconnectPolicy policy{};  // parity defaults (10 s / 5 / 60 s)
+    WifiManager manager(driver, config, clock, policy);
+    manager.begin(WifiBootMode::Station);  // attempt #1 → Connecting
+
+    // Drive 5 consecutive failures (10 s between retries) into ReconnectPaused.
+    // The 5th failure ticks at t = 4*10000 = 40000, so the fresh attempt is due
+    // at 40000 + pauseMs(60000) = 100000.
+    for (int i = 1; i <= 5; ++i) {
+        driver.scriptConnectFailure();
+        manager.tick();
+        if (i < 5) {
+            clock.advance(10000);
+            manager.tick();  // issues retry #(i+1)
+        }
+    }
+    TEST_ASSERT_EQUAL(stateInt(WifiState::ReconnectPaused),
+                      stateInt(manager.snapshot().state));
+    TEST_ASSERT_EQUAL_UINT8(policy.failuresBeforePause,
+                            manager.snapshot().consecutiveFailures);
+    TEST_ASSERT_EQUAL(5, driver.staConnectCalls);
+
+    // Part-way into the pause (t = 70000), a stray Disconnected arrives. The
+    // paused guard bails before touching either counter or the deadline.
+    clock.advance(30000);
+    driver.queueEvent(WifiEvent::Disconnected);
+    manager.tick();
+    TEST_ASSERT_EQUAL(stateInt(WifiState::ReconnectPaused),
+                      stateInt(manager.snapshot().state));
+    // Not 6 — never pushed past the threshold.
+    TEST_ASSERT_EQUAL_UINT8(policy.failuresBeforePause,
+                            manager.snapshot().consecutiveFailures);
+    TEST_ASSERT_EQUAL(5, driver.staConnectCalls);
+
+    // 1 ms short of the ORIGINAL deadline (t = 99999): still paused, still no
+    // attempt — proving the stray event did not push the deadline out by pauseMs.
+    clock.advance(29999);
+    manager.tick();
+    TEST_ASSERT_EQUAL(5, driver.staConnectCalls);
+    TEST_ASSERT_EQUAL(stateInt(WifiState::ReconnectPaused),
+                      stateInt(manager.snapshot().state));
+
+    // At the original deadline (t = 100000): exactly one fresh attempt, failures
+    // reset for the new round.
+    clock.advance(1);
+    manager.tick();
+    TEST_ASSERT_EQUAL(6, driver.staConnectCalls);
+    TEST_ASSERT_EQUAL(stateInt(WifiState::Connecting),
+                      stateInt(manager.snapshot().state));
+    TEST_ASSERT_EQUAL_UINT8(0, manager.snapshot().consecutiveFailures);
+}
+
 // ===========================================================================
 // US3 — recovery paths (T022/T023).
 // ===========================================================================
@@ -485,6 +600,10 @@ void run_wifi_tests(void)
     RUN_TEST(test_wifi_ap_mode_suspends);
     // T016 — FR-014 isolation / non-blocking tick.
     RUN_TEST(test_wifi_isolation_no_block_no_watering_dep);
+    // F1 — synchronous staConnect failure advances the reconnect cadence.
+    RUN_TEST(test_wifi_sync_staconnect_failure_advances_cadence);
+    // F4 — a stray Disconnected during ReconnectPaused is ignored.
+    RUN_TEST(test_wifi_paused_ignores_stray_disconnect);
     // T022 — no boot loop under permanent failure (FR-013).
     RUN_TEST(test_wifi_no_boot_loop_under_permanent_failure);
     // T023 — emergency-reset boot decision + clear-credentials intent.

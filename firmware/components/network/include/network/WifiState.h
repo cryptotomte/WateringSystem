@@ -35,10 +35,15 @@ enum class WifiState {
 };
 
 /**
- * @brief Immutable status copy for status/LED consumers.
+ * @brief Point-in-time, by-value status copy for status/LED consumers.
  *
- * Produced by WifiManager::snapshot() in a single mutex acquisition
- * (research D9) so consumers see a consistent view of state + counters.
+ * Produced by WifiManager::snapshot() as a plain by-value copy of the state +
+ * counters. WifiManager is unsynchronized with a single writer (the wifi
+ * task's tick()); a cross-task diagnostic reader (the diag console) may observe
+ * a momentarily inconsistent tuple, which is acceptable for status display
+ * only. Consistent with WifiManager.h ("Unsynchronized by design").
+ * TODO(PR-09): introduce a LockedWifiManager decorator when the HTTP status
+ * reader lands.
  */
 struct WifiConnectionSnapshot {
     WifiState state;               ///< current state machine state

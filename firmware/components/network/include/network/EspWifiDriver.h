@@ -74,6 +74,8 @@ private:
     void* eventQueue_ = nullptr;  ///< QueueHandle_t of WifiEvent (thread-safe)
     void* staNetif_ = nullptr;    ///< esp_netif_t* for the STA interface
     void* apNetif_ = nullptr;     ///< esp_netif_t* for the AP interface
+    void* wifiHandlerInstance_ = nullptr;  ///< esp_event_handler_instance_t (WIFI_EVENT)
+    void* ipHandlerInstance_ = nullptr;    ///< esp_event_handler_instance_t (IP_EVENT)
     bool initialized_ = false;    ///< true once init() succeeded
     bool started_ = false;        ///< true between esp_wifi_start and stop
 };
