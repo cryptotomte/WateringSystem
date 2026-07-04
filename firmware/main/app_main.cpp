@@ -23,8 +23,10 @@
 
 #include "board/board.h"
 #include "esp_app_desc.h"
+#include "esp_event.h"
 #include "esp_idf_version.h"
 #include "esp_log.h"
+#include "esp_netif.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -48,6 +50,11 @@
 #include "sensors/Ina226Sensor.h"
 #include "sensors/LockedPowerSensor.h"
 #endif
+#include "network/EspWifiDriver.h"
+#include "network/ProvisioningPortal.h"
+#include "network/WifiBootMode.h"
+#include "network/WifiManager.h"
+#include "network/WifiState.h"
 #include "storage/LittleFsDataStorage.h"
 #include "storage/LockedConfigStore.h"
 #include "storage/LockedDataStorage.h"
@@ -56,8 +63,18 @@
 
 #include "diag_console.h"
 #include "sensor_task.h"
+#include "wifi_task.h"
 
 static const char *TAG = "app_main";
+
+// Config-button emergency-provisioning hold (feature 007, US3). Parity
+// (docs/parity-checklist.md §7): the config button held >= 5 s during startup
+// forces WiFi provisioning; the status LED blinks every 100 ms while the hold
+// is being confirmed so the operator sees the reset registering (§7/§9). This
+// 100 ms button-hold blink is distinct from the wifi task's 500 ms
+// connect-attempt toggle (that one runs later, from wifi_task.cpp).
+static constexpr uint32_t kConfigButtonHoldMs = 5000;   // hold to force prov.
+static constexpr uint32_t kConfigButtonBlinkMs = 100;   // LED toggle interval
 
 /**
  * @brief Drive every pump GPIO that exists on this board to a safe OFF
@@ -109,6 +126,88 @@ static void pumps_force_off(void)
         ESP_LOGE(TAG, "FATAL: pump fail-safe init failed: %s", esp_err_to_name(err));
         abort();
     }
+}
+
+/**
+ * @brief Read the config button at boot and confirm a >= 5 s hold (feature
+ * 007, US3/T024/T026).
+ *
+ * The config button (BOARD_PIN_BTN_CONFIG, GPIO18) is wired to GND and read
+ * with an internal pull-up, so it is active LOW: held == logic 0 (parity: the
+ * legacy INPUT_PULLUP idiom, same as the level-sensor inputs). Semantics:
+ *
+ *  - Not pressed at boot → return false immediately, no delay (the common,
+ *    fast path: a normal boot must not stall).
+ *  - Pressed at boot → enter a bounded hold-confirm loop of at most
+ *    kConfigButtonHoldMs (5 s), sampling every kConfigButtonBlinkMs (100 ms)
+ *    and toggling BOARD_PIN_STATUS_LED each sample so the operator sees the
+ *    reset registering (parity §7/§9). Released before the window elapses →
+ *    return false (treated as not held). Held for the whole window → return
+ *    true (forced provisioning).
+ *
+ * The loop is bounded by kConfigButtonHoldMs and runs strictly AFTER
+ * pumps_force_off() (pumps already safe) and before the WiFi/sensor tasks
+ * start. Not safety-critical: a GPIO-config failure is logged and reported as
+ * "released" so a stuck read can never wedge boot into provisioning.
+ */
+static bool config_button_held_at_boot(void)
+{
+    const gpio_config_t btn_cfg = {
+        .pin_bit_mask = 1ULL << BOARD_PIN_BTN_CONFIG,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    const esp_err_t err = gpio_config(&btn_cfg);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "config button gpio_config failed: %s (treated as released)",
+                 esp_err_to_name(err));
+        return false;
+    }
+
+    // Active LOW: a released button reads 1 (pulled up). Fast path — no delay
+    // on a normal boot.
+    if (gpio_get_level(static_cast<gpio_num_t>(BOARD_PIN_BTN_CONFIG)) != 0) {
+        return false;
+    }
+
+    ESP_LOGI(TAG, "config button down at boot — hold %lu ms to force provisioning",
+             static_cast<unsigned long>(kConfigButtonHoldMs));
+
+    // Drive the status LED for the hold-confirm blink. Non-fatal: a failure
+    // only costs the visual cue, never the hold decision.
+    const gpio_config_t led_cfg = {
+        .pin_bit_mask = 1ULL << BOARD_PIN_STATUS_LED,
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    if (gpio_config(&led_cfg) != ESP_OK) {
+        ESP_LOGW(TAG, "status LED gpio_config failed during config-button hold");
+    }
+
+    // Bounded hold-confirm loop: at most kConfigButtonHoldMs, sampled every
+    // kConfigButtonBlinkMs. Toggle the LED each sample (100 ms blink, parity
+    // §7/§9). Any early release aborts.
+    bool led_on = false;
+    for (uint32_t elapsed_ms = 0; elapsed_ms < kConfigButtonHoldMs;
+         elapsed_ms += kConfigButtonBlinkMs) {
+        vTaskDelay(pdMS_TO_TICKS(kConfigButtonBlinkMs));
+        if (gpio_get_level(static_cast<gpio_num_t>(BOARD_PIN_BTN_CONFIG)) != 0) {
+            gpio_set_level(static_cast<gpio_num_t>(BOARD_PIN_STATUS_LED), 0);
+            ESP_LOGI(TAG, "config button released early — not forcing provisioning");
+            return false;
+        }
+        led_on = !led_on;
+        gpio_set_level(static_cast<gpio_num_t>(BOARD_PIN_STATUS_LED),
+                       led_on ? 1 : 0);
+    }
+    gpio_set_level(static_cast<gpio_num_t>(BOARD_PIN_STATUS_LED), 0);
+    ESP_LOGI(TAG, "config button held >= %lu ms — forcing WiFi provisioning",
+             static_cast<unsigned long>(kConfigButtonHoldMs));
+    return true;
 }
 
 extern "C" void app_main(void)
@@ -185,6 +284,28 @@ extern "C" void app_main(void)
                  esp_err_to_name(nvs_err));
     }
 
+    // System network init (feature 007). The TCP/IP stack and the default
+    // event loop must exist before any WiFi driver is constructed (US1/US2);
+    // they are created once, here, after NVS (esp_wifi persists calibration
+    // in NVS) and before any WiFi object. Not safety-critical: a failure is
+    // logged and the system keeps running — WiFi is simply unavailable, and
+    // the watering path never depends on the network (FR-014). The WiFi driver
+    // and manager are constructed below, after this init.
+    esp_err_t netif_err = esp_netif_init();
+    if (netif_err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_netif_init failed: %s (WiFi unavailable)",
+                 esp_err_to_name(netif_err));
+    }
+    esp_err_t event_err = esp_event_loop_create_default();
+    if (event_err == ESP_ERR_INVALID_STATE) {
+        // The default loop already exists (created elsewhere) — that is a
+        // usable state, not a failure, so treat it as success below.
+        event_err = ESP_OK;
+    } else if (event_err != ESP_OK) {
+        ESP_LOGE(TAG, "default event loop create failed: %s (WiFi unavailable)",
+                 esp_err_to_name(event_err));
+    }
+
     // littlefs mount-or-format of the `storage` partition at /storage
     // (FR-007; a corrupted filesystem is reformatted, never bricks).
     const esp_err_t mount_err = StorageMount::mount();
@@ -209,6 +330,126 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "Storage: %lu/%lu KiB used",
              static_cast<unsigned long>(stats.usedBytes / 1024),
              static_cast<unsigned long>(stats.totalBytes / 1024));
+
+    // WiFi boot-mode decision (feature 007, US1 + US3). A missing stored SSID
+    // (the factory/unconfigured state) OR a held config button forces
+    // first-boot/recovery provisioning; a configured device otherwise comes up
+    // in station mode. The config-button read (US3/T024) samples GPIO18 and
+    // confirms a >= 5 s hold, blinking the status LED at 100 ms while it does
+    // (T026); it runs here — strictly after pumps_force_off() (pumps already
+    // safe) and before the WiFi/sensor tasks start — and is bounded by the
+    // hold window. Credential VALUES are never logged: we only test whether an
+    // SSID is present. WiFi never touches the watering path (FR-014);
+    // everything below stays after the pump fail-safe.
+    const bool wifi_credentials_present = !config.getWifiSsid().empty();
+    const bool config_button_held = config_button_held_at_boot();
+    const WifiBootMode wifi_boot_mode =
+        decideBootMode(wifi_credentials_present, config_button_held);
+
+    // The single WiFi driver (one hardware touchpoint) — a function-local
+    // static after pumps_force_off() (boot fail-safe rule: the constructor is
+    // trivial, all IDF work is in init()). Both boot modes use it: provisioning
+    // brings up the SoftAP through it, station drives STA connect/reconnect.
+    // init() creates the STA + AP netifs, esp_wifi_init and the event queue on
+    // top of the netif/event-loop init done above; a failure is non-fatal
+    // (logged) — WiFi is simply unavailable and the watering path is
+    // unaffected (FR-014).
+    static EspWifiDriver wifi_driver;
+    const esp_err_t wifi_init_err = wifi_driver.init();
+    if (wifi_init_err != ESP_OK) {
+        ESP_LOGE(TAG, "WiFi driver init failed: %s (WiFi unavailable)",
+                 esp_err_to_name(wifi_init_err));
+    }
+
+    // WiFi is usable only when the full bring-up chain succeeded: the TCP/IP
+    // stack, the default event loop (already-created counts as success) and the
+    // driver init. If any step failed, both provisioning and station bring-up
+    // are skipped below — no apStart, no WifiManager, no wifi task — so the
+    // system runs headless. WiFi never touches the watering path (FR-014).
+    const bool wifi_stack_ok = (netif_err == ESP_OK) &&
+                               (event_err == ESP_OK) &&
+                               (wifi_init_err == ESP_OK);
+
+    // Set later in the station branch; used both to start the wifi task and to
+    // register the manager with the diag console below. Stays nullptr in
+    // provisioning mode and whenever WiFi init failed (the console `wifi`
+    // command then reports unavailable).
+    WifiManager *wifi_manager = nullptr;
+
+    if (!wifi_stack_ok) {
+        ESP_LOGE(TAG, "WiFi unavailable (init failed) — skipping "
+                 "station/provisioning bring-up");
+    } else if (wifi_boot_mode == WifiBootMode::Provisioning) {
+        ESP_LOGI(TAG, "WiFi: provisioning mode (SoftAP setup portal)");
+        // Emergency reset (US3/T025): when the config button forced
+        // provisioning on an ALREADY-configured device, wipe the stored
+        // credentials BEFORE the AP/portal comes up, so re-provisioning starts
+        // from a clean unconfigured state and cannot silently keep the old
+        // network (data-model.md boot rule). An unconfigured device has nothing
+        // to clear. Credential VALUES are never logged (PR-06 FR-004).
+        if (shouldClearCredentialsOnBoot(wifi_credentials_present,
+                                         config_button_held)) {
+            ESP_LOGI(TAG, "config button forced provisioning on a configured "
+                     "device — clearing stored WiFi credentials");
+            if (!config.clearWifiCredentials()) {
+                ESP_LOGW(TAG, "failed to clear WiFi credentials "
+                         "(continuing to provisioning)");
+            }
+        }
+        // Bring up the SoftAP radio BEFORE the portal starts serving so the
+        // page is reachable over the air the moment it is registered (T018).
+        // Credential VALUES are never logged (PR-06 FR-004): the AP SSID is not
+        // a secret, the WPA2 password is.
+        const bool ap_ok = wifi_driver.apStart(CONFIG_WS_PROV_AP_SSID,
+                                                CONFIG_WS_PROV_AP_PASSWORD);
+        if (!ap_ok) {
+            ESP_LOGE(TAG, "SoftAP failed to start (portal may be unreachable)");
+        }
+        // Function-local static (boot fail-safe rule: no non-trivial
+        // static/global constructors). Constructed only on this branch, kept
+        // alive for the program lifetime so it keeps serving.
+        static ProvisioningPortal provisioning_portal(config);
+        const esp_err_t prov_err = provisioning_portal.start();
+        if (prov_err != ESP_OK) {
+            ESP_LOGE(TAG, "provisioning portal failed to start: %s",
+                     esp_err_to_name(prov_err));
+        }
+        // Terminal state: with neither the AP radio nor the portal up there is
+        // no way to enter credentials, and provisioning does not fall back to
+        // station. Say so explicitly — the only recovery is a power cycle.
+        if (!ap_ok || prov_err != ESP_OK) {
+            ESP_LOGE(TAG, "Provisioning unavailable (AP/portal failed) — "
+                     "power-cycle to retry");
+        }
+    } else {
+        ESP_LOGI(TAG, "WiFi: station mode (stored credentials present)");
+        // Reconnect timing from Kconfig (parity defaults, docs/parity-
+        // checklist.md §7): 10 s retry, +60 s pause after 5 consecutive
+        // failures, 5 s health monitor. The pure WifiManager owns all cadence
+        // above the IWifiDriver seam.
+        const ReconnectPolicy wifi_policy = {
+            .retryIntervalMs =
+                static_cast<uint32_t>(CONFIG_WS_WIFI_RETRY_INTERVAL_MS),
+            .failuresBeforePause =
+                static_cast<uint8_t>(CONFIG_WS_WIFI_FAILS_BEFORE_PAUSE),
+            .pauseMs = static_cast<uint32_t>(CONFIG_WS_WIFI_PAUSE_MS),
+            .monitorIntervalMs =
+                static_cast<uint32_t>(CONFIG_WS_WIFI_MONITOR_INTERVAL_MS),
+        };
+        // Function-local static (boot fail-safe rule). Reuses the app_main
+        // EspTimeProvider (the same monotonic clock the pump/level layer uses)
+        // and the shared config store; holds NO watering/pump/sensor reference
+        // (FR-014, structurally enforced by the constructor signature). begin()
+        // issues the first STA connect; the wifi task then ticks it.
+        static WifiManager wifi_manager_inst(wifi_driver, config, time_provider,
+                                             wifi_policy);
+        wifi_manager_inst.begin(WifiBootMode::Station);
+        wifi_manager = &wifi_manager_inst;
+
+        // Separate FreeRTOS task from the 10 Hz pump/level loop — no shared
+        // mutex with watering (FR-014). Drives the status LED too (T021).
+        wifi_task_start(wifi_manager_inst);
+    }
 
     // RS485 Modbus soil sensor (feature 004). Not safety-critical: a failed
     // client init is logged and the system keeps running — the sensor layer
@@ -351,6 +592,8 @@ extern "C" void app_main(void)
 #if BOARD_HAS_INA226
     diag_console_register_power(power_sensor);
 #endif
+    // nullptr in provisioning mode — the `wifi` command reports unavailable.
+    diag_console_register_wifi(wifi_manager);
     esp_err_t err = diag_console_start();
     if (err != ESP_OK) {
         // Console is a diagnostic aid, not a safety function: log and keep

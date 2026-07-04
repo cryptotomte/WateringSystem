@@ -20,4 +20,58 @@ menu "WateringSystem"
             0.5 mA — 2048 at the default 5 mOhm, rev2 BOM R1 5 mOhm 2512).
             Only change this when the fitted shunt changes; the current
             resolution is a compile-time driver constant (research.md R9).
+
+    config WS_PROV_AP_SSID
+        string "Provisioning SoftAP SSID"
+        default "WateringSystem-Setup"
+        help
+            SSID advertised by the first-boot SoftAP setup portal
+            (feature 007). Shown to the operator during provisioning; not
+            a secret.
+
+    config WS_PROV_AP_PASSWORD
+        string "Provisioning SoftAP password (WPA2)"
+        default "change-me-setup"
+        help
+            WPA2 password for the first-boot provisioning SoftAP
+            (feature 007). This is a DOCUMENTED NON-SECRET: it only shields
+            the brief unconfigured-device window, and WPA2 is kept so the
+            operator's real home-WiFi credentials are never sent in
+            cleartext during setup (those live only in NVS). CHOOSE A NEW
+            PASSWORD at build/deploy time — do NOT ship the placeholder and
+            do NOT reuse the legacy AP password. Must be 8..63 characters
+            for WPA2 (an empty value yields an open AP).
+
+    config WS_WIFI_RETRY_INTERVAL_MS
+        int "WiFi reconnect retry interval (ms)"
+        default 10000
+        range 1000 600000
+        help
+            Delay between STA connect attempts while reconnecting
+            (parity default 10 s, docs/parity-checklist.md §7).
+
+    config WS_WIFI_FAILS_BEFORE_PAUSE
+        int "WiFi consecutive failures before long pause"
+        default 5
+        range 1 100
+        help
+            Consecutive failed connect attempts that trigger the long
+            reconnect pause (parity default 5).
+
+    config WS_WIFI_PAUSE_MS
+        int "WiFi long reconnect pause (ms)"
+        default 60000
+        range 1000 3600000
+        help
+            Extra wait after WS_WIFI_FAILS_BEFORE_PAUSE consecutive
+            failures before starting a fresh reconnect round (parity
+            default 60 s). Never reboots (FR-013).
+
+    config WS_WIFI_MONITOR_INTERVAL_MS
+        int "WiFi connection-health monitor interval (ms)"
+        default 5000
+        range 500 600000
+        help
+            Health-check cadence while connected; suspended in
+            provisioning/AP mode (parity default 5 s).
 endmenu

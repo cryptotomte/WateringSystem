@@ -343,6 +343,43 @@ code. **Hardware validation is deferred to PR-14** (no INA226 on the rev1
 rig): the driver is host-verified only, and the written config value
 carries a `TODO(PR-14)` bench confirmation.
 
+## WiFi provisioning & station management
+
+Feature 007 (PR-07). **FR9 decision: a custom SoftAP provisioning portal** (AP
+at 192.168.4.1, WPA2, a minimal self-contained setup page + one POST handler on
+a standalone `esp_http_server`), chosen over IDF `wifi_provisioning` — full spec
+and rationale in `specs/007-wifi-provisioning/` (`spec.md` + research decision
+**D1**; `wifi_provisioning` is the documented re-escalation fallback if the
+portal proves unreliable at HIL, research R1). The `network` component splits at
+the `IWifiDriver` seam, same pattern as the sensor drivers:
+
+- **Pure, host-tested** (`components/network/include/network/`): the
+  `WifiManager` state machine (Provisioning / Connecting / Connected /
+  Reconnecting / ReconnectPaused, parity reconnect cadence — 10 s retry, +60 s
+  pause after 5 consecutive failures, 5 s health monitor; **never reboots** —
+  FR-013 no boot loop), `validateWifiCredentials` (SSID 1–32, password
+  empty-or-8..64), `decideBootMode` + `shouldClearCredentialsOnBoot`
+  (`WifiBootMode.h`). Driven over `MockWifiDriver` + `FakeTimeProvider` in
+  `test_apps/host/main/test_wifi.cpp`.
+- **Hardware touchpoints** (target-only, excluded from the linux build):
+  `EspWifiDriver` (STA + AP netifs, `esp_event` → `WifiEvent` queue) and
+  `ProvisioningPortal` (`esp_http_server`).
+
+**Isolation (FR-014):** `WifiManager`'s constructor takes only
+`IWifiDriver&`/`IConfigStore&`/`ITimeProvider&`/`ReconnectPolicy` — no
+watering/pump/sensor reference — and the wifi task is a SEPARATE FreeRTOS task
+from the 10 Hz pump/level loop with no shared mutex; WiFi outages never touch
+watering. Credentials come from PR-06's `IConfigStore` (never logged, FR-004).
+
+**Boot flow in `app_main`** (all strictly after `pumps_force_off()`): read the
+config button (`BOARD_PIN_BTN_CONFIG`, GPIO18, active LOW, >= 5 s hold, 100 ms
+LED blink) → `decideBootMode` → provisioning (button-forced on a configured
+device clears credentials first, per the data-model boot rule) or station
+(`begin(Station)` + `wifi_task_start`). Kconfig: `WS_PROV_AP_SSID`,
+`WS_PROV_AP_PASSWORD`, `WS_WIFI_*` reconnect constants. LED scope (parity
+§7/§9): 500 ms connect-attempt toggle (wifi task) + 100 ms config-button-hold
+blink (app_main); HIL checklist in `specs/007-wifi-provisioning/checklists/hil.md`.
+
 ## Partition layout (4MB flash)
 
 nvs (0x9000, 16K) | otadata (0xd000, 8K) | phy_init (0xf000, 4K) |
