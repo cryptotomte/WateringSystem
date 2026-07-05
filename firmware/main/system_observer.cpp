@@ -82,6 +82,18 @@ void SystemObserver::pollWifi()
             sntpStarted_ = true;
         }
     }
+
+    // Start the /api/v1/ HTTP server on the first Connected transition too — the
+    // socket binds on the STA interface only once an IP is up (feature 009 US1).
+    // Same idempotent, latch-on-success, non-fatal rule as SNTP; apiServer_ is
+    // nullptr in provisioning/headless mode, so the API is simply never served
+    // there. Never blocks or touches watering (FR-015).
+    if (state == WifiState::Connected && apiServer_ != nullptr &&
+        !apiServerStarted_) {
+        if (apiServer_->start()) {
+            apiServerStarted_ = true;
+        }
+    }
 }
 
 void SystemObserver::pollPump(IWaterPump* pump, const char* name,
