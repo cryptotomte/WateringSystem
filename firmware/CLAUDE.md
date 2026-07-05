@@ -543,9 +543,9 @@ classes, both driven over mocks + `FakeTimeProvider`/`FakeWallClock` in
   `SystemObserver` (no double-log).
 
 **Snapshot helpers:** `LockedSoilSensor::snapshot()` / `LockedEnvironmentalSensor`
-/ `LockedLevelSensor` return `{Soil,Env,Level}Snapshot` — all values + validity +
-error copied out under ONE lock, closing the read()-then-getter cross-call gap
-without a fresh (blocking) bus read (QUIRK 5).
+/ `LockedLevelSensor` return `{Soil,Env,Level}Snapshot` — all values + validity
+(plus the error code for `SoilSnapshot`) copied out under ONE lock, closing the
+read()-then-getter cross-call gap without a fresh (blocking) bus read (QUIRK 5).
 
 **On-target wiring:** the pure logic runs on `main/watering_task.cpp`, a
 watchdog-subscribed FreeRTOS task ticking at `config.getSensorReadIntervalMs()`

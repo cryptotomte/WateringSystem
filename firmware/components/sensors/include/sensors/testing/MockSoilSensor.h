@@ -65,6 +65,14 @@ public:
     int initializeCalls = 0;
     int readCalls = 0;
     int isAvailableCalls = 0;
+
+    // Read history consumed by snapshot() (mirrors the real sensor). read()
+    // maintains them, but they are public (mock "all state public" style) so a
+    // consumer test can drive snapshot()'s availability directly — e.g. force
+    // the controller's "soil-unavailable" branch. lastReadOk = the most recent
+    // read() outcome; hasEverReadOk = any read() has ever succeeded (available).
+    bool lastReadOk = false;
+    bool hasEverReadOk = false;
     /// Every calibrate*() reference-value argument, in call order (the
     /// vector size doubles as the per-quantity call counter).
     std::vector<float> calibrateMoistureCalls;
@@ -107,7 +115,10 @@ public:
         ++readCalls;
         if (script_.empty()) {
             // Unscripted: legacy behaviour — return the plain field, getters
-            // serve the manually-set values.
+            // serve the manually-set values. Track the same outcome so
+            // snapshot() stays coherent with the getters.
+            lastReadOk = readResult;
+            hasEverReadOk = hasEverReadOk || readResult;
             return readResult;
         }
         const Step& step = script_[next_];
@@ -117,6 +128,7 @@ public:
         if (!step.ok) {
             readResult = false;
             lastError = step.error;
+            lastReadOk = false;
             return false;  // values untouched — last-good contract
         }
         // Publish the coherent values into the public fields so the getters
@@ -131,7 +143,28 @@ public:
         potassium = step.potassium;
         readResult = true;
         lastError = 0;
+        lastReadOk = true;
+        hasEverReadOk = true;
         return true;
+    }
+
+    SoilSnapshot snapshot() override
+    {
+        // Coherent, non-blocking: report the read history + the current field
+        // values (the same ones the getters serve).
+        SoilSnapshot s;
+        s.readOk = lastReadOk;
+        s.available = hasEverReadOk;
+        s.lastError = lastError;
+        s.moisture = moisture;
+        s.temperature = temperature;
+        s.humidity = humidity;
+        s.ph = ph;
+        s.ec = ec;
+        s.nitrogen = nitrogen;
+        s.phosphorus = phosphorus;
+        s.potassium = potassium;
+        return s;
     }
 
     bool isAvailable() override

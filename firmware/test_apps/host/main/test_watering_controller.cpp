@@ -24,6 +24,7 @@
  */
 
 #include <cstdint>
+#include <string>
 
 #include "unity.h"
 
@@ -94,6 +95,19 @@ int failsafeEventCount(const MockDataStorage& storage)
     return count;
 }
 
+/// Detail string of the most recent fail-safe event (the reason the controller
+/// passed to EventLogger::logFailsafe), or "" when none was logged.
+std::string lastFailsafeReason(const MockDataStorage& storage)
+{
+    std::string reason;
+    for (const auto& event : storage.events) {
+        if (event.category == IDataStorage::kCategoryFailsafe) {
+            reason = event.detail;  // keep the newest (append order)
+        }
+    }
+    return reason;
+}
+
 /// Total sensor readings persisted across all metrics (a proxy for "how many
 /// data-log values were written"). Independent of the event log.
 int sensorReadingCount(const MockDataStorage& storage)
@@ -106,9 +120,16 @@ int sensorReadingCount(const MockDataStorage& storage)
 }
 
 /// Script the sensor's next tick outcome via the plain public fields (no FIFO
-/// script): read() returns @p readOk, isAvailable() returns @p available and
-/// the getters serve @p moisture. A failed read leaves the value in place
-/// (mirroring the last-good contract); the controller must ignore it.
+/// script): read() returns @p readOk and the getters serve @p moisture.
+///
+/// NOTE on @p available (post-M2): the controller no longer calls isAvailable()
+/// — it consumes snapshot().available, which the sensor derives from its read
+/// history (hasEverReadOk). So a read that has EVER succeeded makes the sensor
+/// "available" from then on, regardless of this argument; @p available only
+/// sets the legacy isAvailableResult (kept for any direct isAvailable() caller).
+/// Tests that need the "never read OK -> unavailable" state simply never let a
+/// read succeed; tests that need availability to regress on a running pump set
+/// f.soil.hasEverReadOk directly.
 void setSensor(Fixture& f, bool readOk, bool available, float moisture)
 {
     f.soil.readResult = readOk;
@@ -262,8 +283,13 @@ void test_boundaries_low_and_high_inclusive(void)
 // T007 — fail-safe branches (Constitution I)
 // ===========================================================================
 
-// Scenario 5: automatic + running, sensor becomes unavailable -> emergency
-// stop + logged fail-safe + no watering decision.
+// Scenario 5 (post-M2): automatic + running, the sensor's availability signal
+// drops (snapshot().available == false) -> emergency stop with the
+// "soil-unavailable" reason + no watering decision. A running pump implies a
+// prior good read, so in production the ever-read-ok latch keeps `available`
+// true (a later drop shows up as "soil-stale", covered below); here we drive
+// the availability signal false directly to exercise the controller's
+// "soil-unavailable" branch on a running pump and assert its reason.
 void test_failsafe_unavailable_stops_running_pump(void)
 {
     Fixture f;
@@ -272,16 +298,25 @@ void test_failsafe_unavailable_stops_running_pump(void)
     f.controller.tick();
     TEST_ASSERT_TRUE(f.pump.isRunning());
 
+    // Force the availability signal false on the next snapshot (impossible via
+    // the real latch, but a valid controller input to unit-test).
     f.clock.advance(1000);
     setSensor(f, /*readOk=*/false, /*available=*/false, /*moisture=*/20.0f);
+    f.soil.hasEverReadOk = false;  // snapshot().available -> false
     f.controller.tick();
 
     TEST_ASSERT_FALSE(f.pump.isRunning());
     TEST_ASSERT_EQUAL_INT(1, failsafeEventCount(f.storage));
+    TEST_ASSERT_EQUAL_STRING("soil-unavailable",
+                             lastFailsafeReason(f.storage).c_str());
     TEST_ASSERT_EQUAL_UINT32(0, f.events.droppedEvents());
 }
 
-// Scenario 5: data stale beyond the 30 s window -> emergency stop.
+// Scenario 5: data stale beyond the 30 s window -> emergency stop with the
+// "soil-stale" reason. This is the production shape of "the sensor worked then
+// stopped responding": the ever-read-ok latch keeps `available` true, the reads
+// now fail, and once the last valid read ages past 30 s the controller fails
+// safe as stale (a transient failure inside the window does NOT stop it).
 void test_failsafe_stale_stops_running_pump(void)
 {
     Fixture f;
@@ -290,14 +325,16 @@ void test_failsafe_stale_stops_running_pump(void)
     f.controller.tick();
     TEST_ASSERT_TRUE(f.pump.isRunning());
 
-    // Reads keep failing while the sensor still probes available; once the last
-    // valid read ages past 30 s the controller fails safe.
+    // Reads keep failing while the sensor stays available (latched); once the
+    // last valid read ages past 30 s the controller fails safe.
     f.clock.advance(30'001);
     setSensor(f, /*readOk=*/false, /*available=*/true, /*moisture=*/20.0f);
     f.controller.tick();
 
     TEST_ASSERT_FALSE(f.pump.isRunning());
     TEST_ASSERT_EQUAL_INT(1, failsafeEventCount(f.storage));
+    TEST_ASSERT_EQUAL_STRING("soil-stale",
+                             lastFailsafeReason(f.storage).c_str());
 }
 
 // Scenario 5: a successful read with out-of-range moisture (both bounds)
@@ -356,9 +393,12 @@ void test_failsafe_not_delayed_by_soak(void)
     f.controller.tick();
     TEST_ASSERT_TRUE(f.pump.isRunning());
 
-    // Running, dry, soak origin set: trigger a fail-safe -> immediate stop.
+    // Running, dry, soak origin set: trigger a fail-safe -> immediate stop. A
+    // successful read with out-of-range moisture is the running-pump fail-safe
+    // that stays reachable under the M2 model (a transient unavailable/failed
+    // read inside the staleness window no longer stops mid-burst).
     f.clock.advance(1000);
-    setSensor(f, /*readOk=*/false, /*available=*/false, /*moisture=*/20.0f);
+    setSensor(f, /*readOk=*/true, /*available=*/true, /*moisture=*/150.0f);
     f.controller.tick();
 
     TEST_ASSERT_FALSE(f.pump.isRunning());
@@ -379,8 +419,11 @@ void test_failsafe_during_pending_soak_takes_no_action(void)
     TEST_ASSERT_FALSE(f.pump.isRunning());
     TEST_ASSERT_EQUAL_INT(1, onTransitions(f.pump));
 
-    f.clock.advance(1000);  // still inside the soak window
-    setSensor(f, /*readOk=*/false, /*available=*/false, /*moisture=*/20.0f);
+    // Age the last valid read past the staleness window while still inside the
+    // soak window: the fail-safe (stale) branch runs but takes no action beyond
+    // not-watering because the pump is already stopped.
+    f.clock.advance(30'001);
+    setSensor(f, /*readOk=*/false, /*available=*/true, /*moisture=*/20.0f);
     f.controller.tick();
 
     TEST_ASSERT_FALSE(f.pump.isRunning());
@@ -476,8 +519,10 @@ void test_auto_run_is_not_flagged_manual(void)
     f.controller.tick();  // automatic burst starts
     TEST_ASSERT_TRUE(f.pump.isRunning());
 
+    // A successful read with out-of-range moisture fails safe immediately on the
+    // running automatic burst (the running-pump fail-safe reachable post-M2).
     f.clock.advance(1000);
-    setSensor(f, /*readOk=*/false, /*available=*/false, /*moisture=*/20.0f);
+    setSensor(f, /*readOk=*/true, /*available=*/true, /*moisture=*/150.0f);
     f.controller.tick();
 
     TEST_ASSERT_FALSE(f.pump.isRunning());  // fail-safe stopped it
@@ -529,6 +574,9 @@ void test_data_log_cadence(void)
     f.clock.advance(1000);
     f.controller.tick();
     TEST_ASSERT_EQUAL_INT(10, sensorReadingCount(f.storage));
+    // The full batch is exactly the kMaxMetrics=10 distinct-metric budget:
+    // nothing hit the cap, so the store rejected no write (drop-sensitive).
+    TEST_ASSERT_EQUAL_INT(0, f.storage.rejectedWrites);
 
     // Inside the interval: nothing new.
     f.clock.advance(59'999);
@@ -636,6 +684,118 @@ void test_data_log_runs_on_failsafe_path(void)
                    .size()));
 }
 
+// FR-014: env read fails while soil is valid and time is set -> no env metrics
+// are logged (the env branch is gated on read() && isAvailable()), while the
+// soil metrics are still logged this tick. Mirror of the fail-safe-path test,
+// exercising the OTHER data-log branch (env failure instead of soil failure).
+void test_data_log_env_read_failure(void)
+{
+    Fixture f;
+    f.config.stored.dataLogIntervalMs = 60'000;
+    f.wallClock.setEpoch(1'700'000'000);
+    f.env.scriptFailedRead(2);  // env read fails -> env branch skipped
+    // Soil valid, all NPK >= 0 -> 4 soil-base + 3 NPK = 7 soil metrics.
+    f.soil.scriptSuccessfulRead(40.0f, 18.0f, 40.0f, 6.5f, 1.2f, 3.0f, 5.0f,
+                                8.0f);
+
+    f.clock.advance(1000);
+    f.controller.tick();
+
+    TEST_ASSERT_EQUAL_INT(7, sensorReadingCount(f.storage));  // soil only
+    TEST_ASSERT_EQUAL_INT(
+        0, static_cast<int>(
+               f.storage.getSensorReadings("env_temperature", 0, UINT32_MAX)
+                   .size()));
+    TEST_ASSERT_EQUAL_INT(
+        0, static_cast<int>(
+               f.storage.getSensorReadings("env_humidity", 0, UINT32_MAX)
+                   .size()));
+    TEST_ASSERT_EQUAL_INT(
+        0, static_cast<int>(
+               f.storage.getSensorReadings("env_pressure", 0, UINT32_MAX)
+                   .size()));
+    TEST_ASSERT_EQUAL_INT(
+        1, static_cast<int>(
+               f.storage.getSensorReadings("soil_moisture", 0, UINT32_MAX)
+                   .size()));
+    TEST_ASSERT_EQUAL_INT(
+        1, static_cast<int>(
+               f.storage.getSensorReadings("soil_nitrogen", 0, UINT32_MAX)
+                   .size()));
+}
+
+// FR-014: NPK filter is per-channel — phosphorus < 0 AND potassium < 0 are both
+// skipped while nitrogen (>= 0) and the soil-base metrics are logged.
+void test_data_log_npk_phosphorus_potassium_negative(void)
+{
+    Fixture f;
+    f.config.stored.dataLogIntervalMs = 60'000;
+    f.wallClock.setEpoch(1'700'000'000);
+    f.env.scriptSuccessfulRead(21.5f, 55.0f, 1013.0f);
+    // Nitrogen >= 0 -> logged; phosphorus + potassium < 0 -> both skipped.
+    f.soil.scriptSuccessfulRead(40.0f, 18.0f, 40.0f, 6.5f, 1.2f, 3.0f, -1.0f,
+                                -2.0f);
+
+    f.clock.advance(1000);
+    f.controller.tick();
+
+    // 3 env + 4 soil-base + 1 NPK (nitrogen only) = 8.
+    TEST_ASSERT_EQUAL_INT(8, sensorReadingCount(f.storage));
+    TEST_ASSERT_EQUAL_INT(
+        1, static_cast<int>(
+               f.storage.getSensorReadings("soil_nitrogen", 0, UINT32_MAX)
+                   .size()));
+    TEST_ASSERT_EQUAL_INT(
+        0, static_cast<int>(
+               f.storage.getSensorReadings("soil_phosphorus", 0, UINT32_MAX)
+                   .size()));
+    TEST_ASSERT_EQUAL_INT(
+        0, static_cast<int>(
+               f.storage.getSensorReadings("soil_potassium", 0, UINT32_MAX)
+                   .size()));
+    // Soil-base + env still present.
+    TEST_ASSERT_EQUAL_INT(
+        1, static_cast<int>(
+               f.storage.getSensorReadings("soil_moisture", 0, UINT32_MAX)
+                   .size()));
+    TEST_ASSERT_EQUAL_INT(
+        1, static_cast<int>(
+               f.storage.getSensorReadings("env_temperature", 0, UINT32_MAX)
+                   .size()));
+}
+
+// FR-003: a burst stopped at the HIGH threshold arms the soak pause from the
+// high-stop time (lastBurstEndMs_ = now on the high-stop path). No new burst
+// starts until the soak elapses even while the soil reads dry.
+void test_soak_origin_armed_on_high_threshold_stop(void)
+{
+    Fixture f;  // soak 300 s
+    f.config.stored.wateringDurationS = 300;  // no self-stop confound
+
+    setSensor(f, true, true, 20.0f);
+    f.controller.tick();  // burst runs
+    TEST_ASSERT_TRUE(f.pump.isRunning());
+
+    // Stop at the high threshold: this arms the soak origin at t = now.
+    f.clock.advance(1000);
+    setSensor(f, true, true, 60.0f);  // >= high 55 -> stop
+    f.controller.tick();
+    TEST_ASSERT_FALSE(f.pump.isRunning());
+
+    // 1 ms before the soak pause elapses (measured from the high-stop): still
+    // blocked even though the soil now reads dry.
+    f.clock.advance(299'999);
+    setSensor(f, true, true, 20.0f);
+    f.controller.tick();
+    TEST_ASSERT_FALSE(f.pump.isRunning());
+
+    // Exactly at the soak pause: the next burst starts.
+    f.clock.advance(1);
+    setSensor(f, true, true, 20.0f);
+    f.controller.tick();
+    TEST_ASSERT_TRUE(f.pump.isRunning());
+}
+
 }  // namespace
 
 void run_watering_controller_tests(void)
@@ -645,6 +805,7 @@ void run_watering_controller_tests(void)
     RUN_TEST(test_no_start_when_disabled);
     RUN_TEST(test_stops_at_high_threshold);
     RUN_TEST(test_soak_pause_blocks_then_allows_restart);
+    RUN_TEST(test_soak_origin_armed_on_high_threshold_stop);
     RUN_TEST(test_config_change_picked_up_next_tick);
     RUN_TEST(test_no_action_before_first_successful_read);
     RUN_TEST(test_gate_on_transient_failed_read);
@@ -668,4 +829,6 @@ void run_watering_controller_tests(void)
     RUN_TEST(test_data_log_epoch_and_npk_filter);
     RUN_TEST(test_data_log_gated_on_time_set);
     RUN_TEST(test_data_log_runs_on_failsafe_path);
+    RUN_TEST(test_data_log_env_read_failure);
+    RUN_TEST(test_data_log_npk_phosphorus_potassium_negative);
 }

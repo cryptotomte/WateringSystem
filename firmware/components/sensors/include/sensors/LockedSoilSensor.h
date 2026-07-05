@@ -42,30 +42,8 @@
 
 #include "interfaces/ISoilSensor.h"
 
-/**
- * @brief Consistent, non-blocking soil-reading snapshot (PR-11).
- *
- * All eight quantity values plus the validity/error flags, copied out under
- * one lock so they are mutually consistent (no torn read()-then-getter
- * tuple). readOk reports whether the most recent read() through the wrapper
- * succeeded; available reports whether at least one successful read is on
- * record, so the last-good values are meaningful even when the latest read
- * failed (stale-but-usable). lastError is the wrapped sensor's most recent
- * error code.
- */
-struct SoilSnapshot {
-    bool readOk;
-    bool available;
-    int lastError;
-    float moisture;
-    float temperature;
-    float humidity;
-    float ph;
-    float ec;
-    float nitrogen;
-    float phosphorus;
-    float potassium;
-};
+// SoilSnapshot is defined in interfaces/ISoilSensor.h (owned by the interface
+// so the pure controller can consume snapshot() through ISoilSensor).
 
 /**
  * @brief ISoilSensor decorator that serializes every call with a mutex.
@@ -91,12 +69,7 @@ public:
     bool read() override
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        const bool ok = sensor_.read();
-        // Cache the outcome so snapshot() can report validity without a
-        // fresh (blocking) bus transaction.
-        lastReadOk_ = ok;
-        hasEverReadOk_ = hasEverReadOk_ || ok;
-        return ok;
+        return sensor_.read();
     }
 
     bool isAvailable() override
@@ -181,37 +154,25 @@ public:
      * @brief Copy the last-good reading + validity + error out under one
      * lock (PR-11), closing the read-then-getter cross-call gap.
      *
-     * NON-BLOCKING by contract: it performs NO fresh read() and NO
-     * isAvailable() probe — both are RS485/Modbus bus I/O and must never run
-     * in a status/API/controller path (QUIRK 5). The periodic soil reader
+     * Locks and delegates to the wrapped sensor's snapshot(): the base tracks
+     * the read history (readOk / ever-read-ok) and holds the last-good values,
+     * and the lock makes that member-read atomic vs a concurrent read() on
+     * another task.
+     *
+     * NON-BLOCKING by contract: the base's snapshot() performs NO fresh read()
+     * and NO isAvailable() probe — both are RS485/Modbus bus I/O and must never
+     * run in a status/API/controller path (QUIRK 5). The periodic soil reader
      * owns the read() cadence; this returns the current cached values.
-     * readOk = the most recent read() through this wrapper succeeded;
-     * available = at least one successful read is on record (last-good values
-     * are meaningful); lastError = the wrapped sensor's current error code.
      */
-    SoilSnapshot snapshot()
+    SoilSnapshot snapshot() override
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        SoilSnapshot s;
-        s.readOk = lastReadOk_;
-        s.available = hasEverReadOk_;
-        s.lastError = sensor_.getLastError();
-        s.moisture = sensor_.getMoisture();
-        s.temperature = sensor_.getTemperature();
-        s.humidity = sensor_.getHumidity();
-        s.ph = sensor_.getPH();
-        s.ec = sensor_.getEC();
-        s.nitrogen = sensor_.getNitrogen();
-        s.phosphorus = sensor_.getPhosphorus();
-        s.potassium = sensor_.getPotassium();
-        return s;
+        return sensor_.snapshot();
     }
 
 private:
     ISoilSensor& sensor_;
     mutable std::mutex mutex_;
-    bool lastReadOk_ = false;    ///< result of the most recent read()
-    bool hasEverReadOk_ = false; ///< any successful read() on record
 };
 
 #endif /* WATERINGSYSTEM_SENSORS_LOCKEDSOILSENSOR_H */

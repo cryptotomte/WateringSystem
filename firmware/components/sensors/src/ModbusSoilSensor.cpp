@@ -85,6 +85,7 @@ bool ModbusSoilSensor::read()
     // Lazy initialization (legacy :77-81). A failure here is already
     // logged inside initialize() (both exits) and lastError_ is set there.
     if (!initialized_ && !initialize()) {
+        lastReadOk_ = false;  // read outcome for snapshot()
         return false;
     }
 
@@ -96,6 +97,7 @@ bool ModbusSoilSensor::read()
         // the ad-hoc code 4) and leave the last-good values untouched.
         lastError_ = client_.getLastError();
         ESP_LOGW(TAG, "read failed: bus error %d", lastError_);
+        lastReadOk_ = false;
         return false;
     }
 
@@ -132,6 +134,7 @@ bool ModbusSoilSensor::read()
                  "ph=%.1f)",
                  static_cast<double>(moisture),
                  static_cast<double>(temperature), static_cast<double>(ph));
+        lastReadOk_ = false;
         return false;
     }
 
@@ -147,7 +150,28 @@ bool ModbusSoilSensor::read()
     potassium_ = potassium;
 
     lastError_ = 0;
+    lastReadOk_ = true;
+    hasEverReadOk_ = true;
     return true;
+}
+
+SoilSnapshot ModbusSoilSensor::snapshot()
+{
+    // Cached-only, NO bus I/O (QUIRK 5): report the read history and the
+    // last-good values. available = at least one successful read on record.
+    SoilSnapshot s;
+    s.readOk = lastReadOk_;
+    s.available = hasEverReadOk_;
+    s.lastError = lastError_;
+    s.moisture = moisture_;
+    s.temperature = temperature_;
+    s.humidity = humidity_;
+    s.ph = ph_;
+    s.ec = ec_;
+    s.nitrogen = nitrogen_;
+    s.phosphorus = phosphorus_;
+    s.potassium = potassium_;
+    return s;
 }
 
 bool ModbusSoilSensor::isAvailable()

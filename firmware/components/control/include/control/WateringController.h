@@ -21,9 +21,10 @@
  * LockedSoilSensor snapshot; the pure logic drives the injected sensors directly.
  *
  * Concurrency: the controller is unsynchronized and single-writer (its own
- * watchdog-registered task). On-target US3 wires the sensor through a
- * LockedSoilSensor snapshot so read()+availability come from one locked
- * acquisition; the pure US1 logic drives the injected ISoilSensor directly.
+ * watchdog-registered task). tick() drives one blocking read() (controller-as-
+ * reader) and then consumes one non-blocking snapshot() for the availability +
+ * values it decides on — no second bus probe; on-target the sensor is a
+ * LockedSoilSensor so that snapshot is copied under a single lock.
  */
 
 #ifndef WATERINGSYSTEM_CONTROL_WATERINGCONTROLLER_H
@@ -122,11 +123,13 @@ private:
      * the configured data-log interval (the first eligible log after time is set
      * fires immediately). Env readings are logged on a successful, available
      * read; soil readings are logged only when @p soilValid (the result of the
-     * single soil read() this tick), with NPK included only when >= 0. All
+     * single soil read() this tick), with NPK included only when >= 0. Soil
+     * metrics come from @p soil — the same coherent snapshot tick() decided on,
+     * so the logged values match the decision values with no second read. All
      * writes carry IWallClock::nowEpoch(); storage self-bounds, so the store
      * result is ignored.
      */
-    void maybeLogData(int64_t now, bool soilValid);
+    void maybeLogData(int64_t now, bool soilValid, const SoilSnapshot& soil);
 
     ISoilSensor& soil_;
     IEnvironmentalSensor& env_;  ///< periodic data-logging source (US3)
@@ -152,7 +155,8 @@ private:
 
     /// True while an operator manual run is active. A manual run is exempt from
     /// the automatic fail-safe and the soak gate; it clears on stop() or when
-    /// the pump self-stops at the 300 s cap.
+    /// the pump self-stops (its clamped run duration elapses, or the 300 s hard
+    /// cap).
     bool manualRunActive_ = false;
 
     /// Monotonic time of the last data-log batch (0 = none yet — the first

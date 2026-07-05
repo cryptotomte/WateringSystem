@@ -6,8 +6,9 @@ the contracts to the covering test. All boxes are checked only because the full 
 
 **Verification run (this branch, `011-watering-controller-host-tests`):**
 
-- [x] Full host suite green: **289 Tests, 0 Failures, 0 Ignored** (`pump_host_tests.elf`, exit 0)
-      — of which 23 in `test_watering_controller.cpp` + 14 in `test_reservoir.cpp` are new for feature 011.
+- [x] Full host suite green: **293 Tests, 0 Failures, 0 Ignored** (`pump_host_tests.elf`, exit 0)
+      — of which 26 in `test_watering_controller.cpp` + 15 in `test_reservoir.cpp` are new for feature 011
+      (incl. the CP3-round additions T-A/T-B/T-C + the NPK and env-read-failure branches).
 - [x] rev1 build green (`sdkconfig.board.rev1_devkit`) — `REV1_RC=0`, app 1037.3 KiB / 1536 KiB slot (32.5 %
       margin).
 - [x] rev2 build green (`sdkconfig.board.rev2`) — `REV2_RC=0`, app 1039.4 KiB / 1536 KiB slot (32.3 % margin).
@@ -22,6 +23,8 @@ the contracts to the covering test. All boxes are checked only because the full 
       — `test_stops_at_high_threshold`
 - [x] Soak gate (FR-003): after a burst ends, no new burst until the pause elapses even while dry; then
       restart — `test_soak_pause_blocks_then_allows_restart`
+- [x] Soak origin armed on the HIGH-THRESHOLD stop path (`lastBurstEndMs_` set at line 110) — T-A
+      — `test_soak_origin_armed_on_high_threshold_stop`
 - [x] Config thresholds/durations re-read each tick (runtime-tunable) — `test_config_change_picked_up_next_tick`
 - [x] Low/high thresholds are inclusive boundaries — `test_boundaries_low_and_high_inclusive`
 
@@ -51,9 +54,19 @@ the contracts to the covering test. All boxes are checked only because the full 
 ## WateringController — data logging (FR-014)
 
 - [x] Logs at the data-log cadence (interval gate) — `test_data_log_cadence`
-- [x] Epoch timestamp + NPK-only-when-≥0 filter — `test_data_log_epoch_and_npk_filter`
+- [x] Epoch timestamp + NPK-only-when-≥0 filter (nitrogen<0) — `test_data_log_epoch_and_npk_filter`
+- [x] NPK ≥0 filter, phosphorus + potassium negative branches — `test_data_log_npk_phosphorus_potassium_negative`
+- [x] Exactly-10-metric cap with NO silent drop (drop-sensitive: `rejectedWrites == 0`) — T-C, asserted in
+      `test_data_log_cadence`
 - [x] Gated on `isTimeSet()` (no bogus 1970) — `test_data_log_gated_on_time_set`
 - [x] Telemetry logs even on the fail-safe path (env still logged, soil skipped) — `test_data_log_runs_on_failsafe_path`
+- [x] Env read failure → env metrics skipped, soil still logged — `test_data_log_env_read_failure`
+
+## WateringController — soil access (M2, post-CP3)
+
+- [x] `tick()` reads once then consumes ONE `snapshot()` (no second blocking `isAvailable()` probe);
+      availability = ever-read-ok — exercised across the fail-safe reason tests (`lastFailsafeReason()`
+      asserts `soil-unavailable` vs `soil-stale`)
 
 ## ReservoirController — truth table (FR-012/013)
 
@@ -73,6 +86,8 @@ the contracts to the covering test. All boxes are checked only because the full 
 - [x] A normal high-wet stop does NOT arm the cooldown — `test_normal_high_wet_stop_does_not_arm_cooldown`
 - [x] Manual fill bypasses the cooldown — `test_manual_fill_bypasses_cooldown`
 - [x] Manual fill refused when already full (high wet) — `test_manual_fill_refused_when_full`
+- [x] Auto-level-control OFF while enabled suppresses auto fill; manual fill still works — T-B
+      — `test_auto_level_off_suppresses_fill_but_manual_works`
 - [x] Feature disabled forces the pump off and skips all logic — `test_feature_disabled_forces_off_and_skips_logic`
 
 ## Not host-covered (target-only / HIL)

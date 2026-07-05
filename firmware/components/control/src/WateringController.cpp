@@ -28,14 +28,20 @@ void WateringController::tick()
         burstActive_ = false;
     }
 
-    // ---- Read the sensor ONCE per tick (US1 drives ISoilSensor directly; US3
-    // wires a LockedSoilSensor snapshot so read()+availability come from one
-    // locked acquisition). We react only to the read RESULT and the
-    // availability signal, never to specific numeric error codes. The soil
-    // getters below serve the values from THIS read — no second I/O. ---------
-    const bool readOk = soil_.read();
-    const bool available = soil_.isAvailable();
-    const float moisture = soil_.getMoisture();
+    // ---- Read the sensor ONCE per tick (controller-as-reader: read() drives
+    // the bus and refreshes the cache), then take ONE coherent, NON-BLOCKING
+    // snapshot() for the availability + values we decide on — NO second bus
+    // probe. We react only to the read RESULT and the availability signal,
+    // never to specific numeric error codes. `available` now means "at least
+    // one successful read on record": a sensor that has NEVER read OK is
+    // !available -> "soil-unavailable"; a sensor that worked then stopped
+    // responding keeps available true, the read fails, and it fails safe as
+    // "soil-stale". Both stop the pump — only the reason string differs. ------
+    soil_.read();                                // drives the bus, refreshes cache
+    const SoilSnapshot soil = soil_.snapshot();  // one coherent, non-blocking tuple
+    const bool readOk = soil.readOk;
+    const bool available = soil.available;       // ever-read-ok; no second probe
+    const float moisture = soil.moisture;
     const bool inRange =
         moisture >= kMoistureMinPct && moisture <= kMoistureMaxPct;
     const bool invalid = readOk && !inRange;
@@ -53,7 +59,7 @@ void WateringController::tick()
     // Telemetry must be recorded even when automatic watering is disabled, a
     // manual override is active, or a fail-safe is about to fire (FR-014). Soil
     // is logged only when this tick's read was successful and in range.
-    maybeLogData(now, /*soilValid=*/(readOk && inRange));
+    maybeLogData(now, /*soilValid=*/(readOk && inRange), soil);
 
     // ---- MANUAL OVERRIDE (bypasses fail-safe + soak/decision logic) --------
     // A manual run is an explicit operator override (FR-007/008): it is exempt
@@ -153,7 +159,8 @@ void WateringController::stop()
     manualRunActive_ = false;
 }
 
-void WateringController::maybeLogData(int64_t now, bool soilValid)
+void WateringController::maybeLogData(int64_t now, bool soilValid,
+                                     const SoilSnapshot& soil)
 {
     // No plausible wall-clock timestamp yet — never log a bogus 1970 epoch.
     if (!wallClock_.isTimeSet()) {
@@ -180,26 +187,26 @@ void WateringController::maybeLogData(int64_t now, bool soilValid)
         storage_.storeSensorReading("env_pressure", epoch, env_.getPressure());
     }
 
-    // Soil telemetry (uses the values from this tick's single read()).
+    // Soil telemetry (uses the values from this tick's single snapshot(), so
+    // the logged values match the values tick() decided on — one read/tick).
     if (soilValid) {
-        storage_.storeSensorReading("soil_moisture", epoch,
-                                    soil_.getMoisture());
+        storage_.storeSensorReading("soil_moisture", epoch, soil.moisture);
         storage_.storeSensorReading("soil_temperature", epoch,
-                                    soil_.getTemperature());
+                                    soil.temperature);
         // NOTE: soil humidity is deliberately NOT logged. ISoilSensor's
         // getHumidity() is documented as identical to getMoisture() (a single
         // moisture/humidity quantity in register 0x0000; the legacy driver
         // exposed it under both names), so logging it would be a pure duplicate
         // of soil_moisture. Dropping it keeps the max distinct metric set at
         // exactly kMaxMetrics (10): 3 env + 4 soil-base + 3 NPK.
-        storage_.storeSensorReading("soil_ph", epoch, soil_.getPH());
-        storage_.storeSensorReading("soil_ec", epoch, soil_.getEC());
+        storage_.storeSensorReading("soil_ph", epoch, soil.ph);
+        storage_.storeSensorReading("soil_ec", epoch, soil.ec);
 
         // NPK is only meaningful when >= 0 (the sensor reports -1 when a
         // channel is unsupported/unavailable); skip a negative channel.
-        const float n = soil_.getNitrogen();
-        const float p = soil_.getPhosphorus();
-        const float k = soil_.getPotassium();
+        const float n = soil.nitrogen;
+        const float p = soil.phosphorus;
+        const float k = soil.potassium;
         if (n >= 0) {
             storage_.storeSensorReading("soil_nitrogen", epoch, n);
         }

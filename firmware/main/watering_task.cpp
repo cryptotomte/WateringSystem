@@ -16,9 +16,15 @@
  * task is needed. That blocking read (plus the periodic littlefs data-log) is
  * isolated on THIS task and never runs on the 10 Hz safety loop.
  *
- * Watchdog: this is a watering-critical task, so it subscribes to the task WDT
- * and feeds once per cycle (mirrors sensor_task). The blocking Modbus read is
- * well under the WDT timeout.
+ * Watchdog: this is a watering-critical task, so it subscribes to the task WDT.
+ * The sensor-read cadence (IConfigStore::getSensorReadIntervalMs()) is
+ * operator-writable with NO upper bound, so it can legally exceed the task WDT
+ * timeout. A single vTaskDelay of the whole period would then starve the
+ * watchdog between feeds and panic-reboot; because the interval is NVS-persisted
+ * that would boot-loop. So the sleep is chunked: the task sleeps in bounded
+ * kFeedChunkMs slices, feeding the WDT after each slice, and runs the controller
+ * tick exactly once per full period. The blocking Modbus read inside tick() is
+ * itself well under the WDT timeout.
  *
  * Isolation: the task shares nothing with the network/HTTP path beyond the same
  * Locked* wrappers every other task uses (FR-017).
@@ -39,6 +45,7 @@ namespace {
 constexpr uint32_t kStackBytes = 8192;  ///< blocking Modbus read + littlefs log
 constexpr UBaseType_t kPriority = 1;    ///< same class as sensor_task
 constexpr uint32_t kFloorMs = 1000;     ///< IConfigStore sensor-interval floor
+constexpr uint32_t kFeedChunkMs = 1000; ///< max sleep between WDT feeds
 
 /// Long-lived task context (the task never exits). A single static instance
 /// holds borrowed pointers to the app_main collaborators.
@@ -57,8 +64,9 @@ WateringTaskCtx ctx;
     WateringTaskCtx* c = static_cast<WateringTaskCtx*>(arg);
 
     // Watering-critical task: subscribe to the task WDT (feature 008 US3). The
-    // period is re-read each loop and floored at 1000 ms, well under the 20 s
-    // default timeout; the feed each cycle is the liveness proof the WDT needs.
+    // liveness proof is the per-chunk feed below, NOT one feed per cycle: the
+    // period can exceed the WDT timeout, so the feed must be decoupled from the
+    // tick cadence.
     watchdog_subscribe_current_task();
 
     while (true) {
@@ -69,14 +77,24 @@ WateringTaskCtx ctx;
         if (periodMs < kFloorMs) {
             periodMs = kFloorMs;
         }
-        vTaskDelay(pdMS_TO_TICKS(periodMs));
 
-        // Feed once per cycle: this task is alive and servicing the WDT.
-        watchdog_feed();
+        // Chunked feed-and-sleep: never sleep the whole (unbounded) period in
+        // one vTaskDelay. Sleep in bounded kFeedChunkMs slices, feeding the WDT
+        // after each, so a large configured period cannot starve the watchdog
+        // and boot-loop the device.
+        uint32_t slept = 0;
+        while (slept < periodMs) {
+            const uint32_t chunk =
+                (periodMs - slept < kFeedChunkMs) ? (periodMs - slept)
+                                                  : kFeedChunkMs;
+            vTaskDelay(pdMS_TO_TICKS(chunk));
+            watchdog_feed();
+            slept += chunk;
+        }
 
-        // Decision layer. tick() does the periodic soil read (refreshing the
-        // LockedSoilSensor cache) + the watering decision + the periodic
-        // data-log.
+        // Decision layer, once per full period. tick() does the periodic soil
+        // read (refreshing the LockedSoilSensor cache) + the watering decision +
+        // the periodic data-log.
         c->controller->tick();
 #if BOARD_HAS_RESERVOIR_PUMP
         // Reservoir flag mapping: `enabled` is always true — on rev1 the
@@ -95,7 +113,7 @@ WateringTaskCtx ctx;
 
 #if BOARD_HAS_RESERVOIR_PUMP
 void watering_task_start(WateringController& controller, ReservoirController& reservoir,
-                         IConfigStore& config)
+                         IConfigStore& config, EventLogger& events)
 {
     ctx.controller = &controller;
     ctx.config = &config;
@@ -106,15 +124,19 @@ void watering_task_start(WateringController& controller, ReservoirController& re
                     kPriority, nullptr);
     if (created != pdPASS) {
         // Not a safety function: log and continue. The 10 Hz loop still
-        // enforces pump timing; only the decision layer is absent.
+        // enforces pump timing; only the decision layer is absent. Record a
+        // durable, operator-visible event (survives reboot, served by
+        // /api/v1/events) so the missing decision layer is not silent.
         ESP_LOGE(TAG, "failed to create watering task");
+        events.logFailsafe("watering-task-start-failed");
         return;
     }
     ESP_LOGI(TAG, "watering task started (%lu ms cadence floor)",
              static_cast<unsigned long>(kFloorMs));
 }
 #else
-void watering_task_start(WateringController& controller, IConfigStore& config)
+void watering_task_start(WateringController& controller, IConfigStore& config,
+                         EventLogger& events)
 {
     ctx.controller = &controller;
     ctx.config = &config;
@@ -124,8 +146,11 @@ void watering_task_start(WateringController& controller, IConfigStore& config)
                     kPriority, nullptr);
     if (created != pdPASS) {
         // Not a safety function: log and continue. The 10 Hz loop still
-        // enforces pump timing; only the decision layer is absent.
+        // enforces pump timing; only the decision layer is absent. Record a
+        // durable, operator-visible event (survives reboot, served by
+        // /api/v1/events) so the missing decision layer is not silent.
         ESP_LOGE(TAG, "failed to create watering task");
+        events.logFailsafe("watering-task-start-failed");
         return;
     }
     ESP_LOGI(TAG, "watering task started (%lu ms cadence floor)",

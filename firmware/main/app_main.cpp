@@ -688,9 +688,10 @@ extern "C" void app_main(void)
     // reaches the controllers purely through `config` (read each tick) — no
     // direct API↔controller call.
 #if BOARD_HAS_RESERVOIR_PUMP
-    watering_task_start(watering_controller, reservoir_controller, config);
+    watering_task_start(watering_controller, reservoir_controller, config,
+                        event_logger);
 #else
-    watering_task_start(watering_controller, config);
+    watering_task_start(watering_controller, config, event_logger);
 #endif
 
     // /api/v1/ HTTP server (feature 009 US1). Constructed here — after EVERY

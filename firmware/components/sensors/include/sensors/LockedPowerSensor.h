@@ -31,9 +31,9 @@
  * interleaving read() from another task in between — another task may
  * refresh (or invalidate) the values first. Such sequences need
  * higher-level coordination.
- * TODO(PR-11): add a consistent-snapshot helper (one locked call returning
- * all three values + validity) when a second periodic reader appears —
- * same bookkeeping as the other Locked* wrappers' PR-11 notes.
+ * TODO(PR-14): add a consistent-snapshot helper (one locked call returning
+ * all three values + validity) when a second periodic reader appears — the
+ * sibling Soil/Env/Level snapshots landed in PR-11; power's is deferred.
  *
  * Pure C++ (<mutex> is available via pthread on ESP-IDF and on the linux
  * preview target), so the decorator is host-testable.

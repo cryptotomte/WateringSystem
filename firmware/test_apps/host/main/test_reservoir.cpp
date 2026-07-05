@@ -294,6 +294,27 @@ void test_manual_fill_refused_when_full(void)
     TEST_ASSERT_EQUAL_INT(0, onTransitions(f.pump));
 }
 
+// Auto level control OFF (manual mode) while the feature is enabled: the
+// dry/dry row that would normally start a fill is suppressed, but an explicit
+// manual fill still works. Guards the tick(enabled=true, autoLevelControl=false)
+// gate a regression would otherwise drop unnoticed.
+void test_auto_level_off_suppresses_fill_but_manual_works(void)
+{
+    Fixture f;
+    f.low.scriptValidState(false);
+    f.high.scriptValidState(false);  // dry/dry: would normally start a fill
+
+    // Auto level control off (manual mode): no auto fill despite dry/dry.
+    f.controller.tick(/*enabled=*/true, /*autoLevelControl=*/false);
+    TEST_ASSERT_FALSE(f.pump.isRunning());
+    TEST_ASSERT_EQUAL_INT(0, onTransitions(f.pump));
+
+    // A manual fill still works while auto level control is off.
+    TEST_ASSERT_TRUE(f.controller.startManualFill(60));
+    TEST_ASSERT_TRUE(f.pump.isRunning());
+    TEST_ASSERT_EQUAL_INT(1, onTransitions(f.pump));
+}
+
 // Feature disabled (FR-013): the pump is forced OFF and ALL logic is skipped,
 // even when the marks read dry/dry (which would otherwise start a fill).
 void test_feature_disabled_forces_off_and_skips_logic(void)
@@ -341,5 +362,6 @@ void run_reservoir_tests(void)
 
     // Manual fill + feature gate
     RUN_TEST(test_manual_fill_refused_when_full);
+    RUN_TEST(test_auto_level_off_suppresses_fill_but_manual_works);
     RUN_TEST(test_feature_disabled_forces_off_and_skips_logic);
 }

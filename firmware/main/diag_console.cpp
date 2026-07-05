@@ -695,8 +695,9 @@ int env_cmd(int argc, char **argv)
     if (!s_env->read()) {
         // read() and getLastError() are separate locked calls; a sensor-
         // task poll interleaving between them can succeed and reset the
-        // error to 0 (benign cross-lock race, TODO(PR-11) snapshot helper
-        // in LockedEnvironmentalSensor.h) — hint accordingly.
+        // error to 0 (benign cross-lock race) — hint accordingly. The
+        // LockedEnvironmentalSensor snapshot() helper now exists; migrating
+        // this console read to it is a future cleanup — TODO(PR-14).
         const int error = s_env->getLastError();
         const char *hint = (error == 1)   ? "sensor not found"
                            : (error == 2) ? "read failed"
@@ -725,9 +726,9 @@ const char *level_state_str(ILevelSensor &sensor)
     // report not_yet_valid, or a reading that lost validity in the gap
     // print "dry" — benign either way, because isWaterPresent() returns
     // false whenever invalid (ILevelSensor contract): never a stale or
-    // phantom "water". One-poll diagnostic glitch only; TODO(PR-11):
-    // migrate to the snapshot helper in LockedLevelSensor.h (PR-14 keeps
-    // relying on this console path).
+    // phantom "water". One-poll diagnostic glitch only. The
+    // LockedLevelSensor snapshot() helper now exists; migrating this
+    // console read to it is deferred — TODO(PR-14).
     if (!sensor.isValid()) {
         return "not_yet_valid";
     }
@@ -774,10 +775,12 @@ int power_cmd(int argc, char **argv)
         return 1;
     }
     if (!s_power->read()) {
-        // read() and getLastError() are separate locked calls; when
-        // PR-09/PR-11 add readers an interleaving read can reset the
-        // error to 0 between them (benign cross-lock race, TODO(PR-11)
-        // snapshot helper in LockedPowerSensor.h) — hint accordingly.
+        // read() and getLastError() are separate locked calls; a
+        // concurrent read from another task could reset the error to 0
+        // between them (benign cross-lock race) — hint accordingly. No
+        // periodic power reader exists yet (the controller never touches
+        // power); a LockedPowerSensor snapshot() helper plus a reader are
+        // future work — TODO(PR-14).
         const int error = s_power->getLastError();
         const char *hint = (error == 1)   ? "sensor not found"
                            : (error == 2) ? "read failed"
