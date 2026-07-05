@@ -494,6 +494,80 @@ The server is constructed in `app_main` and `start()`ed on the first
 interface); `start()`/`stop()` are idempotent and non-fatal. HIL checklist:
 `specs/009-http-server-api-v1/checklists/hil.md`.
 
+## Watering controller (feature 011)
+
+Feature 011 (PR-11) adds the `control` component — the automatic watering
+logic, 100 % host-tested pure C++ over the interfaces (the master-PRD
+criterion). No IDF/`esp_*` includes; all time is injected (`ITimeProvider`
+monotonic for gates/staleness, `IWallClock` epoch for log timestamps) and every
+threshold/duration is read from `IConfigStore` each tick (runtime-tunable). Two
+classes, both driven over mocks + `FakeTimeProvider`/`FakeWallClock` in
+`test_apps/host/main/test_watering_controller.cpp` + `test_reservoir.cpp`:
+
+- **`WateringController`** — pulsed automatic watering. `tick()` order is
+  safety-first: `plant.update()` (self-stop + 300 s cap) → burst-end detection →
+  single soil read → periodic data-log → manual-override branch → enabled gate →
+  **fail-safe** → gate-on-read → watering decision. Start at moisture ≤ low when
+  the soak pause has elapsed; stop at ≥ high. **Fail-safe (soil unavailable /
+  stale > 30 000 ms / moisture out of 0–100 %) is checked BEFORE the soak gate
+  and is never delayed by it** — a pending soak pause never postpones a safety
+  stop. Automatic decisions gate on a successful in-range read, never on
+  placeholder/last-good values.
+- **Soak-pause divergence (parity):** the min-watering-interval soak is measured
+  from the burst **END** (true absorption), and it is ENFORCED — no new burst
+  starts until it elapses even while the soil still reads dry. The burst-end
+  edge is detected whether the pump self-stopped (duration/cap) or was stopped
+  at the high threshold.
+- **Manual override:** `startManual(int)` clamps to 1..300 s, runs the plant
+  pump and sets a flag that exempts the run from the automatic fail-safe;
+  `stop()` clears it; a pump self-stop clears it on the next tick. Manual is
+  `wateringEnabled == false` at the API layer — the controller never calls an
+  `isManualMode()` on the pump.
+- **`ReservoirController`** (rev1 only, but host-tested regardless of board) —
+  the level truth table over two `ILevelSensor` snapshots (invalid or
+  implausible dry+wet rows → no action; dry+dry → fill; high-wet → stop),
+  running-safety stop-on-high, the pump's 300 s cap for the max-fill abort, and
+  a **post-abort cooldown** (`kReservoirRefillCooldownMs`, ~60 s): after a
+  `MaxRuntimeForced` abort no new automatic fill starts until the cooldown
+  elapses even if still low-dry — guards a stuck high sensor / empty source. A
+  normal high-wet stop does not arm the cooldown; manual fill bypasses it. This
+  cooldown is a deliberate divergence from parity (`docs/parity-checklist.md`).
+- **Logging (FR-014):** every `dataLogInterval` the controller logs env
+  (`env_temperature/humidity/pressure`) + soil (`soil_moisture/temperature/ph/
+  ec`, plus NPK only when ≥ 0), stamped with `IWallClock::nowEpoch()` and gated
+  on `isTimeSet()` (never a bogus 1970). `soil_humidity` is intentionally NOT
+  logged — `ISoilSensor::getHumidity()` is identical to `getMoisture()` (parity,
+  register 0x0000), so the max distinct-metric set is exactly 10 = the
+  `IDataStorage` `kMaxMetrics` cap, no data loss. Fail-safe events go through
+  `EventLogger::logFailsafe`; pump start/stop transitions stay owned by
+  `SystemObserver` (no double-log).
+
+**Snapshot helpers:** `LockedSoilSensor::snapshot()` / `LockedEnvironmentalSensor`
+/ `LockedLevelSensor` return `{Soil,Env,Level}Snapshot` — all values + validity +
+error copied out under ONE lock, closing the read()-then-getter cross-call gap
+without a fresh (blocking) bus read (QUIRK 5).
+
+**On-target wiring:** the pure logic runs on `main/watering_task.cpp`, a
+watchdog-subscribed FreeRTOS task ticking at `config.getSensorReadIntervalMs()`
+(floored at 1 s). The controller is the **periodic soil reader** (controller-as-
+reader): its per-tick `read()` is the blocking Modbus transaction that refreshes
+the `LockedSoilSensor` cache the API `/sensors` endpoint serves — so there is no
+separate soil-reader task, and the blocking bus I/O is isolated off the 10 Hz
+safety loop (which still owns precise pump-timing enforcement + `observer.poll()`).
+The API mode flag reaches the controller purely through `config`
+(`getWateringEnabled()`, read each tick) — no direct ApiServer↔controller call
+(FR-017 isolation). Reservoir (rev1): `tick(true, getWateringEnabled())` — the
+pump always exists so `enabled` is always true; auto level control is gated by
+the same mode flag (manual mode suspends auto-fill; manual API fills still work).
+There is deliberately no dedicated auto-level config flag.
+
+**RS485 race fix (T016):** `LockedModbusClient` (header-only `IModbusClient`
+decorator) wraps the `EspModbusClient` in `app_main`; the `ModbusSoilSensor` and
+the console `rs485test` command now share one mutex, so the periodic reader and
+the diagnostic probe can no longer overlap bus transactions. Lock order is always
+(soil mutex → modbus mutex) or (modbus mutex alone) — no deadlock. HIL checklist:
+`specs/011-watering-controller-host-tests/checklists/hil.md`.
+
 ## Partition layout (4MB flash)
 
 nvs (0x9000, 16K) | otadata (0xd000, 8K) | phy_init (0xf000, 4K) |
