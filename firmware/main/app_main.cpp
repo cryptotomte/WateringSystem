@@ -688,7 +688,11 @@ extern "C" void app_main(void)
     if (api_locked_wifi != nullptr) {
         static api::ApiServer api_server_inst(
             config, storage, env_sensor, soil_sensor, level_low, level_high,
-            *api_locked_wifi, wall_clock, sntp, time_provider
+            *api_locked_wifi, wall_clock, sntp, time_provider, plant
+#if BOARD_HAS_RESERVOIR_PUMP
+            ,
+            reservoir
+#endif
 #if BOARD_HAS_INA226
             ,
             power_sensor

@@ -16,8 +16,13 @@
  *                          [+power on rev2])
  *   GET /api/v1/sensors  — cached environmental/soil/level [+power] readings
  *   GET /api/v1/power     — INA226 telemetry (rev2); not-available shape on rev1
- * Unknown routes answer the JSON 404 envelope. The US2/US3 routes
- * (pumps/config/history/events/selftest/ota) are added in later tasks.
+ * plus the US2 pump/config endpoints:
+ *   GET  /api/v1/pumps        — every pump's status (capability-enumerated)
+ *   POST /api/v1/pumps/{name} — start/run/stop a pump (cap+rules in the pump)
+ *   GET  /api/v1/config       — current config (never the wifi password)
+ *   POST /api/v1/config       — apply a validated config subset (persisted)
+ * Unknown routes answer the JSON 404 envelope. The remaining US3 routes
+ * (history/events/selftest/ota) are added in later tasks.
  *
  * PRIV rule (same as ProvisioningPortal / EspI2cBus): esp_http_server.h appears
  * ONLY in the .cpp; the server handle is held here as an opaque void* and the
@@ -45,6 +50,7 @@
 #include "interfaces/ISoilSensor.h"
 #include "interfaces/ITimeProvider.h"
 #include "interfaces/IWallClock.h"
+#include "interfaces/IWaterPump.h"
 #if BOARD_HAS_INA226
 #include "interfaces/IPowerSensor.h"
 #endif
@@ -52,6 +58,21 @@
 #include "time/SntpClient.h"
 
 namespace api {
+
+/**
+ * @brief A ready-to-send response: an HTTP status line plus a JSON body.
+ *
+ * Returned by the mutating US2 command builders (pump command / config set) so
+ * the file-local httpd handler can vary the status line per outcome (200 on
+ * success, 4xx on a rejected command/validation error, 5xx on an unexpected
+ * persistence failure) rather than being fixed to 200 like the read builders.
+ * `status` is a static string literal (never freed); `body` comes from the pure
+ * envelope/serializer layer.
+ */
+struct ApiResponse {
+    const char* status;  ///< HTTP status line, e.g. "200 OK"
+    std::string body;    ///< JSON envelope body
+};
 
 /**
  * @brief Standalone /api/v1/ HTTP server over the Locked* decorators.
@@ -86,13 +107,25 @@ public:
      * @param wallClock   Wall clock (epoch + is-set) for time + timestamps.
      * @param sntp        SNTP client (last-sync epoch); status only.
      * @param uptime      Monotonic clock for uptimeMs.
+     * @param plantPump   Plant pump, as its LockedWaterPump wrapper (the only
+     *                    allowed access path — every command is serialized with
+     *                    the 10 Hz update() loop). Its runFor()/stop() enforce
+     *                    the hard 300 s cap and the no-restart rule; the server
+     *                    makes no watering decision of its own.
+     * @param reservoirPump Reservoir pump wrapper (rev1 only; compile-time
+     *                    absent on the single-pump rev2 node,
+     *                    BOARD_HAS_RESERVOIR_PUMP).
      * @param power       INA226 power sensor (rev2 only).
      */
     ApiServer(IConfigStore& config, IDataStorage& storage,
               IEnvironmentalSensor& env, ISoilSensor& soil,
               ILevelSensor& levelLow, ILevelSensor& levelHigh,
               LockedWifiManager& wifi, IWallClock& wallClock, SntpClient& sntp,
-              ITimeProvider& uptime
+              ITimeProvider& uptime, IWaterPump& plantPump
+#if BOARD_HAS_RESERVOIR_PUMP
+              ,
+              IWaterPump& reservoirPump
+#endif
 #if BOARD_HAS_INA226
               ,
               IPowerSensor& power
@@ -100,7 +133,12 @@ public:
               )
         : config_(config), storage_(storage), env_(env), soil_(soil),
           levelLow_(levelLow), levelHigh_(levelHigh), wifi_(wifi),
-          wallClock_(wallClock), sntp_(sntp), uptime_(uptime)
+          wallClock_(wallClock), sntp_(sntp), uptime_(uptime),
+          plantPump_(plantPump)
+#if BOARD_HAS_RESERVOIR_PUMP
+          ,
+          reservoirPump_(reservoirPump)
+#endif
 #if BOARD_HAS_INA226
           ,
           power_(power)
@@ -144,9 +182,53 @@ public:
     /// Build the GET /api/v1/power body (telemetry on rev2, not-available on rev1).
     std::string buildPowerBody();
 
+    /**
+     * @brief Build the GET /api/v1/pumps success body (list of every pump).
+     *
+     * Capability-enumerated (rev1 plant+reservoir, rev2 plant only,
+     * BOARD_HAS_RESERVOIR_PUMP) from the pumps' non-blocking status getters.
+     */
+    std::string buildPumpsBody();
+
+    /**
+     * @brief Apply a POST /api/v1/pumps/{name} command and report the outcome.
+     *
+     * @param name  the trailing URI segment ("plant"/"reservoir"); an unknown
+     *              name yields a 404 error envelope.
+     * @param body  the raw JSON request body (parsed by the pure parsePumpCommand).
+     * @return the resulting PumpDto on success (200); a 4xx error envelope on an
+     *         unknown name, malformed/invalid body, or a rejected command (e.g.
+     *         start on an already-running pump — the clock is not restarted).
+     *
+     * The server makes NO watering decision: the duration cap and the
+     * no-restart rule live entirely in the pump's own runFor()/stop().
+     */
+    ApiResponse applyPumpCommand(const std::string& name,
+                                 const std::string& body);
+
+    /// Build the GET /api/v1/config success body (never the wifi password).
+    std::string buildConfigBody();
+
+    /**
+     * @brief Apply a POST /api/v1/config set request and report the outcome.
+     *
+     * Validation is all-or-nothing in the pure parseConfigSet; on success each
+     * present field is applied through its IConfigStore setter (which persists).
+     *
+     * @param body  the raw JSON request body.
+     * @return the new ConfigDto (200) on success; a 400 error envelope on a
+     *         malformed/out-of-range body; a 500 error envelope if a setter
+     *         unexpectedly fails to persist an already-validated value.
+     */
+    ApiResponse applyConfigSet(const std::string& body);
+
 private:
     /// Current device IPv4 address on the STA interface ("" when none).
     std::string deviceIp() const;
+
+    /// Resolve a pump name ("plant"/"reservoir") to its wrapper, or nullptr for
+    /// an unknown name (capability-aware: "reservoir" exists on rev1 only).
+    IWaterPump* pumpByName(const std::string& name);
 
     IConfigStore& config_;
     IDataStorage& storage_;
@@ -158,6 +240,10 @@ private:
     IWallClock& wallClock_;
     SntpClient& sntp_;
     ITimeProvider& uptime_;
+    IWaterPump& plantPump_;
+#if BOARD_HAS_RESERVOIR_PUMP
+    IWaterPump& reservoirPump_;
+#endif
 #if BOARD_HAS_INA226
     IPowerSensor& power_;
 #endif

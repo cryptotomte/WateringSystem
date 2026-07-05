@@ -23,7 +23,9 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <string>
+#include <vector>
 
 #include "esp_app_desc.h"
 #include "esp_http_server.h"
@@ -33,6 +35,8 @@
 
 #include "api/ApiDtos.h"
 #include "api/ApiEnvelope.h"
+#include "api/ApiRequests.h"
+#include "api/ApiRoutes.h"
 #include "api/ApiSerialize.h"
 #include "events/EventLogger.h"
 #include "network/WifiState.h"
@@ -130,6 +134,138 @@ esp_err_t notFoundHandler(httpd_req_t* req, httpd_err_code_t /*error*/)
 {
     // Returning ESP_OK keeps the connection usable after the 404.
     return sendJson(req, "404 Not Found", notFoundBody());
+}
+
+/// POST body cap: pump/config bodies are a handful of small fields; anything
+/// larger is a misuse or a flood and is rejected before any allocation. The
+/// stack buffer holds the whole body plus a NUL terminator.
+constexpr int kMaxBodyLen = 512;
+
+/// StopReason -> stable lowercase word for the pump DTO (same vocabulary as the
+/// diag console `pump status`). Total over the enum.
+const char* stopReasonName(StopReason reason)
+{
+    switch (reason) {
+    case StopReason::Commanded:
+        return "commanded";
+    case StopReason::DurationElapsed:
+        return "duration_elapsed";
+    case StopReason::MaxRuntimeForced:
+        return "max_runtime_forced";
+    case StopReason::None:
+        return "none";
+    }
+    return "none";
+}
+
+/// Snapshot one pump into a PumpDto through its NON-BLOCKING status getters
+/// (QUIRK 5). The int64 runtime counters are clamped into the DTO's uint32
+/// fields (a pump run never approaches 2^32 ms given the 300 s cap).
+PumpDto makePumpDto(IWaterPump& pump)
+{
+    PumpDto dto;
+    dto.name = pump.getName();
+    dto.running = pump.isRunning();
+    dto.currentRunTimeMs = static_cast<uint32_t>(pump.getCurrentRunTimeMs());
+    dto.accumulatedRunTimeMs =
+        static_cast<uint32_t>(pump.getAccumulatedRunTimeMs());
+    dto.lastStopReason = stopReasonName(pump.getLastStopReason());
+    return dto;
+}
+
+/// Read the whole request body into @p out with a hard cap (kMaxBodyLen).
+/// Returns true on success; on false, @p err carries the reason (an over-cap
+/// body or a socket receive error) — both map to a 400 by the caller.
+bool readRequestBody(httpd_req_t* req, std::string& out, std::string& err)
+{
+    if (req->content_len >= kMaxBodyLen) {
+        err = "request body too large";
+        return false;
+    }
+    char buf[kMaxBodyLen];
+    int total = 0;
+    int r;
+    while ((r = httpd_req_recv(req, buf + total, sizeof(buf) - 1 - total)) > 0) {
+        total += r;
+    }
+    if (r < 0) {
+        err = "request body read error";
+        return false;
+    }
+    buf[total] = '\0';
+    out.assign(buf, static_cast<size_t>(total));
+    return true;
+}
+
+esp_err_t pumpsListHandler(httpd_req_t* req)
+{
+    ApiServer* server = self(req);
+    if (server == nullptr) {
+        return sendJson(req, "500 Internal Server Error",
+                        errorBody("server misconfigured"));
+    }
+    return sendJson(req, "200 OK", server->buildPumpsBody());
+}
+
+esp_err_t pumpCommandHandler(httpd_req_t* req)
+{
+    ApiServer* server = self(req);
+    if (server == nullptr) {
+        return sendJson(req, "500 Internal Server Error",
+                        errorBody("server misconfigured"));
+    }
+
+    // Pump name = the trailing segment after the command prefix; drop any query
+    // string first. An empty/foreign name falls through to applyPumpCommand's
+    // 404 (unknown pump).
+    std::string uri(req->uri);
+    const std::string::size_type q = uri.find('?');
+    if (q != std::string::npos) {
+        uri.erase(q);
+    }
+    std::string name;
+    const size_t prefixLen = std::strlen(kPumpCommandPrefix);
+    if (uri.size() >= prefixLen &&
+        uri.compare(0, prefixLen, kPumpCommandPrefix) == 0) {
+        name = uri.substr(prefixLen);
+    }
+
+    std::string body;
+    std::string readErr;
+    if (!readRequestBody(req, body, readErr)) {
+        return sendJson(req, "400 Bad Request", errorBody(readErr));
+    }
+
+    const ApiResponse resp = server->applyPumpCommand(name, body);
+    return sendJson(req, resp.status, resp.body);
+}
+
+esp_err_t configGetHandler(httpd_req_t* req)
+{
+    ApiServer* server = self(req);
+    if (server == nullptr) {
+        return sendJson(req, "500 Internal Server Error",
+                        errorBody("server misconfigured"));
+    }
+    return sendJson(req, "200 OK", server->buildConfigBody());
+}
+
+esp_err_t configSetHandler(httpd_req_t* req)
+{
+    ApiServer* server = self(req);
+    if (server == nullptr) {
+        return sendJson(req, "500 Internal Server Error",
+                        errorBody("server misconfigured"));
+    }
+
+    std::string body;
+    std::string readErr;
+    if (!readRequestBody(req, body, readErr)) {
+        return sendJson(req, "400 Bad Request", errorBody(readErr));
+    }
+
+    const ApiResponse resp = server->applyConfigSet(body);
+    return sendJson(req, resp.status, resp.body);
 }
 
 }  // namespace
@@ -276,6 +412,122 @@ std::string ApiServer::buildPowerBody()
 #endif
 }
 
+IWaterPump* ApiServer::pumpByName(const std::string& name)
+{
+    if (name == "plant") {
+        return &plantPump_;
+    }
+#if BOARD_HAS_RESERVOIR_PUMP
+    if (name == "reservoir") {
+        return &reservoirPump_;
+    }
+#endif
+    return nullptr;
+}
+
+std::string ApiServer::buildPumpsBody()
+{
+    // Capability-enumerated: the reservoir pump exists on rev1 only.
+    std::vector<PumpDto> pumps;
+    pumps.push_back(makePumpDto(plantPump_));
+#if BOARD_HAS_RESERVOIR_PUMP
+    pumps.push_back(makePumpDto(reservoirPump_));
+#endif
+    return serializePumpList(pumps);
+}
+
+ApiResponse ApiServer::applyPumpCommand(const std::string& name,
+                                        const std::string& body)
+{
+    IWaterPump* pump = pumpByName(name);
+    if (pump == nullptr) {
+        return {"404 Not Found", errorBody("unknown pump")};
+    }
+
+    const PumpCommandResult parsed = parsePumpCommand(body);
+    if (!parsed.ok) {
+        return {"400 Bad Request", errorBody(parsed.error)};
+    }
+
+    switch (parsed.command.action) {
+    case PumpAction::Start:
+    case PumpAction::Run: {
+        // durationS is guaranteed present and in 1..300 by the pure parser; the
+        // pump's own runFor() re-enforces the hard cap and the no-restart rule —
+        // the server makes no watering decision. A false result here means the
+        // pump is already running (its clock is NOT restarted): an explicit 409.
+        const int durationS = static_cast<int>(parsed.command.durationS.value());
+        if (!pump->runFor(durationS)) {
+            return {"409 Conflict", errorBody("pump already running")};
+        }
+        break;
+    }
+    case PumpAction::Stop:
+        // Idempotent: stopping an already-stopped pump is a success no-op.
+        pump->stop();
+        break;
+    }
+
+    return {"200 OK", serializePump(makePumpDto(*pump))};
+}
+
+std::string ApiServer::buildConfigBody()
+{
+    ConfigDto dto;
+    dto.moistureThresholdLow = config_.getMoistureThresholdLow();
+    dto.moistureThresholdHigh = config_.getMoistureThresholdHigh();
+    dto.wateringDurationS = config_.getWateringDurationS();
+    dto.minWateringIntervalS = config_.getMinWateringIntervalS();
+    dto.wateringEnabled = config_.getWateringEnabled();
+    dto.sensorReadIntervalMs = config_.getSensorReadIntervalMs();
+    dto.dataLogIntervalMs = config_.getDataLogIntervalMs();
+    // The wifi password is deliberately absent (ConfigDto carries no such field).
+    return serializeConfig(dto);
+}
+
+ApiResponse ApiServer::applyConfigSet(const std::string& body)
+{
+    const ConfigSetResult parsed = parseConfigSet(body);
+    if (!parsed.ok) {
+        return {"400 Bad Request", errorBody(parsed.error)};
+    }
+
+    // All-or-nothing was validated in the pure parser (nothing is marked to
+    // apply when it rejects). Each present field is persisted via its setter; a
+    // setter returning false here is an unexpected persistence failure on an
+    // already-validated value (out-of-range was ruled out) -> 500.
+    const ConfigSetRequest& r = parsed.request;
+    bool ok = true;
+    if (r.moistureThresholdLow) {
+        ok = ok && config_.setMoistureThresholdLow(*r.moistureThresholdLow);
+    }
+    if (r.moistureThresholdHigh) {
+        ok = ok && config_.setMoistureThresholdHigh(*r.moistureThresholdHigh);
+    }
+    if (r.wateringDurationS) {
+        ok = ok && config_.setWateringDurationS(*r.wateringDurationS);
+    }
+    if (r.minWateringIntervalS) {
+        ok = ok && config_.setMinWateringIntervalS(*r.minWateringIntervalS);
+    }
+    if (r.wateringEnabled) {
+        ok = ok && config_.setWateringEnabled(*r.wateringEnabled);
+    }
+    if (r.sensorReadIntervalMs) {
+        ok = ok && config_.setSensorReadIntervalMs(*r.sensorReadIntervalMs);
+    }
+    if (r.dataLogIntervalMs) {
+        ok = ok && config_.setDataLogIntervalMs(*r.dataLogIntervalMs);
+    }
+
+    if (!ok) {
+        return {"500 Internal Server Error",
+                errorBody("failed to persist configuration")};
+    }
+
+    return {"200 OK", buildConfigBody()};
+}
+
 bool ApiServer::start()
 {
     if (server_ != nullptr) {
@@ -286,6 +538,9 @@ bool ApiServer::start()
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_uri_handlers = kMaxUriHandlers;
     config.lru_purge_enable = true;
+    // Wildcard matching so POST /api/v1/pumps/{name} can be served by one
+    // handler on the pumps command prefix; exact routes still match exactly.
+    config.uri_match_fn = httpd_uri_match_wildcard;
 
     esp_err_t err = httpd_start(&server, &config);
     if (err != ESP_OK) {
@@ -293,7 +548,11 @@ bool ApiServer::start()
         return false;
     }
 
-    // One httpd handler per US1 route; user_ctx carries this instance.
+    // One httpd handler per route; user_ctx carries this instance. US1 read
+    // routes plus the US2 pump/config routes. The per-pump command uses a
+    // wildcard pattern (the name is parsed from the URI in the handler); an
+    // unknown pump name answers 404 via applyPumpCommand, and a truly unknown
+    // route is covered by the 404 err_handler below.
     const httpd_uri_t routes[] = {
         {
             .uri = "/api/v1/status",
@@ -311,6 +570,30 @@ bool ApiServer::start()
             .uri = "/api/v1/power",
             .method = HTTP_GET,
             .handler = &powerHandler,
+            .user_ctx = this,
+        },
+        {
+            .uri = "/api/v1/pumps",
+            .method = HTTP_GET,
+            .handler = &pumpsListHandler,
+            .user_ctx = this,
+        },
+        {
+            .uri = "/api/v1/pumps/*",
+            .method = HTTP_POST,
+            .handler = &pumpCommandHandler,
+            .user_ctx = this,
+        },
+        {
+            .uri = "/api/v1/config",
+            .method = HTTP_GET,
+            .handler = &configGetHandler,
+            .user_ctx = this,
+        },
+        {
+            .uri = "/api/v1/config",
+            .method = HTTP_POST,
+            .handler = &configSetHandler,
             .user_ctx = this,
         },
     };
