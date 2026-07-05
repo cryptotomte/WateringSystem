@@ -7,12 +7,9 @@
 # therefore compiles identically on the linux host (host-tested against the
 # mocks + fakes) and on both device targets. No linux guard needed.
 #
-# TODO(US1/US2): add SRCS "src/WateringController.cpp"
-#                         "src/ReservoirController.cpp"
-# once those pure sources land. Until then the component registers as a
-# header-only/interface component (INCLUDE_DIRS only) so it configures
-# cleanly on host + both targets.
+# TODO(US2): add SRCS "src/ReservoirController.cpp" once that pure source lands.
 idf_component_register(
+    SRCS "src/WateringController.cpp"
     INCLUDE_DIRS "include"
     REQUIRES interfaces events
 )
