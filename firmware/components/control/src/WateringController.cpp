@@ -28,16 +28,11 @@ void WateringController::tick()
         burstActive_ = false;
     }
 
-    // Automatic path only. When automatic watering is disabled the mode is
-    // manual/suspended (operator override, US3): take no automatic action.
-    if (!config_.getWateringEnabled()) {
-        return;
-    }
-
-    // ---- Read the sensor (US1 drives ISoilSensor directly; US3 wires a
-    // LockedSoilSensor snapshot so read()+availability come from one locked
-    // acquisition). We react only to the read RESULT and the availability
-    // signal, never to specific numeric error codes. ------------------------
+    // ---- Read the sensor ONCE per tick (US1 drives ISoilSensor directly; US3
+    // wires a LockedSoilSensor snapshot so read()+availability come from one
+    // locked acquisition). We react only to the read RESULT and the
+    // availability signal, never to specific numeric error codes. The soil
+    // getters below serve the values from THIS read — no second I/O. ---------
     const bool readOk = soil_.read();
     const bool available = soil_.isAvailable();
     const float moisture = soil_.getMoisture();
@@ -53,6 +48,29 @@ void WateringController::tick()
     }
     const bool stale =
         (lastValidSoilMs_ == 0) || (now - lastValidSoilMs_ > kStalenessMs);
+
+    // ---- PERIODIC DATA-LOG (runs in EVERY mode, before any early return) ----
+    // Telemetry must be recorded even when automatic watering is disabled, a
+    // manual override is active, or a fail-safe is about to fire (FR-014). Soil
+    // is logged only when this tick's read was successful and in range.
+    maybeLogData(now, /*soilValid=*/(readOk && inRange));
+
+    // ---- MANUAL OVERRIDE (bypasses fail-safe + soak/decision logic) --------
+    // A manual run is an explicit operator override (FR-007/008): it is exempt
+    // from the automatic fail-safe and the soak gate. A pump self-stop at the
+    // 300 s cap clears the override on the next tick.
+    if (manualRunActive_) {
+        if (!plant_.isRunning()) {
+            manualRunActive_ = false;
+        }
+        return;
+    }
+
+    // Automatic path only. When automatic watering is disabled the mode is
+    // manual/suspended: take no automatic action.
+    if (!config_.getWateringEnabled()) {
+        return;
+    }
 
     // ---- FAIL-SAFE (unconditional, checked BEFORE the soak gate) ----------
     // Never delayed or suppressed by the soak-pause/scheduling logic (FR-006).
@@ -108,5 +126,88 @@ void WateringController::tick()
         }
         // else: soak pause active — do NOT start another burst, even though the
         // soil still reads dry (FR-003).
+    }
+}
+
+bool WateringController::startManual(int durationS)
+{
+    // Clamp to the pump's accepted range [1, 300] s (the pump rejects 0 and
+    // anything over its 300 s hard cap; we clamp rather than reject so an
+    // operator command always maps to a bounded run).
+    int clamped = durationS;
+    if (clamped < 1) {
+        clamped = 1;
+    } else if (clamped > 300) {
+        clamped = 300;
+    }
+    const bool started = plant_.runFor(clamped);
+    if (started) {
+        manualRunActive_ = true;
+    }
+    return started;
+}
+
+void WateringController::stop()
+{
+    plant_.stop();
+    manualRunActive_ = false;
+}
+
+void WateringController::maybeLogData(int64_t now, bool soilValid)
+{
+    // No plausible wall-clock timestamp yet — never log a bogus 1970 epoch.
+    if (!wallClock_.isTimeSet()) {
+        return;
+    }
+
+    // Interval gate: the first eligible log after time is set fires immediately
+    // (lastDataLogMs_ == 0 counts as due); otherwise wait out the interval.
+    const int64_t interval = static_cast<int64_t>(config_.getDataLogIntervalMs());
+    const bool due =
+        (lastDataLogMs_ == 0) || (now - lastDataLogMs_ >= interval);
+    if (!due) {
+        return;
+    }
+    lastDataLogMs_ = now;
+
+    const uint32_t epoch = wallClock_.nowEpoch();
+
+    // Environmental telemetry (only on a successful, available read).
+    if (env_.read() && env_.isAvailable()) {
+        storage_.storeSensorReading("env_temperature", epoch,
+                                    env_.getTemperature());
+        storage_.storeSensorReading("env_humidity", epoch, env_.getHumidity());
+        storage_.storeSensorReading("env_pressure", epoch, env_.getPressure());
+    }
+
+    // Soil telemetry (uses the values from this tick's single read()).
+    if (soilValid) {
+        storage_.storeSensorReading("soil_moisture", epoch,
+                                    soil_.getMoisture());
+        storage_.storeSensorReading("soil_temperature", epoch,
+                                    soil_.getTemperature());
+        // NOTE: soil humidity is deliberately NOT logged. ISoilSensor's
+        // getHumidity() is documented as identical to getMoisture() (a single
+        // moisture/humidity quantity in register 0x0000; the legacy driver
+        // exposed it under both names), so logging it would be a pure duplicate
+        // of soil_moisture. Dropping it keeps the max distinct metric set at
+        // exactly kMaxMetrics (10): 3 env + 4 soil-base + 3 NPK.
+        storage_.storeSensorReading("soil_ph", epoch, soil_.getPH());
+        storage_.storeSensorReading("soil_ec", epoch, soil_.getEC());
+
+        // NPK is only meaningful when >= 0 (the sensor reports -1 when a
+        // channel is unsupported/unavailable); skip a negative channel.
+        const float n = soil_.getNitrogen();
+        const float p = soil_.getPhosphorus();
+        const float k = soil_.getPotassium();
+        if (n >= 0) {
+            storage_.storeSensorReading("soil_nitrogen", epoch, n);
+        }
+        if (p >= 0) {
+            storage_.storeSensorReading("soil_phosphorus", epoch, p);
+        }
+        if (k >= 0) {
+            storage_.storeSensorReading("soil_potassium", epoch, k);
+        }
     }
 }

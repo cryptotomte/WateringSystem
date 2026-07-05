@@ -2,21 +2,25 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * @file test_watering_controller.cpp
- * @brief Host suite for the pure WateringController (feature 011, US1).
+ * @brief Host suite for the pure WateringController (feature 011, US1 + US3).
  *
  * Drives the REAL WateringController logic over MockSoilSensor +
- * MockWaterPump (real WaterPump enforcement over FakeTimeProvider) +
- * MockConfigStore + MockDataStorage + FakeWallClock + EventLogger. Registered
- * via run_watering_controller_tests() from the shared Unity runner
- * (test_main.cpp); the process exit code equals the failure count (CI gate).
+ * MockEnvironmentalSensor + MockWaterPump (real WaterPump enforcement over
+ * FakeTimeProvider) + MockConfigStore + MockDataStorage + FakeWallClock +
+ * EventLogger. Registered via run_watering_controller_tests() from the shared
+ * Unity runner (test_main.cpp); the process exit code equals the failure count
+ * (CI gate).
  *
- * Coverage maps to tasks.md T006 (automatic + soak gate) and T007 (fail-safe):
- * start-at-low, no-start/allow-restart across the soak pause, stop-at-high,
- * runtime config change, disabled -> no action, gate-on-read (placeholder +
- * transient failed read), fail-safe unavailable/stale/invalid stops, fail-safe
- * never delayed by the soak gate, and graceful degradation (sensor always
- * failing -> never waters, no crash). The manual override + periodic
- * data-logging branches (US3) land later (T011).
+ * Coverage maps to tasks.md T006 (automatic + soak gate), T007 (fail-safe) and
+ * T011 (manual override + periodic data-logging): start-at-low,
+ * no-start/allow-restart across the soak pause, stop-at-high, runtime config
+ * change, disabled -> no action, gate-on-read (placeholder + transient failed
+ * read), fail-safe unavailable/stale/invalid stops, fail-safe never delayed by
+ * the soak gate, graceful degradation (sensor always failing -> never waters,
+ * no crash), manual override (bypasses fail-safe, 300 s cap, lower clamp,
+ * auto-runs stay automatic, stop() clears the override) and data-logging
+ * (cadence, epoch timestamp, NPK >= 0 filter, time-not-set gate, independence
+ * from the fail-safe path).
  */
 
 #include <cstdint>
@@ -28,6 +32,7 @@
 #include "control/WateringController.h"
 #include "events/EventLogger.h"
 #include "interfaces/IDataStorage.h"
+#include "sensors/testing/MockEnvironmentalSensor.h"
 #include "sensors/testing/MockSoilSensor.h"
 #include "storage/testing/MockConfigStore.h"
 #include "storage/testing/MockDataStorage.h"
@@ -43,13 +48,14 @@ namespace {
 struct Fixture {
     FakeTimeProvider clock;
     MockSoilSensor soil;
+    MockEnvironmentalSensor env;
     MockWaterPump pump{"plant", clock};
     MockConfigStore config;
     MockDataStorage storage;
     FakeWallClock wallClock;
     EventLogger events{storage, wallClock};
-    WateringController controller{soil,  pump,      config, storage,
-                                  clock, wallClock, events};
+    WateringController controller{soil,    env,       pump,      config,
+                                  storage, clock,     wallClock, events};
 
     Fixture()
     {
@@ -84,6 +90,17 @@ int failsafeEventCount(const MockDataStorage& storage)
         if (event.category == IDataStorage::kCategoryFailsafe) {
             ++count;
         }
+    }
+    return count;
+}
+
+/// Total sensor readings persisted across all metrics (a proxy for "how many
+/// data-log values were written"). Independent of the event log.
+int sensorReadingCount(const MockDataStorage& storage)
+{
+    int count = 0;
+    for (const auto& entry : storage.history) {
+        count += static_cast<int>(entry.second.size());
     }
     return count;
 }
@@ -387,6 +404,238 @@ void test_graceful_degradation_never_waters(void)
     TEST_ASSERT_EQUAL_UINT32(0, f.events.droppedEvents());
 }
 
+// ===========================================================================
+// T011 — manual override + periodic data-logging (US3)
+// ===========================================================================
+
+// FR-007/008: a manual run is an explicit operator override — it keeps running
+// even when the soil sensor is failing/unavailable (exempt from the automatic
+// fail-safe). The wall clock is left unset so no data-logging noise interferes.
+void test_manual_run_bypasses_sensor_failure(void)
+{
+    Fixture f;
+    setSensor(f, /*readOk=*/false, /*available=*/false, /*moisture=*/20.0f);
+
+    TEST_ASSERT_TRUE(f.controller.startManual(60));
+    TEST_ASSERT_TRUE(f.pump.isRunning());
+
+    // A tick that would fail-safe an automatic run leaves the manual run alone.
+    f.clock.advance(1000);
+    f.controller.tick();
+    TEST_ASSERT_TRUE(f.pump.isRunning());
+    TEST_ASSERT_EQUAL_INT(0, failsafeEventCount(f.storage));
+}
+
+// FR-008: an over-long manual duration is clamped to the 300 s cap — the run is
+// bounded, stopping at 300 s with MaxRuntimeForced (not earlier).
+void test_manual_run_capped_at_300s(void)
+{
+    Fixture f;
+    setSensor(f, false, false, 20.0f);
+
+    TEST_ASSERT_TRUE(f.controller.startManual(9999));  // clamps to 300
+    TEST_ASSERT_TRUE(f.pump.isRunning());
+
+    // Well before the cap the run is still going (proves it was not clamped low).
+    f.clock.advance(250'000);
+    f.controller.tick();
+    TEST_ASSERT_TRUE(f.pump.isRunning());
+
+    // At exactly 300 s the pump self-stops and the override clears next tick.
+    f.clock.advance(50'000);  // total 300 s
+    f.controller.tick();
+    TEST_ASSERT_FALSE(f.pump.isRunning());
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(StopReason::MaxRuntimeForced),
+                          static_cast<int>(f.pump.getLastStopReason()));
+}
+
+// FR-008: a below-range manual duration is clamped up to 1 s — startManual
+// succeeds and starts a bounded 1 s run.
+void test_manual_run_lower_clamp(void)
+{
+    Fixture f;
+    setSensor(f, false, false, 20.0f);
+
+    TEST_ASSERT_TRUE(f.controller.startManual(0));  // clamps to 1
+    TEST_ASSERT_TRUE(f.pump.isRunning());
+
+    f.clock.advance(1000);  // the 1 s run self-stops
+    f.controller.tick();
+    TEST_ASSERT_FALSE(f.pump.isRunning());
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(StopReason::DurationElapsed),
+                          static_cast<int>(f.pump.getLastStopReason()));
+}
+
+// FR-007: an automatically-started burst is NOT flagged manual — the fail-safe
+// still applies to it (the mirror of the manual-bypass case).
+void test_auto_run_is_not_flagged_manual(void)
+{
+    Fixture f;
+    f.config.stored.wateringDurationS = 300;  // keep the burst running
+    setSensor(f, true, true, 20.0f);
+    f.controller.tick();  // automatic burst starts
+    TEST_ASSERT_TRUE(f.pump.isRunning());
+
+    f.clock.advance(1000);
+    setSensor(f, /*readOk=*/false, /*available=*/false, /*moisture=*/20.0f);
+    f.controller.tick();
+
+    TEST_ASSERT_FALSE(f.pump.isRunning());  // fail-safe stopped it
+    TEST_ASSERT_EQUAL_INT(1, failsafeEventCount(f.storage));
+}
+
+// FR-010: stop() clears the manual override so a later tick resumes automatic
+// evaluation (proved by an automatic burst starting afterwards).
+void test_stop_clears_manual_override(void)
+{
+    Fixture f;
+    setSensor(f, false, false, 20.0f);
+    TEST_ASSERT_TRUE(f.controller.startManual(60));
+    TEST_ASSERT_TRUE(f.pump.isRunning());
+
+    f.controller.stop();
+    TEST_ASSERT_FALSE(f.pump.isRunning());
+
+    // Override cleared: dry + valid + enabled + soak elapsed -> automatic burst.
+    f.clock.advance(1000);
+    setSensor(f, /*readOk=*/true, /*available=*/true, /*moisture=*/20.0f);
+    f.controller.tick();
+    TEST_ASSERT_TRUE(f.pump.isRunning());
+    // Two ON transitions total: the manual run + the fresh automatic burst
+    // (proving the override was cleared and automatic evaluation resumed).
+    TEST_ASSERT_EQUAL_INT(2, onTransitions(f.pump));
+}
+
+// FR-014: with time set + env/soil valid, the first eligible tick logs one
+// env+soil batch; a tick inside the interval logs nothing new; a tick past the
+// interval logs the next batch.
+//
+// All three NPK channels are scripted >= 0, so the batch spans the full,
+// maximal metric set: 3 env + 4 soil-base (moisture, temperature, ph, ec) +
+// 3 NPK = exactly 10 distinct metrics, which fits the store's kMaxMetrics=10
+// cap with no silent drop (soil_humidity is not logged — it duplicates
+// soil_moisture).
+void test_data_log_cadence(void)
+{
+    Fixture f;
+    f.config.stored.dataLogIntervalMs = 60'000;
+    f.wallClock.setEpoch(1'700'000'000);  // time set
+    f.env.scriptSuccessfulRead(21.5f, 55.0f, 1013.0f);
+    // Soil valid, moisture 40 (> low 30 -> no watering); all NPK >= 0.
+    f.soil.scriptSuccessfulRead(40.0f, 18.0f, 40.0f, 6.5f, 1.2f, 3.0f, 5.0f,
+                                8.0f);
+
+    // First eligible tick logs one batch of 10.
+    f.clock.advance(1000);
+    f.controller.tick();
+    TEST_ASSERT_EQUAL_INT(10, sensorReadingCount(f.storage));
+
+    // Inside the interval: nothing new.
+    f.clock.advance(59'999);
+    f.controller.tick();
+    TEST_ASSERT_EQUAL_INT(10, sensorReadingCount(f.storage));
+
+    // Exactly at the interval: the next batch is logged (+10 -> 20).
+    f.clock.advance(1);
+    f.controller.tick();
+    TEST_ASSERT_EQUAL_INT(20, sensorReadingCount(f.storage));
+}
+
+// FR-014: stored readings carry nowEpoch() as their timestamp, and an NPK
+// channel < 0 is skipped while the >= 0 channels are logged.
+void test_data_log_epoch_and_npk_filter(void)
+{
+    Fixture f;
+    f.config.stored.dataLogIntervalMs = 60'000;
+    const uint32_t kEpoch = 1'700'000'123;
+    f.wallClock.setEpoch(kEpoch);
+    f.env.scriptSuccessfulRead(21.5f, 55.0f, 1013.0f);
+    // Nitrogen negative -> skipped; phosphorus + potassium >= 0 -> logged.
+    f.soil.scriptSuccessfulRead(40.0f, 18.0f, 40.0f, 6.5f, 1.2f, -1.0f, 5.0f,
+                                8.0f);
+
+    f.clock.advance(1000);
+    f.controller.tick();
+
+    // One NPK channel negative -> filtered out: 3 env + 4 soil-base + 2 NPK
+    // = 9 metrics logged this tick, none dropped by the store.
+    TEST_ASSERT_EQUAL_INT(9, sensorReadingCount(f.storage));
+    TEST_ASSERT_EQUAL_INT(
+        0, static_cast<int>(
+               f.storage.getSensorReadings("soil_nitrogen", 0, UINT32_MAX)
+                   .size()));
+    // soil_humidity is never logged (it duplicates soil_moisture).
+    TEST_ASSERT_EQUAL_INT(
+        0, static_cast<int>(
+               f.storage.getSensorReadings("soil_humidity", 0, UINT32_MAX)
+                   .size()));
+    const auto phos =
+        f.storage.getSensorReadings("soil_phosphorus", 0, UINT32_MAX);
+    TEST_ASSERT_EQUAL_INT(1, static_cast<int>(phos.size()));
+    TEST_ASSERT_EQUAL_INT(
+        1, static_cast<int>(
+               f.storage.getSensorReadings("soil_potassium", 0, UINT32_MAX)
+                   .size()));
+
+    // Epoch on both an env and a soil reading equals nowEpoch().
+    TEST_ASSERT_EQUAL_UINT32(kEpoch, phos[0].epoch);
+    const auto temp =
+        f.storage.getSensorReadings("env_temperature", 0, UINT32_MAX);
+    TEST_ASSERT_EQUAL_INT(1, static_cast<int>(temp.size()));
+    TEST_ASSERT_EQUAL_UINT32(kEpoch, temp[0].epoch);
+}
+
+// FR-014: while the wall clock is unset nothing is logged (no bogus 1970
+// epoch), regardless of the interval; logging resumes once time is set.
+void test_data_log_gated_on_time_set(void)
+{
+    Fixture f;
+    f.config.stored.dataLogIntervalMs = 60'000;
+    f.env.scriptSuccessfulRead(21.5f, 55.0f, 1013.0f);
+    // All NPK >= 0 -> the full 10 distinct metrics, fits the store cap.
+    f.soil.scriptSuccessfulRead(40.0f, 18.0f, 40.0f, 6.5f, 1.2f, 3.0f, 5.0f,
+                                8.0f);
+
+    // Time not set: no logging even after more than a full interval.
+    f.clock.advance(1000);
+    f.controller.tick();
+    f.clock.advance(120'000);
+    f.controller.tick();
+    TEST_ASSERT_EQUAL_INT(0, sensorReadingCount(f.storage));
+
+    // Time set: the next eligible tick logs a full batch of 10.
+    f.wallClock.setEpoch(1'700'000'000);
+    f.clock.advance(1000);
+    f.controller.tick();
+    TEST_ASSERT_EQUAL_INT(10, sensorReadingCount(f.storage));
+}
+
+// FR-014: data-logging runs before the fail-safe early return — while the soil
+// sensor is unavailable (fail-safe path) but env is valid and time is set, env
+// metrics are still logged and soil metrics are skipped that tick.
+void test_data_log_runs_on_failsafe_path(void)
+{
+    Fixture f;
+    f.config.stored.dataLogIntervalMs = 60'000;
+    f.wallClock.setEpoch(1'700'000'000);
+    f.env.scriptSuccessfulRead(21.5f, 55.0f, 1013.0f);
+    // Soil read fails + unavailable -> fail-safe path, soilValid == false.
+    setSensor(f, /*readOk=*/false, /*available=*/false, /*moisture=*/20.0f);
+
+    f.clock.advance(1000);
+    f.controller.tick();
+
+    TEST_ASSERT_EQUAL_INT(3, sensorReadingCount(f.storage));  // env only
+    TEST_ASSERT_EQUAL_INT(
+        1, static_cast<int>(
+               f.storage.getSensorReadings("env_temperature", 0, UINT32_MAX)
+                   .size()));
+    TEST_ASSERT_EQUAL_INT(
+        0, static_cast<int>(
+               f.storage.getSensorReadings("soil_moisture", 0, UINT32_MAX)
+                   .size()));
+}
+
 }  // namespace
 
 void run_watering_controller_tests(void)
@@ -408,4 +657,15 @@ void run_watering_controller_tests(void)
     RUN_TEST(test_failsafe_not_delayed_by_soak);
     RUN_TEST(test_failsafe_during_pending_soak_takes_no_action);
     RUN_TEST(test_graceful_degradation_never_waters);
+
+    // T011 — manual override + periodic data-logging (US3)
+    RUN_TEST(test_manual_run_bypasses_sensor_failure);
+    RUN_TEST(test_manual_run_capped_at_300s);
+    RUN_TEST(test_manual_run_lower_clamp);
+    RUN_TEST(test_auto_run_is_not_flagged_manual);
+    RUN_TEST(test_stop_clears_manual_override);
+    RUN_TEST(test_data_log_cadence);
+    RUN_TEST(test_data_log_epoch_and_npk_filter);
+    RUN_TEST(test_data_log_gated_on_time_set);
+    RUN_TEST(test_data_log_runs_on_failsafe_path);
 }
