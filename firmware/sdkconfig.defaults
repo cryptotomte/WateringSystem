@@ -24,3 +24,13 @@ CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 # disabling assertions (NDEBUG) silently turns those checks into no-ops.
 # Never switch this to SILENT/DISABLE for "production" builds.
 CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_ENABLE=y
+
+# Task watchdog (feature 008): initialise the hardware task WDT at startup
+# and panic (reboot) on timeout, so a hung watering-critical task forces a
+# safe reboot (pumps OFF at boot + reset reason logged). The watering tasks
+# are subscribed at runtime (task_watchdog helper); the WiFi task is
+# deliberately left unsubscribed. The effective timeout is driven from code
+# via CONFIG_WS_TASK_WDT_TIMEOUT_S (esp_task_wdt_reconfigure at init), so the
+# IDF init timeout below is left at its default and not overridden here.
+CONFIG_ESP_TASK_WDT_INIT=y
+CONFIG_ESP_TASK_WDT_PANIC=y

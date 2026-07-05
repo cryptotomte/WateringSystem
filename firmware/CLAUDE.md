@@ -380,6 +380,59 @@ device clears credentials first, per the data-model boot rule) or station
 §7/§9): 500 ms connect-attempt toggle (wifi task) + 100 ms config-button-hold
 blink (app_main); HIL checklist in `specs/007-wifi-provisioning/checklists/hil.md`.
 
+## SNTP time, task watchdog & event logging (feature 008)
+
+Feature 008 (PR-08) adds two small components plus target-side glue in `main/`.
+
+**`time` component** — pure `TimeService` (epoch plausibility + Swedish
+local-time formatting via `<ctime>`, host-tested), the `IWallClock` target
+implementation `SystemWallClock` (`time(nullptr)`) and the `SntpClient` starter
+(`esp_netif_sntp` against `CONFIG_WS_SNTP_SERVER`, TZ `CET-1CEST,M3.5.0,M10.5.0/3`).
+`SntpClient.cpp` is the only genuine IDF touchpoint; `SystemWallClock.cpp` is
+pure POSIX (`time(nullptr)`), kept target-side by convention (the host injects
+`FakeWallClock`). Both are excluded from the linux build (same mechanism as
+storage/sensors/network). `app_main`
+constructs one `SntpClient`, calls `applyTimezone()` once at init, and the
+`SystemObserver` starts the SNTP service **once, on the first
+`WifiState::Connected` transition** (SNTP needs an IP) — never in
+provisioning/headless mode. `start()` is idempotent and non-fatal: an
+unreachable server is retried by the SNTP service, never a boot/watering
+failure. The diag console `time` command reads `SystemWallClock` + the
+`SntpClient`'s `SyncStatus`.
+
+**Time-not-set contract (for PR-11):** until the first successful sync the wall
+clock is implausible (`isPlausibleEpoch(0)` is false); consumers MUST treat a
+not-set clock as "no timestamp" rather than 1970. The event log records events
+regardless (with whatever the clock reports); PR-11's scheduler must gate any
+time-of-day watering decision on a plausible clock.
+
+**`events` component** — the pure, host-tested `EventLogger` (categories
+`reset`/`wifi`/`pump`; producers `logReset`/`logWifi`/`logPumpStart`/`logPumpStop`;
+a failed store increments a dropped counter, never throws — logging never blocks
+or crashes watering, FR-014). It writes through the shared `LockedDataStorage`.
+The target-side `SystemObserver` (`main/system_observer.*`) edge-detects WiFi
+state changes and pump start/stop from the 10 Hz loop and forwards them. **Reset
+reason:** at boot, exactly once, `app_main` calls `esp_reset_reason()` →
+`event_logger.logReset(...)` (before `watchdog_init()`), so a prior watchdog
+reboot appears in `storage events` as `reset=TASK_WDT`. The pump fail-safe still
+runs first (top of `app_main`); this only observes the cause.
+
+**Task watchdog** (`main/task_watchdog.*`, thin wrappers over `esp_task_wdt`).
+`CONFIG_ESP_TASK_WDT_INIT=y` + `CONFIG_ESP_TASK_WDT_PANIC=y` (sdkconfig.defaults)
+init the WDT at boot; `watchdog_init()` **reconfigures** it to
+`CONFIG_WS_TASK_WDT_TIMEOUT_S` (default 20 s, panic→reboot) —
+`esp_task_wdt_reconfigure()`, with an `esp_task_wdt_init()` fallback if it was
+not inited. **Subscription policy (contracts/task-watchdog.md):** ONLY the two
+watering-critical tasks subscribe (`esp_task_wdt_add(NULL)`) and feed
+(`esp_task_wdt_reset()`) — the 10 Hz main loop (feeds each 100 ms iteration) and
+the 5 s sensor task (feeds each cycle). The **WiFi task is deliberately NOT
+subscribed** (a network stall must never reboot the device — FR-014 isolation)
+and neither is the esp_console REPL (it blocks on UART by design). The 20 s
+default keeps a safe margin over the slowest subscribed cadence (5 s) so a
+healthy task is never falsely tripped. PR-11's watering/reservoir tasks register
+through the same helper when they land. HIL checklist:
+`specs/008-sntp-watchdog-logging/checklists/hil.md`.
+
 ## Partition layout (4MB flash)
 
 nvs (0x9000, 16K) | otadata (0xd000, 8K) | phy_init (0xf000, 4K) |

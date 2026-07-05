@@ -74,4 +74,29 @@ menu "WateringSystem"
         help
             Health-check cadence while connected; suspended in
             provisioning/AP mode (parity default 5 s).
+
+    config WS_SNTP_SERVER
+        string "SNTP server hostname"
+        default "se.pool.ntp.org"
+        help
+            NTP pool hostname queried once the WiFi station first reaches
+            Connected (feature 008). The Swedish pool by default. SNTP runs
+            outside the watering path and never blocks; failure to reach the
+            server is non-fatal and retried by the SNTP service. Until the
+            first successful sync the wall clock reports "time not set".
+
+    config WS_TASK_WDT_TIMEOUT_S
+        int "Task watchdog timeout (seconds)"
+        default 20
+        range 6 120
+        help
+            Timeout for the hardware task watchdog applied at runtime to the
+            watering-critical tasks (the 10 Hz main loop and the sensor
+            task; the WiFi task is deliberately NOT subscribed so a network
+            stall cannot reboot the device). A non-serviced subscribed task
+            triggers a panic reboot; pumps are forced OFF at boot and the
+            reset reason is logged (feature 008). Keep a safe margin over the
+            slowest critical-task cadence (the sensor task's 5 s cycle) so a
+            healthy task is never falsely tripped — hence the >= 6 s floor
+            and 20 s default.
 endmenu

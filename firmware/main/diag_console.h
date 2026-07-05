@@ -20,8 +20,10 @@
 #include "interfaces/IModbusClient.h"
 #include "interfaces/IPowerSensor.h"
 #include "interfaces/ISoilSensor.h"
+#include "interfaces/IWallClock.h"
 #include "interfaces/IWaterPump.h"
 #include "network/WifiManager.h"
+#include "time/SyncStatus.h"
 
 /**
  * @brief Register the pump instances the console commands operate on.
@@ -117,6 +119,22 @@ void diag_console_register_power(IPowerSensor& sensor);
  * @param manager Station manager, or nullptr in provisioning/unconfigured mode.
  */
 void diag_console_register_wifi(WifiManager* manager);
+
+/**
+ * @brief Register the wall clock + SNTP sync status the `time` command reads
+ *        (feature 008 US1).
+ *
+ * Both pointers are nullptr-tolerant: pass nullptr before the clock/SNTP
+ * client exist (the `time` command then reports "time not set"). The
+ * construction/wiring into app_main arrives with US3; this PR only provides
+ * the command and its register hook. The command reads the injected clock and
+ * status directly (no credentials involved). Must be called before
+ * diag_console_start(); plain pointer registration.
+ *
+ * @param clock  Wall-clock source (SystemWallClock on target), or nullptr.
+ * @param sync   SNTP sync status (owned by SntpClient), or nullptr.
+ */
+void diag_console_register_time(IWallClock* clock, const SyncStatus* sync);
 
 /**
  * @brief Start the UART REPL (prompt "ws>") and register the commands.

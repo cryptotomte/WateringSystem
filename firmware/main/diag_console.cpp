@@ -90,8 +90,11 @@
 #include "interfaces/IModbusClient.h"
 #include "interfaces/IPowerSensor.h"
 #include "interfaces/ISoilSensor.h"
+#include "interfaces/IWallClock.h"
 #include "interfaces/IWaterPump.h"
 #include "network/WifiManager.h"
+#include "time/SyncStatus.h"
+#include "time/TimeService.h"
 
 namespace {
 
@@ -157,6 +160,12 @@ IPowerSensor *s_power = nullptr;
 // provisioning mode — no station manager exists then). Same trivial-
 // initialization rule. The `wifi` command reads only its snapshot().
 WifiManager *s_wifi = nullptr;
+
+// Wall clock + SNTP sync status (set from app_main in US3; nullptr until then,
+// and nullptr-tolerant so the `time` command reports "time not set"). Same
+// trivial-initialization rule. The status is read-only (owned by SntpClient).
+IWallClock *s_clock = nullptr;
+const SyncStatus *s_sync = nullptr;
 
 const char *stop_reason_str(StopReason reason)
 {
@@ -831,6 +840,32 @@ int wifi_cmd(int argc, char **argv)
     return 0;
 }
 
+// --- time command (feature 008 US1) --------------------------------------
+
+/// `time`: current Swedish local time plus SNTP sync state. Before the wall
+/// clock is set (never synced, or no clock injected yet) it reports "time not
+/// set" — a distinct state, never a bogus 1970 timestamp.
+int time_cmd(int argc, char **argv)
+{
+    (void)argv;
+    if (argc != 1) {
+        printf("ERR usage: time\n");
+        return 1;
+    }
+    if (s_clock == nullptr || !s_clock->isTimeSet()) {
+        printf("time not set\n");
+        return 0;
+    }
+    const std::string now = TimeService::formatLocal(s_clock->nowEpoch());
+    if (s_sync != nullptr && s_sync->synced()) {
+        const std::string last = TimeService::formatLocal(s_sync->lastSyncEpoch);
+        printf("OK %s (last sync %s)\n", now.c_str(), last.c_str());
+    } else {
+        printf("OK %s (never synced)\n", now.c_str());
+    }
+    return 0;
+}
+
 }  // namespace
 
 #if BOARD_HAS_RESERVOIR_PUMP
@@ -880,6 +915,14 @@ void diag_console_register_wifi(WifiManager* manager)
 {
     // nullptr is valid: provisioning/unconfigured boot has no station manager.
     s_wifi = manager;
+}
+
+void diag_console_register_time(IWallClock* clock, const SyncStatus* sync)
+{
+    // Both nullptr-tolerant: the wiring lands in US3, until then `time` reports
+    // "time not set".
+    s_clock = clock;
+    s_sync = sync;
 }
 
 esp_err_t diag_console_start(void)
@@ -1071,6 +1114,20 @@ esp_err_t diag_console_start(void)
         .context = nullptr,
     };
     err = esp_console_cmd_register(&cmd_wifi);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    const esp_console_cmd_t cmd_time = {
+        .command = "time",
+        .help = "time — current local time (CET/CEST) and SNTP sync status",
+        .hint = nullptr,
+        .func = &time_cmd,
+        .argtable = nullptr,
+        .func_w_context = nullptr,
+        .context = nullptr,
+    };
+    err = esp_console_cmd_register(&cmd_time);
     if (err != ESP_OK) {
         return err;
     }
