@@ -580,10 +580,12 @@ int soil_cmd(int argc, char **argv)
 /// `rs485test`: one raw 1-register probe (slave 0x01, register 0x0000 —
 /// the parity availability probe) + cumulative transaction statistics.
 ///
-/// TODO(PR-11): this drives the raw, unsynchronized EspModbusClient BELOW
-/// LockedSoilSensor's mutex; once PR-11 adds the main-loop reader this
-/// becomes a cross-task race — route it through a locked client wrapper
-/// (or through the sensor) then.
+/// Cross-task race RESOLVED (PR-11): this drives the injected IModbusClient,
+/// which in app_main is a LockedModbusClient. PR-11's watering task issues
+/// periodic soil reads over the SAME wrapped client, so both this probe and
+/// the soil reader serialize on the one LockedModbusClient mutex — concurrent
+/// bus transactions can no longer overlap. The fix is purely the injected
+/// instance; the code below is unchanged.
 int rs485test_cmd(int argc, char **argv)
 {
     (void)argv;

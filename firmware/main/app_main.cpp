@@ -44,6 +44,7 @@
 #include "sensors/GpioLevelSensor.h"
 #include "sensors/LockedEnvironmentalSensor.h"
 #include "sensors/LockedLevelSensor.h"
+#include "sensors/LockedModbusClient.h"
 #include "sensors/LockedSoilSensor.h"
 #include "sensors/ModbusSoilSensor.h"
 #if BOARD_HAS_INA226
@@ -513,7 +514,8 @@ extern "C" void app_main(void)
     // sensor access goes through the wrapper. No periodic read task in
     // feature 004 (arrives with PR-11) — reads happen on console command
     // only.
-    static EspModbusClient modbus_client;
+    static EspModbusClient modbus_client_raw;
+    static LockedModbusClient modbus_client(modbus_client_raw);
     static ModbusSoilSensor soil_sensor_raw(modbus_client);
     static LockedSoilSensor soil_sensor(soil_sensor_raw);
 
