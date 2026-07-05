@@ -58,6 +58,16 @@ void test_format_dst_spring_boundary(void)
     TEST_ASSERT_TRUE(ends_with(TimeService::formatLocal(1711843200u), "+0100"));
 }
 
+void test_format_dst_autumn_boundary(void)
+{
+    // Fall-back is the last Sunday of October (2024-10-27); the M10.5.0/3 rule
+    // switches at 03:00 local CEST == 01:00 UTC, dropping to 02:00 CET.
+    // 2024-10-27 00:00:00Z — before the switch -> still CEST (+0200).
+    TEST_ASSERT_TRUE(ends_with(TimeService::formatLocal(1729987200u), "+0200"));
+    // 2024-10-27 01:00:00Z — at the fall-back instant -> CET (+0100).
+    TEST_ASSERT_TRUE(ends_with(TimeService::formatLocal(1729990800u), "+0100"));
+}
+
 }  // namespace
 
 void run_time_tests(void)
@@ -70,4 +80,5 @@ void run_time_tests(void)
     RUN_TEST(test_plausible_epoch_threshold);
     RUN_TEST(test_format_winter_and_summer_offsets);
     RUN_TEST(test_format_dst_spring_boundary);
+    RUN_TEST(test_format_dst_autumn_boundary);
 }
