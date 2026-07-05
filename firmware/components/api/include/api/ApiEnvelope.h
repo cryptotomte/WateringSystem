@@ -36,9 +36,19 @@ enum class ApiStatus {
     Ok = 200,             ///< successful request
     BadRequest = 400,     ///< malformed JSON or failed validation
     NotFound = 404,       ///< unknown `/api/<path>` route or unknown resource name
-    NotImplemented = 501, ///< contract stub (e.g. OTA — PR-13)
-    Unavailable = 503     ///< a required subsystem is unavailable
+    Conflict = 409,       ///< command rejected by state (e.g. pump already running)
+    InternalError = 500,  ///< unexpected server-side failure (e.g. persist error)
+    NotImplemented = 501  ///< contract stub (e.g. OTA — PR-13)
 };
+
+/**
+ * @brief Map an ApiStatus to its HTTP status line ("200 OK", "404 Not Found", …).
+ *
+ * Pure and total over the enum; returns a static string literal (never freed).
+ * The target-only ApiServer passes this to httpd_resp_set_status so the status
+ * line and the enum can never drift apart.
+ */
+const char* statusLine(ApiStatus status);
 
 /**
  * @brief Build the success envelope `{ "success": true, ...payload }`.

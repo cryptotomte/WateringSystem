@@ -1,9 +1,10 @@
 # WateringSystem HTTP API v1 — OpenAPI 3.0 sketch (feature 009 / PR-09)
 #
 # FROZEN at merge; contract changes require a version bump (a new /api/vN path
-# prefix + a new file). The route-table host test asserts that the set of paths
-# below equals the firmware route table (firmware/components/api ApiRoutes) —
-# keep them in lockstep.
+# prefix + a new file). The set of paths below, the firmware route table
+# (firmware/components/api ApiRoutes) and the ApiServer's own httpd_uri_t[]
+# registration are kept in lockstep BY HAND; a host test asserts matchRoute
+# resolves the route set, but does not parse this YAML.
 #
 # Conventions:
 #   - Every response is the shared envelope: success bodies are

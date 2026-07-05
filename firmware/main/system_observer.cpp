@@ -62,37 +62,37 @@ void SystemObserver::pollWifi()
         return;  // provisioning / headless: nothing to observe
     }
     const WifiState state = wifi_->snapshot().state;
+
+    // Was the station Connected on the PREVIOUS poll? Capture before updating
+    // lastWifiState_ so the SNTP/API starts below fire only on the transition
+    // INTO Connected, not on every poll while already Connected.
+    const bool wasConnected =
+        haveWifiState_ && lastWifiState_ == WifiState::Connected;
+
     if (!haveWifiState_ || state != lastWifiState_) {
         logger_.logWifi(wifiStateName(state));
         lastWifiState_ = state;
         haveWifiState_ = true;
     }
 
-    // Start SNTP the first time the station reaches Connected — SNTP needs an
-    // IP, so starting it before the link is up is pointless. start() is
-    // idempotent and non-fatal (server unreachable is retried by the service,
-    // never a boot/watering failure, FR-014); the guard keeps it to one call.
-    // sntp_ is nullptr in provisioning/headless mode, so SNTP is simply never
-    // started there.
-    if (state == WifiState::Connected && sntp_ != nullptr && !sntpStarted_) {
-        // Latch only on success: a failed init (OOM/bad config) leaves the guard
-        // clear so the next Connected transition retries rather than permanently
-        // blocking sync.
-        if (sntp_->start()) {
-            sntpStarted_ = true;
-        }
+    // pollWifi() runs at 10 Hz. Attempt the once-only SNTP + API-server starts
+    // ONLY on the edge INTO Connected (an IP is required — before the link is up
+    // they are pointless). Gating on the edge keeps a FAILED start to a single
+    // attempt per Connected transition — it retries on the NEXT Connected edge
+    // (after a reconnect), never 10x/s. Each latch (sntpStarted_/
+    // apiServerStarted_) makes a success permanent. Both start() calls are
+    // idempotent and non-fatal (a failure never affects boot/watering,
+    // FR-014/FR-015); the pointers are nullptr in provisioning/headless mode, so
+    // neither is ever started there.
+    const bool connectedEdge = state == WifiState::Connected && !wasConnected;
+    if (!connectedEdge) {
+        return;
     }
-
-    // Start the /api/v1/ HTTP server on the first Connected transition too — the
-    // socket binds on the STA interface only once an IP is up (feature 009 US1).
-    // Same idempotent, latch-on-success, non-fatal rule as SNTP; apiServer_ is
-    // nullptr in provisioning/headless mode, so the API is simply never served
-    // there. Never blocks or touches watering (FR-015).
-    if (state == WifiState::Connected && apiServer_ != nullptr &&
-        !apiServerStarted_) {
-        if (apiServer_->start()) {
-            apiServerStarted_ = true;
-        }
+    if (sntp_ != nullptr && !sntpStarted_ && sntp_->start()) {
+        sntpStarted_ = true;
+    }
+    if (apiServer_ != nullptr && !apiServerStarted_ && apiServer_->start()) {
+        apiServerStarted_ = true;
     }
 }
 

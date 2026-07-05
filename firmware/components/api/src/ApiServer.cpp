@@ -26,6 +26,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -50,8 +51,7 @@ namespace {
 
 const char* TAG = "api_server";
 
-/// Raised handler cap: the US1 route set plus headroom for the US2/US3 routes
-/// that register on the same server in later tasks (api-server.md).
+/// Handler cap: the full /api/v1/ route set (registered below) plus headroom.
 constexpr uint16_t kMaxUriHandlers = 16;
 
 /// WifiState -> stable lowercase word for the status DTO (matches the diag
@@ -84,11 +84,11 @@ bool cachedValid(int lastError, float primaryValue)
     return lastError == 0 && std::isfinite(primaryValue);
 }
 
-/// Send a ready JSON body with an explicit status line.
-esp_err_t sendJson(httpd_req_t* req, const char* status, const std::string& body)
+/// Send a ready JSON body with the HTTP status line mapped from @p status.
+esp_err_t sendJson(httpd_req_t* req, ApiStatus status, const std::string& body)
 {
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_set_status(req, status);
+    httpd_resp_set_status(req, statusLine(status));
     return httpd_resp_sendstr(req, body.c_str());
 }
 
@@ -102,30 +102,30 @@ esp_err_t statusHandler(httpd_req_t* req)
 {
     ApiServer* server = self(req);
     if (server == nullptr) {
-        return sendJson(req, "500 Internal Server Error",
+        return sendJson(req, ApiStatus::InternalError,
                         errorBody("server misconfigured"));
     }
-    return sendJson(req, "200 OK", server->buildStatusBody());
+    return sendJson(req, ApiStatus::Ok, server->buildStatusBody());
 }
 
 esp_err_t sensorsHandler(httpd_req_t* req)
 {
     ApiServer* server = self(req);
     if (server == nullptr) {
-        return sendJson(req, "500 Internal Server Error",
+        return sendJson(req, ApiStatus::InternalError,
                         errorBody("server misconfigured"));
     }
-    return sendJson(req, "200 OK", server->buildSensorsBody());
+    return sendJson(req, ApiStatus::Ok, server->buildSensorsBody());
 }
 
 esp_err_t powerHandler(httpd_req_t* req)
 {
     ApiServer* server = self(req);
     if (server == nullptr) {
-        return sendJson(req, "500 Internal Server Error",
+        return sendJson(req, ApiStatus::InternalError,
                         errorBody("server misconfigured"));
     }
-    return sendJson(req, "200 OK", server->buildPowerBody());
+    return sendJson(req, ApiStatus::Ok, server->buildPowerBody());
 }
 
 /// Global 404: any unregistered route answers the JSON error envelope (parity
@@ -135,7 +135,18 @@ esp_err_t powerHandler(httpd_req_t* req)
 esp_err_t notFoundHandler(httpd_req_t* req, httpd_err_code_t /*error*/)
 {
     // Returning ESP_OK keeps the connection usable after the 404.
-    return sendJson(req, "404 Not Found", notFoundBody());
+    return sendJson(req, ApiStatus::NotFound, notFoundBody());
+}
+
+/// Global 405: a known path reached with an unsupported method answers the JSON
+/// error envelope (parity §4 — never the default HTML page). 405 has no
+/// ApiStatus entry (it never originates from a builder), so the status line is
+/// set directly here.
+esp_err_t methodNotAllowedHandler(httpd_req_t* req, httpd_err_code_t /*error*/)
+{
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_status(req, "405 Method Not Allowed");
+    return httpd_resp_sendstr(req, errorBody("method not allowed").c_str());
 }
 
 /// POST body cap: pump/config bodies are a handful of small fields; anything
@@ -203,17 +214,17 @@ esp_err_t pumpsListHandler(httpd_req_t* req)
 {
     ApiServer* server = self(req);
     if (server == nullptr) {
-        return sendJson(req, "500 Internal Server Error",
+        return sendJson(req, ApiStatus::InternalError,
                         errorBody("server misconfigured"));
     }
-    return sendJson(req, "200 OK", server->buildPumpsBody());
+    return sendJson(req, ApiStatus::Ok, server->buildPumpsBody());
 }
 
 esp_err_t pumpCommandHandler(httpd_req_t* req)
 {
     ApiServer* server = self(req);
     if (server == nullptr) {
-        return sendJson(req, "500 Internal Server Error",
+        return sendJson(req, ApiStatus::InternalError,
                         errorBody("server misconfigured"));
     }
 
@@ -235,7 +246,7 @@ esp_err_t pumpCommandHandler(httpd_req_t* req)
     std::string body;
     std::string readErr;
     if (!readRequestBody(req, body, readErr)) {
-        return sendJson(req, "400 Bad Request", errorBody(readErr));
+        return sendJson(req, ApiStatus::BadRequest, errorBody(readErr));
     }
 
     const ApiResponse resp = server->applyPumpCommand(name, body);
@@ -246,24 +257,24 @@ esp_err_t configGetHandler(httpd_req_t* req)
 {
     ApiServer* server = self(req);
     if (server == nullptr) {
-        return sendJson(req, "500 Internal Server Error",
+        return sendJson(req, ApiStatus::InternalError,
                         errorBody("server misconfigured"));
     }
-    return sendJson(req, "200 OK", server->buildConfigBody());
+    return sendJson(req, ApiStatus::Ok, server->buildConfigBody());
 }
 
 esp_err_t configSetHandler(httpd_req_t* req)
 {
     ApiServer* server = self(req);
     if (server == nullptr) {
-        return sendJson(req, "500 Internal Server Error",
+        return sendJson(req, ApiStatus::InternalError,
                         errorBody("server misconfigured"));
     }
 
     std::string body;
     std::string readErr;
     if (!readRequestBody(req, body, readErr)) {
-        return sendJson(req, "400 Bad Request", errorBody(readErr));
+        return sendJson(req, ApiStatus::BadRequest, errorBody(readErr));
     }
 
     const ApiResponse resp = server->applyConfigSet(body);
@@ -338,15 +349,11 @@ const char* eventCategoryName(int category)
     }
 }
 
-/// Default and hard-cap event counts for GET /api/v1/events.
-constexpr std::size_t kDefaultEventCount = 50;
-constexpr std::size_t kMaxEventCount = 200;
-
 esp_err_t historyHandler(httpd_req_t* req)
 {
     ApiServer* server = self(req);
     if (server == nullptr) {
-        return sendJson(req, "500 Internal Server Error",
+        return sendJson(req, ApiStatus::InternalError,
                         errorBody("server misconfigured"));
     }
 
@@ -363,11 +370,19 @@ esp_err_t historyHandler(httpd_req_t* req)
     if (queryParam(req, "range", value)) {
         query.range = value;
     }
+    // A present-but-unparseable start/end is a client error (400), not a silent
+    // default; an absent parameter simply stays unset (default window).
     int64_t epoch = 0;
-    if (queryParam(req, "start", value) && parseEpoch(value, epoch)) {
+    if (queryParam(req, "start", value)) {
+        if (!parseEpoch(value, epoch)) {
+            return sendJson(req, ApiStatus::BadRequest, errorBody("invalid start"));
+        }
         query.start = epoch;
     }
-    if (queryParam(req, "end", value) && parseEpoch(value, epoch)) {
+    if (queryParam(req, "end", value)) {
+        if (!parseEpoch(value, epoch)) {
+            return sendJson(req, ApiStatus::BadRequest, errorBody("invalid end"));
+        }
         query.end = epoch;
     }
 
@@ -379,42 +394,44 @@ esp_err_t eventsHandler(httpd_req_t* req)
 {
     ApiServer* server = self(req);
     if (server == nullptr) {
-        return sendJson(req, "500 Internal Server Error",
+        return sendJson(req, ApiStatus::InternalError,
                         errorBody("server misconfigured"));
     }
 
-    std::size_t count = kDefaultEventCount;
+    // A present-but-unparseable count is a client error (400); a parseable but
+    // non-positive count defaults (resolveEventCount clamps 1..200, absent->50).
+    std::optional<int> requestedCount;
     std::string value;
     if (queryParam(req, "count", value)) {
         char* end = nullptr;
         const long v = std::strtol(value.c_str(), &end, 10);
-        if (end != value.c_str() && *end == '\0' && v > 0) {
-            count = static_cast<std::size_t>(v);
+        if (end == value.c_str() || *end != '\0') {
+            return sendJson(req, ApiStatus::BadRequest, errorBody("invalid count"));
         }
+        requestedCount = static_cast<int>(v);
     }
-    if (count > kMaxEventCount) {
-        count = kMaxEventCount;
-    }
-    return sendJson(req, "200 OK", server->buildEventsBody(count));
+    const std::size_t count = resolveEventCount(requestedCount);
+    return sendJson(req, ApiStatus::Ok, server->buildEventsBody(count));
 }
 
 esp_err_t selfTestHandler(httpd_req_t* req)
 {
     ApiServer* server = self(req);
     if (server == nullptr) {
-        return sendJson(req, "500 Internal Server Error",
+        return sendJson(req, ApiStatus::InternalError,
                         errorBody("server misconfigured"));
     }
     // The one handler that performs a real (bounded) bus read — see
     // buildSelfTestBody: an explicit diagnostic, off the watering critical path.
-    return sendJson(req, "200 OK", server->buildSelfTestBody());
+    return sendJson(req, ApiStatus::Ok, server->buildSelfTestBody());
 }
 
 esp_err_t otaHandler(httpd_req_t* req)
 {
     // Contract stub: PR-13 implements the OTA execution. Until then the route
     // exists (so it is documented/enumerable) but answers a fixed 501.
-    return sendJson(req, "501 Not Implemented", errorBody("OTA not implemented"));
+    return sendJson(req, ApiStatus::NotImplemented,
+                    errorBody("OTA not implemented"));
 }
 
 }  // namespace
@@ -590,12 +607,12 @@ ApiResponse ApiServer::applyPumpCommand(const std::string& name,
 {
     IWaterPump* pump = pumpByName(name);
     if (pump == nullptr) {
-        return {"404 Not Found", errorBody("unknown pump")};
+        return {ApiStatus::NotFound, errorBody("unknown pump")};
     }
 
     const PumpCommandResult parsed = parsePumpCommand(body);
     if (!parsed.ok) {
-        return {"400 Bad Request", errorBody(parsed.error)};
+        return {ApiStatus::BadRequest, errorBody(parsed.error)};
     }
 
     switch (parsed.command.action) {
@@ -607,7 +624,7 @@ ApiResponse ApiServer::applyPumpCommand(const std::string& name,
         // pump is already running (its clock is NOT restarted): an explicit 409.
         const int durationS = static_cast<int>(parsed.command.durationS.value());
         if (!pump->runFor(durationS)) {
-            return {"409 Conflict", errorBody("pump already running")};
+            return {ApiStatus::Conflict, errorBody("pump already running")};
         }
         break;
     }
@@ -617,7 +634,7 @@ ApiResponse ApiServer::applyPumpCommand(const std::string& name,
         break;
     }
 
-    return {"200 OK", serializePump(makePumpDto(*pump))};
+    return {ApiStatus::Ok, serializePump(makePumpDto(*pump))};
 }
 
 std::string ApiServer::buildConfigBody()
@@ -638,77 +655,86 @@ ApiResponse ApiServer::applyConfigSet(const std::string& body)
 {
     const ConfigSetResult parsed = parseConfigSet(body);
     if (!parsed.ok) {
-        return {"400 Bad Request", errorBody(parsed.error)};
+        return {ApiStatus::BadRequest, errorBody(parsed.error)};
     }
 
     // All-or-nothing was validated in the pure parser (nothing is marked to
     // apply when it rejects). Each present field is persisted via its setter; a
     // setter returning false here is an unexpected persistence failure on an
-    // already-validated value (out-of-range was ruled out) -> 500.
+    // already-validated value (out-of-range was ruled out) -> 500. The failing
+    // setter is logged (identifying the field) before returning.
     const ConfigSetRequest& r = parsed.request;
     bool ok = true;
-    if (r.moistureThresholdLow) {
-        ok = ok && config_.setMoistureThresholdLow(*r.moistureThresholdLow);
+    if (ok && r.moistureThresholdLow &&
+        !config_.setMoistureThresholdLow(*r.moistureThresholdLow)) {
+        ESP_LOGE(TAG, "config persist failed for moistureThresholdLow");
+        ok = false;
     }
-    if (r.moistureThresholdHigh) {
-        ok = ok && config_.setMoistureThresholdHigh(*r.moistureThresholdHigh);
+    if (ok && r.moistureThresholdHigh &&
+        !config_.setMoistureThresholdHigh(*r.moistureThresholdHigh)) {
+        ESP_LOGE(TAG, "config persist failed for moistureThresholdHigh");
+        ok = false;
     }
-    if (r.wateringDurationS) {
-        ok = ok && config_.setWateringDurationS(*r.wateringDurationS);
+    if (ok && r.wateringDurationS &&
+        !config_.setWateringDurationS(*r.wateringDurationS)) {
+        ESP_LOGE(TAG, "config persist failed for wateringDurationS");
+        ok = false;
     }
-    if (r.minWateringIntervalS) {
-        ok = ok && config_.setMinWateringIntervalS(*r.minWateringIntervalS);
+    if (ok && r.minWateringIntervalS &&
+        !config_.setMinWateringIntervalS(*r.minWateringIntervalS)) {
+        ESP_LOGE(TAG, "config persist failed for minWateringIntervalS");
+        ok = false;
     }
-    if (r.wateringEnabled) {
-        ok = ok && config_.setWateringEnabled(*r.wateringEnabled);
+    if (ok && r.wateringEnabled &&
+        !config_.setWateringEnabled(*r.wateringEnabled)) {
+        ESP_LOGE(TAG, "config persist failed for wateringEnabled");
+        ok = false;
     }
-    if (r.sensorReadIntervalMs) {
-        ok = ok && config_.setSensorReadIntervalMs(*r.sensorReadIntervalMs);
+    if (ok && r.sensorReadIntervalMs &&
+        !config_.setSensorReadIntervalMs(*r.sensorReadIntervalMs)) {
+        ESP_LOGE(TAG, "config persist failed for sensorReadIntervalMs");
+        ok = false;
     }
-    if (r.dataLogIntervalMs) {
-        ok = ok && config_.setDataLogIntervalMs(*r.dataLogIntervalMs);
+    if (ok && r.dataLogIntervalMs &&
+        !config_.setDataLogIntervalMs(*r.dataLogIntervalMs)) {
+        ESP_LOGE(TAG, "config persist failed for dataLogIntervalMs");
+        ok = false;
     }
 
     if (!ok) {
-        return {"500 Internal Server Error",
+        return {ApiStatus::InternalError,
                 errorBody("failed to persist configuration")};
     }
 
-    return {"200 OK", buildConfigBody()};
+    return {ApiStatus::Ok, buildConfigBody()};
 }
 
 ApiResponse ApiServer::buildHistoryResponse(const HistoryQuery& query)
 {
     // metric is required — the storage layer is keyed by it.
     if (query.metric.empty()) {
-        return {"400 Bad Request", errorBody("metric is required")};
+        return {ApiStatus::BadRequest, errorBody("metric is required")};
     }
 
     const uint32_t now = wallClock_.nowEpoch();
-    constexpr uint32_t kDefaultWindowS = 86400;  // last 24 h
-    uint32_t t0 = 0;
-    uint32_t t1 = 0;
 
-    if (query.range.has_value()) {
-        // A named range resolves to an absolute window ending at now; an
-        // unknown range name is a client error.
-        if (!namedRangeToWindow(*query.range, now, t0, t1)) {
-            return {"400 Bad Request", errorBody("unknown range")};
-        }
-    } else if (query.start.has_value() || query.end.has_value()) {
-        // Explicit window: a missing end defaults to now; a missing start
-        // defaults to 24 h before the end.
-        t1 = query.end.has_value() ? static_cast<uint32_t>(*query.end) : now;
-        if (query.start.has_value()) {
-            t0 = static_cast<uint32_t>(*query.start);
-        } else {
-            t0 = t1 >= kDefaultWindowS ? t1 - kDefaultWindowS : 0;
-        }
-    } else {
-        // No window given: default to the last 24 h.
-        t1 = now;
-        t0 = now >= kDefaultWindowS ? now - kDefaultWindowS : 0;
+    // Window resolution is pure (range precedence over explicit start/end, else
+    // the last 24 h; underflow-clamped). An unknown named range is a client
+    // error.
+    std::optional<uint32_t> start;
+    std::optional<uint32_t> end;
+    if (query.start.has_value()) {
+        start = static_cast<uint32_t>(*query.start);
     }
+    if (query.end.has_value()) {
+        end = static_cast<uint32_t>(*query.end);
+    }
+    const WindowResult window = resolveWindow(query.range, start, end, now);
+    if (!window.ok) {
+        return {ApiStatus::BadRequest, errorBody("unknown range")};
+    }
+    const uint32_t t0 = window.t0;
+    const uint32_t t1 = window.t1;
 
     HistorySeries series;
     series.metric = query.metric;
@@ -727,7 +753,7 @@ ApiResponse ApiServer::buildHistoryResponse(const HistoryQuery& query)
         series.values.push_back(r.value);
     }
 
-    return {"200 OK", serializeHistory(series)};
+    return {ApiStatus::Ok, serializeHistory(series)};
 }
 
 std::string ApiServer::buildEventsBody(std::size_t count)
@@ -811,8 +837,8 @@ bool ApiServer::start()
         return false;
     }
 
-    // One httpd handler per route; user_ctx carries this instance. US1 read
-    // routes plus the US2 pump/config routes. The per-pump command uses a
+    // One httpd handler per route; user_ctx carries this instance. The full
+    // /api/v1/ route set is registered here. The per-pump command uses a
     // wildcard pattern (the name is parsed from the URI in the handler); an
     // unknown pump name answers 404 via applyPumpCommand, and a truly unknown
     // route is covered by the 404 err_handler below.
@@ -899,6 +925,15 @@ bool ApiServer::start()
                                      &notFoundHandler);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "register 404 handler failed: %s", esp_err_to_name(err));
+        httpd_stop(server);
+        return false;
+    }
+
+    // A known path with the wrong method answers the JSON 405 envelope too.
+    err = httpd_register_err_handler(server, HTTPD_405_METHOD_NOT_ALLOWED,
+                                     &methodNotAllowedHandler);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "register 405 handler failed: %s", esp_err_to_name(err));
         httpd_stop(server);
         return false;
     }

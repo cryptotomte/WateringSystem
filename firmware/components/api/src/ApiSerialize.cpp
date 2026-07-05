@@ -87,8 +87,14 @@ std::string serializeStatus(const SystemStatusDto& status)
 
     cJSON* time = cJSON_CreateObject();
     cJSON_AddBoolToObject(time, "synced", status.time.synced);
-    cJSON_AddNumberToObject(time, "epoch",
-                            static_cast<double>(status.time.epoch));
+    if (status.time.synced) {
+        cJSON_AddNumberToObject(time, "epoch",
+                                static_cast<double>(status.time.epoch));
+    } else {
+        // Clock not set: JSON null epoch (no bogus 1970), mirroring the not-set
+        // top-level timestamp in serializeSensors.
+        cJSON_AddNullToObject(time, "epoch");
+    }
     cJSON_AddStringToObject(time, "local", status.time.local.c_str());
     cJSON_AddNumberToObject(time, "lastSync",
                             static_cast<double>(status.time.lastSync));

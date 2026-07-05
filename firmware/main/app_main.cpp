@@ -54,7 +54,6 @@
 #endif
 #include "api/ApiServer.h"
 #include "network/EspWifiDriver.h"
-#include "network/LockedWifiManager.h"
 #include "network/ProvisioningPortal.h"
 #include "network/WifiBootMode.h"
 #include "network/WifiManager.h"
@@ -418,17 +417,12 @@ extern "C" void app_main(void)
                                (event_err == ESP_OK) &&
                                (wifi_init_err == ESP_OK);
 
-    // Set later in the station branch; used both to start the wifi task and to
-    // register the manager with the diag console below. Stays nullptr in
-    // provisioning mode and whenever WiFi init failed (the console `wifi`
-    // command then reports unavailable).
+    // Set to &wifi_manager_inst in the station branch; used to start the wifi
+    // task, to register the manager with the diag console below, and by the
+    // /api/v1/status handler (feature 009 US1) via its by-value snapshot(). Stays
+    // nullptr in provisioning mode and whenever WiFi init failed (the console
+    // `wifi` command then reports unavailable, and no ApiServer is built there).
     WifiManager *wifi_manager = nullptr;
-
-    // Mutex-synchronized snapshot decorator over the station WifiManager, used by
-    // the /api/v1/status handler (feature 009 US1). Set in the station branch;
-    // stays nullptr in provisioning/headless mode, so no ApiServer is built or
-    // started there.
-    LockedWifiManager *api_locked_wifi = nullptr;
 
     if (!wifi_stack_ok) {
         ESP_LOGE(TAG, "WiFi unavailable (init failed) — skipping "
@@ -499,14 +493,6 @@ extern "C" void app_main(void)
                                              wifi_policy);
         wifi_manager_inst.begin(WifiBootMode::Station);
         wifi_manager = &wifi_manager_inst;
-
-        // Snapshot decorator for the cross-task API status reader (feature 009
-        // US1). Function-local static (boot fail-safe rule); the wifi task
-        // remains the single writer (drives wifi_manager_inst directly), this
-        // only serializes readers. Published to function scope so the ApiServer
-        // can be constructed later, after every sensor exists.
-        static LockedWifiManager locked_wifi_manager(wifi_manager_inst);
-        api_locked_wifi = &locked_wifi_manager;
 
         // Separate FreeRTOS task from the 10 Hz pump/level loop — no shared
         // mutex with watering (FR-014). Drives the status LED too (T021).
@@ -676,19 +662,20 @@ extern "C" void app_main(void)
 
     // /api/v1/ HTTP server (feature 009 US1). Constructed here — after EVERY
     // sensor plus the config/storage/clock it reports exist — and only in
-    // station mode (api_locked_wifi is nullptr in provisioning/headless mode, so
-    // no server is built there). Function-local static inside the guard (boot
+    // station mode (wifi_manager is nullptr in provisioning/headless mode, so no
+    // server is built there). Function-local static inside the guard (boot
     // fail-safe rule: no non-trivial static/global constructors). It holds only
-    // borrowed Locked* references and is started lazily by the SystemObserver on
-    // the first Connected transition (below), mirroring the SNTP lifecycle — it
-    // is NOT watchdog-subscribed and shares no mutex with watering beyond the
-    // Locked* wrappers (FR-015). pumps_force_off() already ran first (top of
-    // app_main); nothing here touches pump control.
+    // borrowed references (the WifiManager read via its by-value snapshot(), the
+    // sensors via their Locked* wrappers) and is started lazily by the
+    // SystemObserver on the first Connected transition (below), mirroring the
+    // SNTP lifecycle — it is NOT watchdog-subscribed and shares no mutex with
+    // watering beyond the Locked* wrappers (FR-015). pumps_force_off() already
+    // ran first (top of app_main); nothing here touches pump control.
     api::ApiServer *api_server = nullptr;
-    if (api_locked_wifi != nullptr) {
+    if (wifi_manager != nullptr) {
         static api::ApiServer api_server_inst(
             config, storage, env_sensor, soil_sensor, level_low, level_high,
-            *api_locked_wifi, wall_clock, sntp, time_provider, plant
+            *wifi_manager, wall_clock, sntp, time_provider, plant
 #if BOARD_HAS_RESERVOIR_PUMP
             ,
             reservoir

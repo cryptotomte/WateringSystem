@@ -37,14 +37,14 @@ enum class WifiState {
 /**
  * @brief Point-in-time, by-value status copy for status/LED consumers.
  *
- * Produced by WifiManager::snapshot() as a plain by-value copy of the state +
- * counters. WifiManager is unsynchronized with a single writer (the wifi
- * task's tick()); a cross-task diagnostic reader (the diag console) may observe
- * a momentarily inconsistent tuple, which is acceptable for status display
- * only. Consistent with WifiManager.h ("Unsynchronized by design").
- * Cross-task readers (the diag console and, since feature 009, the HTTP
- * `/api/v1/status` handler) obtain a self-consistent copy through the
- * LockedWifiManager decorator (network/LockedWifiManager.h).
+ * Produced by WifiManager::snapshot() as a plain by-value, point-in-time copy
+ * of the state + counters. WifiManager is unsynchronized with a single writer
+ * (the wifi task's tick()); snapshot() is NOT itself synchronized. A cross-task
+ * reader (the diag console, and since feature 009 the HTTP `/api/v1/status`
+ * handler) may therefore observe state up to one tick old, or a momentarily
+ * torn tuple — acceptable for status display only (the same trade-off as the
+ * PR-08 SyncStatus reader). Consistent with WifiManager.h ("Unsynchronized by
+ * design").
  */
 struct WifiConnectionSnapshot {
     WifiState state;               ///< current state machine state

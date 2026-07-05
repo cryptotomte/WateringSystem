@@ -7,7 +7,9 @@
 
 #include "api/ApiRequests.h"
 
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 
 #include "cJSON.h"
 
@@ -253,8 +255,54 @@ bool namedRangeToWindow(const std::string& range, uint32_t now, uint32_t& t0,
     }
 
     t1 = now;
-    t0 = now - span;
+    // Clamp the underflow: an unset/small clock must not wrap uint32.
+    t0 = (now >= span) ? now - span : 0u;
     return true;
+}
+
+std::size_t resolveEventCount(std::optional<int> requested)
+{
+    constexpr std::size_t kDefault = 50;
+    constexpr std::size_t kMax = 200;
+    if (!requested.has_value() || *requested <= 0) {
+        return kDefault;
+    }
+    const std::size_t v = static_cast<std::size_t>(*requested);
+    return v > kMax ? kMax : v;
+}
+
+WindowResult resolveWindow(std::optional<std::string> range,
+                           std::optional<uint32_t> start,
+                           std::optional<uint32_t> end, uint32_t now)
+{
+    constexpr uint32_t kDefaultWindowS = 86400;  // last 24 h
+    WindowResult out;
+
+    if (range.has_value()) {
+        // A named range resolves to an absolute window ending at now; an
+        // unknown range name is a client error (ok stays false).
+        out.ok = namedRangeToWindow(*range, now, out.t0, out.t1);
+        return out;
+    }
+
+    if (start.has_value() || end.has_value()) {
+        // Explicit window: a missing end defaults to now; a missing start
+        // defaults to 24 h before the end (clamped so it can't wrap).
+        out.t1 = end.has_value() ? *end : now;
+        if (start.has_value()) {
+            out.t0 = *start;
+        } else {
+            out.t0 = out.t1 >= kDefaultWindowS ? out.t1 - kDefaultWindowS : 0u;
+        }
+        out.ok = true;
+        return out;
+    }
+
+    // No window given: default to the last 24 h (clamped).
+    out.t1 = now;
+    out.t0 = now >= kDefaultWindowS ? now - kDefaultWindowS : 0u;
+    out.ok = true;
+    return out;
 }
 
 }  // namespace api

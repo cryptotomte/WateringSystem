@@ -152,8 +152,9 @@ void test_status_not_set_clock_still_serializes(void)
     cJSON* time = cJSON_GetObjectItem(root, "time");
     TEST_ASSERT_NOT_NULL(time);
     TEST_ASSERT_FALSE(cJSON_IsTrue(cJSON_GetObjectItem(time, "synced")));
-    TEST_ASSERT_EQUAL_DOUBLE(
-        0.0, cJSON_GetObjectItem(time, "epoch")->valuedouble);
+    // A not-set clock emits a JSON null epoch (no bogus 1970), mirroring the
+    // not-set top-level sensor timestamp.
+    TEST_ASSERT_TRUE(cJSON_IsNull(cJSON_GetObjectItem(time, "epoch")));
     TEST_ASSERT_EQUAL_STRING(
         "", cJSON_GetObjectItem(time, "local")->valuestring);
 

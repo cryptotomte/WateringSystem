@@ -95,16 +95,15 @@ private:
     WifiState lastWifiState_ = WifiState::Provisioning;
     bool haveWifiState_ = false;
 
-    // SNTP is started exactly once, on the first Connected transition where
-    // start() reports success. SntpClient::start() is itself idempotent; this
-    // guard avoids calling it on every later Connected transition, but a failed
-    // init leaves it false so the next Connected transition retries.
+    // SNTP is started exactly once. The attempt fires only on the edge INTO
+    // Connected (see pollWifi), and this latch is set only when start() reports
+    // success — so a failed init retries on the NEXT Connected edge (after a
+    // reconnect), never every poll. SntpClient::start() is itself idempotent.
     bool sntpStarted_ = false;
 
-    // The /api/v1/ HTTP server is started exactly once, on the first Connected
-    // transition where start() reports success — same latch-on-success rule as
-    // SNTP (ApiServer::start() is idempotent; a failed start leaves this false
-    // so the next Connected transition retries).
+    // The /api/v1/ HTTP server latch — same rule as SNTP: attempted only on the
+    // Connected edge, latched on success, retried on the next Connected edge
+    // after a failure (ApiServer::start() is idempotent).
     bool apiServerStarted_ = false;
 
     // Last observed EventLogger::droppedEvents() value. The pure logger only

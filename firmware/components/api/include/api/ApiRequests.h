@@ -24,7 +24,9 @@
 #ifndef WATERINGSYSTEM_API_APIREQUESTS_H
 #define WATERINGSYSTEM_API_APIREQUESTS_H
 
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 
 #include "api/ApiDtos.h"
@@ -81,14 +83,42 @@ PumpCommandResult parsePumpCommand(const std::string& body);
  *   - "7d"  -> now-604800
  *   - "30d" -> now-2592000
  *
- * On a known range, writes @p t1 = now and @p t0 = now - <range seconds> and
- * returns true. On an unknown range name, leaves @p t0 / @p t1 untouched and
- * returns false (the handler then falls back to explicit start/end or the
- * default 24 h window — that parsing is target-side, T019). Pure and total: no
- * throw, no allocation beyond the comparison.
+ * On a known range, writes @p t1 = now and @p t0 = now - <range seconds>
+ * (clamped to 0 so an unset/small clock can never wrap uint32) and returns
+ * true. On an unknown range name, leaves @p t0 / @p t1 untouched and returns
+ * false (the handler then falls back to explicit start/end or the default 24 h
+ * window). Pure and total: no throw, no allocation beyond the comparison.
  */
 bool namedRangeToWindow(const std::string& range, uint32_t now, uint32_t& t0,
                         uint32_t& t1);
+
+/**
+ * @brief Resolve the effective GET /api/v1/events count from the request.
+ *
+ * Absent -> 50 (default). A value <= 0 -> 50 (a malformed/non-positive count
+ * defaults rather than erroring). Otherwise clamped to 1..200.
+ */
+std::size_t resolveEventCount(std::optional<int> requested);
+
+/// Result of resolving a GET /api/v1/history time window.
+struct WindowResult {
+    uint32_t t0 = 0;  ///< resolved window start (epoch), clamped to >= 0
+    uint32_t t1 = 0;  ///< resolved window end (epoch)
+    bool ok = false;  ///< false only when a named range is unknown
+};
+
+/**
+ * @brief Resolve a history window from the query parameters.
+ *
+ * Precedence: a named @p range wins (via namedRangeToWindow) — an unknown range
+ * yields ok=false. Otherwise explicit @p start / @p end: both given -> as is;
+ * start-only -> end = now; end-only -> start = end - 24 h (clamped to 0). With
+ * neither range nor explicit bounds, the last 24 h ending at @p now (clamped).
+ * Pure and total: no throw, no allocation beyond namedRangeToWindow.
+ */
+WindowResult resolveWindow(std::optional<std::string> range,
+                           std::optional<uint32_t> start,
+                           std::optional<uint32_t> end, uint32_t now);
 
 }  // namespace api
 

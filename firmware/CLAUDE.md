@@ -445,8 +445,10 @@ server split into a pure, host-tested core and a thin target-only HTTP shell.
   (`successBody`/`errorBody`/`notFoundBody`), `ApiRoutes` (the static route table
   + `matchRoute`), and the POD `ApiDtos`. JSON is built with **cJSON** via the
   managed `espressif/cjson` component (it links on the linux preview target — no
-  esp_http_server dependency in the pure layer). A route-table host test asserts
-  the table equals the frozen `docs/api/openapi.yaml` path set (FR-004).
+  esp_http_server dependency in the pure layer). A host test asserts `matchRoute`
+  resolves the route set; the route table, the ApiServer's own `httpd_uri_t[]`
+  registration and the frozen `docs/api/openapi.yaml` are kept in lockstep BY
+  HAND (FR-004).
 - **Target-only shell** (`ApiServer.*`, excluded from the linux build, same PRIV
   rule as `ProvisioningPortal`/`EspI2cBus`): `esp_http_server.h` appears ONLY in
   the `.cpp`; the handle is an opaque `void*` in the header and the route
@@ -483,8 +485,10 @@ single-pump); `/history` windows resolve from a named `range` else explicit
 `start`/`end` else the last 24 h, and an empty window is a 200 with empty arrays;
 `/events` is newest-first and count-bounded (default 50, cap 200). The server
 makes NO watering decision — the pump's own `runFor()`/`stop()` enforce the 300 s
-cap and no-restart rule. Wifi state comes through `LockedWifiManager`; **v1 has
-no authentication** (trusted LAN); `POST /api/v1/ota` is a 501 stub until PR-13.
+cap and no-restart rule. Wifi state is read via `WifiManager::snapshot()` (an
+unsynchronized single-writer by-value copy, acceptable for status display —
+mirrors the PR-08 SyncStatus decision); **v1 has no authentication** (trusted
+LAN); `POST /api/v1/ota` is a 501 stub until PR-13.
 The server is constructed in `app_main` and `start()`ed on the first
 `WifiState::Connected` transition (an IP is required to bind on the STA
 interface); `start()`/`stop()` are idempotent and non-fatal. HIL checklist:

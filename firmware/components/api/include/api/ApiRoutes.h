@@ -4,13 +4,13 @@
  * @file ApiRoutes.h
  * @brief Pure /api/v1/ route table + matcher (host+target).
  *
- * The route table is plain data (path, method, handler id); it is the single
- * source of truth for which endpoints exist, and the host route-table contract
- * test (FR-004) asserts this set equals the frozen `docs/api/openapi.yaml` path
- * set. `matchRoute` is a small pure matcher (exact match, plus a prefix rule
- * for the per-pump command route) so routing is host-testable with NO
- * esp_http_server dependency; the target ApiServer registers one httpd handler
- * per route and dispatches on the returned HandlerId.
+ * The route table is plain data (path, method, handler id). The target
+ * ApiServer registers its OWN httpd_uri_t[] (in ApiServer.cpp); this table and
+ * its `matchRoute` matcher are host-test / documentation artifacts, kept in
+ * lockstep with that registration and with `docs/api/openapi.yaml` BY HAND.
+ * `matchRoute` is a small pure matcher (exact match, plus a prefix rule for the
+ * per-pump command route) so routing is host-testable with NO esp_http_server
+ * dependency; the host route test asserts `matchRoute`, not the YAML.
  *
  * Contract: contracts/api-envelope-and-routes.md; data-model.md §Route table.
  */

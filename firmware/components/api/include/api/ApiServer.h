@@ -11,17 +11,15 @@
  * sends the returned JSON string. All routing/envelope/serialization decisions
  * live in the pure layer; this class is the thin HTTP wiring only.
  *
- * This file covers the US1 read endpoints only:
+ * The endpoints served:
  *   GET /api/v1/status   — system status (mode/wifi/time/uptime/reset/fw/storage
  *                          [+power on rev2])
  *   GET /api/v1/sensors  — cached environmental/soil/level [+power] readings
  *   GET /api/v1/power     — INA226 telemetry (rev2); not-available shape on rev1
- * plus the US2 pump/config endpoints:
  *   GET  /api/v1/pumps        — every pump's status (capability-enumerated)
  *   POST /api/v1/pumps/{name} — start/run/stop a pump (cap+rules in the pump)
  *   GET  /api/v1/config       — current config (never the wifi password)
  *   POST /api/v1/config       — apply a validated config subset (persisted)
- * plus the US3 history/diagnostic endpoints:
  *   GET  /api/v1/history      — bounded sensor-history series (query-windowed)
  *   GET  /api/v1/events       — newest-first event log (count-bounded)
  *   POST /api/v1/selftest     — bounded sensor/RS485 diagnostic (see below)
@@ -48,6 +46,7 @@
 #include <string>
 
 #include "api/ApiDtos.h"
+#include "api/ApiEnvelope.h"
 #include "board/board.h"
 #include "interfaces/IConfigStore.h"
 #include "interfaces/IDataStorage.h"
@@ -60,7 +59,7 @@
 #if BOARD_HAS_INA226
 #include "interfaces/IPowerSensor.h"
 #endif
-#include "network/LockedWifiManager.h"
+#include "network/WifiManager.h"
 #include "time/SntpClient.h"
 
 namespace api {
@@ -68,16 +67,16 @@ namespace api {
 /**
  * @brief A ready-to-send response: an HTTP status line plus a JSON body.
  *
- * Returned by the mutating US2 command builders (pump command / config set) so
- * the file-local httpd handler can vary the status line per outcome (200 on
- * success, 4xx on a rejected command/validation error, 5xx on an unexpected
- * persistence failure) rather than being fixed to 200 like the read builders.
- * `status` is a static string literal (never freed); `body` comes from the pure
- * envelope/serializer layer.
+ * Returned by the mutating command builders (pump command / config set) so the
+ * file-local httpd handler can vary the status per outcome (200 on success, 4xx
+ * on a rejected command/validation error, 5xx on an unexpected persistence
+ * failure) rather than being fixed to 200 like the read builders. `status` is an
+ * ApiStatus enum (the handler maps it to the HTTP status line via statusLine());
+ * `body` comes from the pure envelope/serializer layer.
  */
 struct ApiResponse {
-    const char* status;  ///< HTTP status line, e.g. "200 OK"
-    std::string body;    ///< JSON envelope body
+    ApiStatus status;   ///< outcome status (mapped to the HTTP line by statusLine)
+    std::string body;   ///< JSON envelope body
 };
 
 /**
@@ -96,10 +95,10 @@ public:
      * @brief Inject the Locked* read decorators + status sources.
      *
      * The references are the mutex-serializing Locked* wrappers (passed as their
-     * interfaces), the wifi snapshot decorator, the wall clock + SNTP status,
-     * and the monotonic uptime clock — exactly the objects the diag console is
-     * wired with. On rev2 the INA226 power sensor is injected too (compile-time
-     * absent on rev1, BOARD_HAS_INA226).
+     * interfaces), the WifiManager (read via its by-value snapshot()), the wall
+     * clock + SNTP status, and the monotonic uptime clock — exactly the objects
+     * the diag console is wired with. On rev2 the INA226 power sensor is injected
+     * too (compile-time absent on rev1, BOARD_HAS_INA226).
      *
      * @param config      Configuration store (mode + SSID); cached getters only.
      * @param storage     Data storage (filesystem stats).
@@ -109,7 +108,9 @@ public:
      *                    reads report valid=false until PR-11).
      * @param levelLow    Reservoir low-mark level sensor (cached, 10 Hz loop).
      * @param levelHigh   Reservoir high-mark level sensor (cached, 10 Hz loop).
-     * @param wifi        Wifi snapshot decorator (state/rssi/ip-acquired).
+     * @param wifi        WifiManager, read via its by-value snapshot()
+     *                    (state/rssi/ip-acquired); an unsynchronized single-
+     *                    writer read, acceptable for status display (WifiState.h).
      * @param wallClock   Wall clock (epoch + is-set) for time + timestamps.
      * @param sntp        SNTP client (last-sync epoch); status only.
      * @param uptime      Monotonic clock for uptimeMs.
@@ -126,7 +127,7 @@ public:
     ApiServer(IConfigStore& config, IDataStorage& storage,
               IEnvironmentalSensor& env, ISoilSensor& soil,
               ILevelSensor& levelLow, ILevelSensor& levelHigh,
-              LockedWifiManager& wifi, IWallClock& wallClock, SntpClient& sntp,
+              WifiManager& wifi, IWallClock& wallClock, SntpClient& sntp,
               ITimeProvider& uptime, IWaterPump& plantPump
 #if BOARD_HAS_RESERVOIR_PUMP
               ,
@@ -158,7 +159,7 @@ public:
     ApiServer& operator=(const ApiServer&) = delete;
 
     /**
-     * @brief Start the HTTP server and register the US1 routes.
+     * @brief Start the HTTP server and register all /api/v1/ routes.
      *
      * Idempotent (an already-started server is a successful no-op) and non-fatal
      * on failure: the caller logs and keeps running — the watering path never
@@ -278,7 +279,7 @@ private:
     ISoilSensor& soil_;
     ILevelSensor& levelLow_;
     ILevelSensor& levelHigh_;
-    LockedWifiManager& wifi_;
+    WifiManager& wifi_;
     IWallClock& wallClock_;
     SntpClient& sntp_;
     ITimeProvider& uptime_;
