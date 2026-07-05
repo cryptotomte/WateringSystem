@@ -433,6 +433,67 @@ healthy task is never falsely tripped. PR-11's watering/reservoir tasks register
 through the same helper when they land. HIL checklist:
 `specs/008-sntp-watchdog-logging/checklists/hil.md`.
 
+## HTTP API v1 (feature 009)
+
+Feature 009 (PR-09) adds the `api` component: a versioned `/api/v1/` REST/JSON
+server split into a pure, host-tested core and a thin target-only HTTP shell.
+
+- **Pure layer** (`components/api/include/api/` + `src/`, builds on linux, host-
+  tested): `ApiSerialize` (DTO → JSON success bodies), `ApiRequests`
+  (`parseConfigSet`/`parsePumpCommand`/`namedRangeToWindow`, all-or-nothing
+  validation against the `IConfigStore` range constants), `ApiEnvelope`
+  (`successBody`/`errorBody`/`notFoundBody`), `ApiRoutes` (the static route table
+  + `matchRoute`), and the POD `ApiDtos`. JSON is built with **cJSON** via the
+  managed `espressif/cjson` component (it links on the linux preview target — no
+  esp_http_server dependency in the pure layer). A host test asserts `matchRoute`
+  resolves the route set; the route table, the ApiServer's own `httpd_uri_t[]`
+  registration and the frozen `docs/api/openapi.yaml` are kept in lockstep BY
+  HAND (FR-004).
+- **Target-only shell** (`ApiServer.*`, excluded from the linux build, same PRIV
+  rule as `ProvisioningPortal`/`EspI2cBus`): `esp_http_server.h` appears ONLY in
+  the `.cpp`; the handle is an opaque `void*` in the header and the route
+  handlers are file-local functions. Each handler reads the injected `Locked*`
+  decorators into a DTO, calls a pure serializer, and does the `httpd_resp_*`
+  plumbing. Unknown routes answer the JSON 404 envelope via a registered
+  `httpd_register_err_handler`.
+
+**Contract** — the endpoints are `GET status/sensors/history/pumps/config/power/
+events` and `POST pumps/{name}`, `config`, `selftest`, `ota`. The single source
+of truth is `docs/api/openapi.yaml` (OpenAPI 3.0), **frozen at merge** — contract
+changes require a version bump (a new `/api/vN` prefix), never an in-place edit.
+Errors use the shared envelope: 400 (malformed/out-of-range), 404 (unknown route
+or pump name), 409 (start on a running pump), 501 (OTA stub); the wifi password
+is never serialized in any DTO or field (FR-004).
+
+**Non-blocking rule (QUIRK 5):** handlers use ONLY the non-blocking cached
+getters through the `Locked*` wrappers — never `read()`/`isAvailable()` — so a
+slow or flooding client can never stall the I2C/RS485 bus or delay the 10 Hz
+pump/level loop. **The one exception is `POST /api/v1/selftest`**, a bounded,
+on-demand diagnostic that deliberately issues a real `read()` on the
+environmental and soil sensors (the soil read is the RS485/Modbus round-trip
+test); it runs on the httpd task off the watering critical path and is serialized
+with the other bus users through the same `Locked*` wrappers. The server is NOT
+subscribed to the task watchdog and shares no mutex with the watering loop beyond
+those wrappers (FR-015 isolation).
+
+**Semantics worth remembering:** `mode` is derived from `wateringEnabled`
+(`automatic`/`manual`); `soil` and (rev2) `power` report `valid=false` with
+last-good/NaN placeholders until PR-11 wires their periodic readers; `power` is a
+board-capability field (INA226 object on rev2, `available:false`/`null` on rev1);
+pumps are capability-enumerated (`BOARD_HAS_RESERVOIR_PUMP` — rev2 is
+single-pump); `/history` windows resolve from a named `range` else explicit
+`start`/`end` else the last 24 h, and an empty window is a 200 with empty arrays;
+`/events` is newest-first and count-bounded (default 50, cap 200). The server
+makes NO watering decision — the pump's own `runFor()`/`stop()` enforce the 300 s
+cap and no-restart rule. Wifi state is read via `WifiManager::snapshot()` (an
+unsynchronized single-writer by-value copy, acceptable for status display —
+mirrors the PR-08 SyncStatus decision); **v1 has no authentication** (trusted
+LAN); `POST /api/v1/ota` is a 501 stub until PR-13.
+The server is constructed in `app_main` and `start()`ed on the first
+`WifiState::Connected` transition (an IP is required to bind on the STA
+interface); `start()`/`stop()` are idempotent and non-fatal. HIL checklist:
+`specs/009-http-server-api-v1/checklists/hil.md`.
+
 ## Partition layout (4MB flash)
 
 nvs (0x9000, 16K) | otadata (0xd000, 8K) | phy_init (0xf000, 4K) |

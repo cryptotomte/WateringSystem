@@ -24,6 +24,7 @@
 #ifndef WATERINGSYSTEM_MAIN_SYSTEM_OBSERVER_H
 #define WATERINGSYSTEM_MAIN_SYSTEM_OBSERVER_H
 
+#include "api/ApiServer.h"
 #include "events/EventLogger.h"
 #include "interfaces/IWaterPump.h"
 #include "network/WifiManager.h"
@@ -52,13 +53,20 @@ public:
      *                  never started in provisioning/headless mode (wifi is
      *                  nullptr) nor when no client is injected — the wall clock
      *                  simply stays "time not set" (feature 008 US3).
+     * @param apiServer /api/v1/ HTTP server to start on the first Connected
+     *                  transition, or nullptr to never start it (borrowed;
+     *                  feature 009 US1). Mirrors the SNTP lifecycle: the socket
+     *                  binds on the STA interface only once an IP is up, so it is
+     *                  never started in provisioning/headless mode (wifi/api are
+     *                  nullptr there). start() is idempotent and non-fatal.
      * @param plant     Plant pump handle, or nullptr if absent.
      * @param reservoir Reservoir pump handle, or nullptr on single-pump boards.
      */
     SystemObserver(EventLogger& logger, WifiManager* wifi, SntpClient* sntp,
-                   IWaterPump* plant, IWaterPump* reservoir = nullptr)
-        : logger_(logger), wifi_(wifi), sntp_(sntp), plant_(plant),
-          reservoir_(reservoir)
+                   api::ApiServer* apiServer, IWaterPump* plant,
+                   IWaterPump* reservoir = nullptr)
+        : logger_(logger), wifi_(wifi), sntp_(sntp), apiServer_(apiServer),
+          plant_(plant), reservoir_(reservoir)
     {
     }
 
@@ -78,6 +86,7 @@ private:
     EventLogger& logger_;
     WifiManager* wifi_;
     SntpClient* sntp_;
+    api::ApiServer* apiServer_;
     IWaterPump* plant_;
     IWaterPump* reservoir_;
 
@@ -86,11 +95,16 @@ private:
     WifiState lastWifiState_ = WifiState::Provisioning;
     bool haveWifiState_ = false;
 
-    // SNTP is started exactly once, on the first Connected transition where
-    // start() reports success. SntpClient::start() is itself idempotent; this
-    // guard avoids calling it on every later Connected transition, but a failed
-    // init leaves it false so the next Connected transition retries.
+    // SNTP is started exactly once. The attempt fires only on the edge INTO
+    // Connected (see pollWifi), and this latch is set only when start() reports
+    // success — so a failed init retries on the NEXT Connected edge (after a
+    // reconnect), never every poll. SntpClient::start() is itself idempotent.
     bool sntpStarted_ = false;
+
+    // The /api/v1/ HTTP server latch — same rule as SNTP: attempted only on the
+    // Connected edge, latched on success, retried on the next Connected edge
+    // after a failure (ApiServer::start() is idempotent).
+    bool apiServerStarted_ = false;
 
     // Last observed EventLogger::droppedEvents() value. The pure logger only
     // counts a failed store; poll() gives that counter a target-side voice by

@@ -1,0 +1,568 @@
+# WateringSystem HTTP API v1 — OpenAPI 3.0 sketch (feature 009 / PR-09)
+#
+# FROZEN at merge; contract changes require a version bump (a new /api/vN path
+# prefix + a new file). The set of paths below, the firmware route table
+# (firmware/components/api ApiRoutes) and the ApiServer's own httpd_uri_t[]
+# registration are kept in lockstep BY HAND; a host test asserts matchRoute
+# resolves the route set, but does not parse this YAML.
+#
+# Conventions:
+#   - Every response is the shared envelope: success bodies are
+#     { "success": true, ...payload }; error bodies are
+#     { "success": false, "error": "<message>" }.
+#   - v1 has NO authentication (trusted LAN only; see firmware/CLAUDE.md).
+#   - The wifi password is never represented in any request or response.
+#   - Read handlers use non-blocking cached getters (QUIRK 5); POST /selftest is
+#     the single documented bounded-blocking exception.
+openapi: 3.0.3
+info:
+  title: WateringSystem HTTP API
+  version: "1.0.0"
+  description: >
+    Versioned REST/JSON API for the ESP32 greenhouse watering system. Served by
+    the target-only `api` component over esp_http_server; all response bytes come
+    from the pure, host-tested serializers.
+  license:
+    name: AGPL-3.0-or-later
+
+servers:
+  - url: http://{deviceIp}/api/v1
+    description: Device on the local network (station-mode IPv4).
+    variables:
+      deviceIp:
+        default: 192.168.1.50
+
+tags:
+  - name: status
+  - name: sensors
+  - name: pumps
+  - name: config
+  - name: power
+  - name: history
+  - name: events
+  - name: diagnostics
+
+paths:
+  /status:
+    get:
+      tags: [status]
+      summary: System status snapshot.
+      description: >
+        Mode (from wateringEnabled), wifi, time/sync, uptime, reset reason,
+        firmware identity, storage stats, and (rev2) INA226 power. Non-blocking.
+      responses:
+        "200":
+          description: Status snapshot.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StatusResponse" }
+              example:
+                success: true
+                mode: automatic
+                wifi: { state: connected, rssi: -58, ssid: greenhouse, connected: true, ipAcquired: true, ip: "192.168.1.50" }
+                time: { synced: true, epoch: 1751731200, local: "2026-07-05 18:00:00", lastSync: 1751731180 }
+                uptimeMs: 3600000
+                resetReason: POWERON
+                firmware: { version: "3.0.0-dev", project: WateringSystem }
+                storage: { totalBytes: 983040, usedBytes: 122880, percentUsed: 12.5 }
+                power: null
+
+  /sensors:
+    get:
+      tags: [sensors]
+      summary: Latest cached sensor readings.
+      description: >
+        Environmental (fresh, 5 s task) and reservoir level (fresh, 10 Hz loop)
+        readings; soil is present but valid=false until PR-11 adds a periodic
+        reader; (rev2) power. Per-section `valid` flags; top-level `timestamp`
+        is null when the clock is not set. MUST NOT block on the bus.
+      responses:
+        "200":
+          description: Sensor snapshot.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SensorsResponse" }
+              example:
+                success: true
+                environmental: { valid: true, temperature: 22.4, humidity: 61.0, pressure: 1013.2 }
+                soil: { valid: false, moisture: null, temperature: null, humidity: null, ph: null, ec: null }
+                level: { low: { valid: true, waterPresent: true }, high: { valid: true, waterPresent: false } }
+                power: null
+                timestamp: 1751731200
+
+  /history:
+    get:
+      tags: [history]
+      summary: Bounded sensor-history series for one metric.
+      description: >
+        Returns aligned timestamps[]/values[] for `metric` over a window. The
+        window is either a named `range` OR explicit `start`/`end` epochs;
+        default is the last 24 h. An in-range window with no data returns empty
+        arrays (a success, not an error). `reading` is echoed only.
+      parameters:
+        - name: metric
+          in: query
+          required: true
+          schema: { type: string }
+          example: env_temperature
+        - name: reading
+          in: query
+          required: false
+          schema: { type: string }
+        - name: range
+          in: query
+          required: false
+          schema: { type: string, enum: [1h, 6h, 24h, 7d, 30d] }
+        - name: start
+          in: query
+          required: false
+          schema: { type: integer, format: int64 }
+          description: Explicit window start (epoch seconds). Ignored when `range` is given.
+        - name: end
+          in: query
+          required: false
+          schema: { type: integer, format: int64 }
+          description: Explicit window end (epoch seconds). Ignored when `range` is given.
+      responses:
+        "200":
+          description: History series (possibly empty).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HistoryResponse" }
+              example:
+                success: true
+                timestamps: [1751727600, 1751729400, 1751731200]
+                values: [21.8, 22.1, 22.4]
+                metric: env_temperature
+                reading: null
+                start: 1751644800
+                end: 1751731200
+                count: 3
+        "400":
+          description: Missing `metric` or an unknown `range` name.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+              example: { success: false, error: "metric is required" }
+
+  /pumps:
+    get:
+      tags: [pumps]
+      summary: List every pump on the board (capability-enumerated).
+      description: rev1 = plant + reservoir; rev2 = plant only. Non-blocking status getters.
+      responses:
+        "200":
+          description: Pump list.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PumpListResponse" }
+              example:
+                success: true
+                pumps:
+                  - { name: plant, running: false, currentRunTimeMs: 0, accumulatedRunTimeMs: 42000, lastStopReason: duration_elapsed }
+
+  /pumps/{name}:
+    post:
+      tags: [pumps]
+      summary: Start / run / stop a pump.
+      description: >
+        `start`/`run` begin a timed run of `durationS` (1..300 s; the hard cap
+        and the no-restart rule are enforced by the pump itself — the server
+        makes no watering decision). `stop` is an idempotent no-op if already
+        stopped. Response reports the resulting pump state.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string, enum: [plant, reservoir] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PumpCommand" }
+            examples:
+              run:
+                value: { action: run, durationS: 30 }
+              stop:
+                value: { action: stop }
+      responses:
+        "200":
+          description: Resulting pump state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PumpResponse" }
+              example:
+                success: true
+                name: plant
+                running: true
+                currentRunTimeMs: 0
+                accumulatedRunTimeMs: 42000
+                lastStopReason: none
+        "400":
+          description: Malformed body, bad action, or out-of-range durationS.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+              example: { success: false, error: "durationS out of range" }
+        "404":
+          description: Unknown pump name (e.g. `reservoir` on a single-pump rev2 node).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+              example: { success: false, error: "unknown pump" }
+        "409":
+          description: Start requested while the pump is already running (its clock is NOT restarted).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+              example: { success: false, error: "pump already running" }
+
+  /config:
+    get:
+      tags: [config]
+      summary: Current configuration (never the wifi password).
+      responses:
+        "200":
+          description: Config snapshot.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConfigResponse" }
+              example:
+                success: true
+                moistureThresholdLow: 30.0
+                moistureThresholdHigh: 60.0
+                wateringDurationS: 20
+                minWateringIntervalS: 3600
+                wateringEnabled: true
+                sensorReadIntervalMs: 5000
+                dataLogIntervalMs: 300000
+    post:
+      tags: [config]
+      summary: Apply a validated configuration subset (persisted).
+      description: >
+        Any subset of settable fields. Validation is ALL-OR-NOTHING: any field
+        out of range (moisture 0..100, duration 1..300, interval >=1, sensorRead
+        >=1000 ms, dataLog >=60000 ms) rejects the whole request and applies
+        nothing. On success the new config is returned. The wifi password is not
+        a config field here.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConfigSetRequest" }
+            example: { moistureThresholdLow: 35.0, wateringEnabled: true }
+      responses:
+        "200":
+          description: The new configuration.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConfigResponse" }
+        "400":
+          description: Malformed JSON or an out-of-range field (nothing applied).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+              example: { success: false, error: "moistureThresholdLow out of range" }
+        "500":
+          description: An already-validated value unexpectedly failed to persist.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+              example: { success: false, error: "failed to persist configuration" }
+
+  /power:
+    get:
+      tags: [power]
+      summary: INA226 pump-power telemetry (rev2).
+      description: >
+        On rev2, last-good bus voltage / current / power. On rev1 (no INA226 in
+        the binary) a success envelope with `available: false` and `power: null`.
+      responses:
+        "200":
+          description: Power telemetry (rev2) or the not-available shape (rev1).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - { $ref: "#/components/schemas/PowerResponse" }
+                  - { $ref: "#/components/schemas/PowerUnavailableResponse" }
+              examples:
+                rev2:
+                  value: { success: true, valid: true, busVoltage: 12.1, current: 0.42, power: 5.08 }
+                rev1:
+                  value: { success: true, available: false, power: null }
+
+  /events:
+    get:
+      tags: [events]
+      summary: Event log, newest-first.
+      description: Reset / wifi / pump / failsafe / OTA events from littlefs. Non-blocking.
+      parameters:
+        - name: count
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+          description: Maximum events to return (default 50, capped at 200).
+      responses:
+        "200":
+          description: Event list.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EventsResponse" }
+              example:
+                success: true
+                events:
+                  - { epoch: 1751731200, category: 5, categoryName: reset, detail: "reset=POWERON" }
+                  - { epoch: 1751731100, category: 1, categoryName: pump, detail: "plant start 30s" }
+
+  /selftest:
+    post:
+      tags: [diagnostics]
+      summary: Bounded sensor / RS485 self-test.
+      description: >
+        The ONE endpoint that issues a real, bounded bus read() — an explicit
+        diagnostic run on the httpd task, off the watering critical path (the
+        Locked* wrappers serialize it with the other bus users). Reads the
+        environmental and soil sensors and reports per-check outcomes.
+      responses:
+        "200":
+          description: Structured self-test result.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SelfTestResponse" }
+              example:
+                success: true
+                overall: false
+                checks:
+                  - { name: environmental, ok: true, detail: ok }
+                  - { name: soil, ok: false, detail: "read failed, error 2" }
+
+  /ota:
+    post:
+      tags: [diagnostics]
+      summary: Firmware OTA update (contract stub — PR-13).
+      description: >
+        Reserved route. Execution is implemented in PR-13; v1 answers a fixed
+        501 error envelope. The route is present so it is documented and
+        enumerable now.
+      responses:
+        "501":
+          description: Not implemented (stub).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+              example: { success: false, error: "OTA not implemented" }
+
+components:
+  schemas:
+    # -- Envelope ----------------------------------------------------------
+    SuccessEnvelope:
+      type: object
+      description: Base success envelope; endpoint payload fields are spread alongside `success`.
+      required: [success]
+      properties:
+        success: { type: boolean, enum: [true] }
+    ErrorResponse:
+      type: object
+      required: [success, error]
+      properties:
+        success: { type: boolean, enum: [false] }
+        error: { type: string, description: Human-readable message (never a secret). }
+
+    # -- Shared blocks -----------------------------------------------------
+    Power:
+      type: object
+      description: INA226 telemetry; non-finite last-good placeholders serialize as null.
+      properties:
+        valid: { type: boolean }
+        busVoltage: { type: number, nullable: true }
+        current: { type: number, nullable: true }
+        power: { type: number, nullable: true }
+    Pump:
+      type: object
+      properties:
+        name: { type: string, enum: [plant, reservoir] }
+        running: { type: boolean }
+        currentRunTimeMs: { type: integer }
+        accumulatedRunTimeMs: { type: integer }
+        lastStopReason:
+          type: string
+          enum: [none, commanded, duration_elapsed, max_runtime_forced]
+
+    # -- Responses ---------------------------------------------------------
+    StatusResponse:
+      allOf:
+        - { $ref: "#/components/schemas/SuccessEnvelope" }
+        - type: object
+          properties:
+            mode: { type: string, enum: [manual, automatic] }
+            wifi:
+              type: object
+              properties:
+                state: { type: string, enum: [provisioning, connecting, connected, reconnecting, reconnect_paused] }
+                rssi: { type: integer }
+                ssid: { type: string }
+                connected: { type: boolean }
+                ipAcquired: { type: boolean }
+                ip: { type: string }
+            time:
+              type: object
+              properties:
+                synced: { type: boolean }
+                epoch: { type: integer, format: int64 }
+                local: { type: string }
+                lastSync: { type: integer, format: int64 }
+            uptimeMs: { type: integer, format: int64 }
+            resetReason: { type: string }
+            firmware:
+              type: object
+              properties:
+                version: { type: string }
+                project: { type: string }
+            storage:
+              type: object
+              properties:
+                totalBytes: { type: integer, format: int64 }
+                usedBytes: { type: integer, format: int64 }
+                percentUsed: { type: number, nullable: true }
+            power:
+              nullable: true
+              allOf: [ { $ref: "#/components/schemas/Power" } ]
+    SensorsResponse:
+      allOf:
+        - { $ref: "#/components/schemas/SuccessEnvelope" }
+        - type: object
+          properties:
+            environmental:
+              type: object
+              properties:
+                valid: { type: boolean }
+                temperature: { type: number, nullable: true }
+                humidity: { type: number, nullable: true }
+                pressure: { type: number, nullable: true }
+            soil:
+              type: object
+              description: NPK channels (nitrogen/phosphorus/potassium) appear only when the sensor reported them.
+              properties:
+                valid: { type: boolean }
+                moisture: { type: number, nullable: true }
+                temperature: { type: number, nullable: true }
+                humidity: { type: number, nullable: true }
+                ph: { type: number, nullable: true }
+                ec: { type: number, nullable: true }
+                nitrogen: { type: number, nullable: true }
+                phosphorus: { type: number, nullable: true }
+                potassium: { type: number, nullable: true }
+            level:
+              type: object
+              properties:
+                low: { $ref: "#/components/schemas/LevelMark" }
+                high: { $ref: "#/components/schemas/LevelMark" }
+            power:
+              nullable: true
+              allOf: [ { $ref: "#/components/schemas/Power" } ]
+            timestamp: { type: integer, format: int64, nullable: true }
+    LevelMark:
+      type: object
+      properties:
+        valid: { type: boolean }
+        waterPresent: { type: boolean }
+    HistoryResponse:
+      allOf:
+        - { $ref: "#/components/schemas/SuccessEnvelope" }
+        - type: object
+          properties:
+            timestamps: { type: array, items: { type: integer, format: int64 } }
+            values: { type: array, items: { type: number } }
+            metric: { type: string }
+            reading: { type: string, nullable: true }
+            start: { type: integer, format: int64 }
+            end: { type: integer, format: int64 }
+            count: { type: integer }
+    PumpListResponse:
+      allOf:
+        - { $ref: "#/components/schemas/SuccessEnvelope" }
+        - type: object
+          properties:
+            pumps: { type: array, items: { $ref: "#/components/schemas/Pump" } }
+    PumpResponse:
+      allOf:
+        - { $ref: "#/components/schemas/SuccessEnvelope" }
+        - { $ref: "#/components/schemas/Pump" }
+    PumpCommand:
+      type: object
+      required: [action]
+      properties:
+        action: { type: string, enum: [start, run, stop] }
+        durationS:
+          type: integer
+          minimum: 1
+          maximum: 300
+          description: Required for start/run; absent for stop.
+    ConfigResponse:
+      allOf:
+        - { $ref: "#/components/schemas/SuccessEnvelope" }
+        - { $ref: "#/components/schemas/ConfigFields" }
+    ConfigFields:
+      type: object
+      properties:
+        moistureThresholdLow: { type: number, nullable: true }
+        moistureThresholdHigh: { type: number, nullable: true }
+        wateringDurationS: { type: integer }
+        minWateringIntervalS: { type: integer }
+        wateringEnabled: { type: boolean }
+        sensorReadIntervalMs: { type: integer }
+        dataLogIntervalMs: { type: integer }
+    ConfigSetRequest:
+      type: object
+      description: Any subset of the settable fields; all-or-nothing validation.
+      properties:
+        moistureThresholdLow: { type: number, minimum: 0, maximum: 100 }
+        moistureThresholdHigh: { type: number, minimum: 0, maximum: 100 }
+        wateringDurationS: { type: integer, minimum: 1, maximum: 300 }
+        minWateringIntervalS: { type: integer, minimum: 1 }
+        wateringEnabled: { type: boolean }
+        sensorReadIntervalMs: { type: integer, minimum: 1000 }
+        dataLogIntervalMs: { type: integer, minimum: 60000 }
+    PowerResponse:
+      allOf:
+        - { $ref: "#/components/schemas/SuccessEnvelope" }
+        - { $ref: "#/components/schemas/Power" }
+    PowerUnavailableResponse:
+      allOf:
+        - { $ref: "#/components/schemas/SuccessEnvelope" }
+        - type: object
+          properties:
+            available: { type: boolean, enum: [false] }
+            power: { nullable: true }
+    EventsResponse:
+      allOf:
+        - { $ref: "#/components/schemas/SuccessEnvelope" }
+        - type: object
+          properties:
+            events:
+              type: array
+              items:
+                type: object
+                properties:
+                  epoch: { type: integer, format: int64 }
+                  category: { type: integer, description: "Raw category id (1=pump, 2=failsafe, 3=connectivity, 4=ota, 5=reset)." }
+                  categoryName:
+                    type: string
+                    description: Present only for a known category id.
+                    enum: [pump, failsafe, connectivity, ota, reset]
+                  detail: { type: string }
+    SelfTestResponse:
+      allOf:
+        - { $ref: "#/components/schemas/SuccessEnvelope" }
+        - type: object
+          properties:
+            overall: { type: boolean }
+            checks:
+              type: array
+              items:
+                type: object
+                properties:
+                  name: { type: string }
+                  ok: { type: boolean }
+                  detail: { type: string }

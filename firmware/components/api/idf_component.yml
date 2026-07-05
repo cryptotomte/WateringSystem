@@ -1,0 +1,9 @@
+# Managed dependencies for the api component (feature 009 / PR-09).
+#
+# cJSON is NOT a built-in IDF v6 component (the old `json` component was removed
+# and moved to the component registry). It is pure C and builds on both the
+# esp32 targets and the linux preview target, so the pure serializers/parsers
+# stay host-testable. Pinned exactly (reproducible-builds constitution rule);
+# dependencies.lock records it.
+dependencies:
+  espressif/cjson: "==1.7.19~2"

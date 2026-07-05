@@ -6,7 +6,7 @@ idf_component_register(
     PRIV_REQUIRES board esp_driver_gpio esp_app_format
                   actuators interfaces console esp_timer
                   storage nvs_flash sensors esp_netif esp_event
-                  network time events esp_system
+                  network time events esp_system api
 )
 
 # Build-time littlefs image of the committed seed directory

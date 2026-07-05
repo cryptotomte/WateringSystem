@@ -52,6 +52,7 @@
 #include "sensors/Ina226Sensor.h"
 #include "sensors/LockedPowerSensor.h"
 #endif
+#include "api/ApiServer.h"
 #include "network/EspWifiDriver.h"
 #include "network/ProvisioningPortal.h"
 #include "network/WifiBootMode.h"
@@ -416,10 +417,11 @@ extern "C" void app_main(void)
                                (event_err == ESP_OK) &&
                                (wifi_init_err == ESP_OK);
 
-    // Set later in the station branch; used both to start the wifi task and to
-    // register the manager with the diag console below. Stays nullptr in
-    // provisioning mode and whenever WiFi init failed (the console `wifi`
-    // command then reports unavailable).
+    // Set to &wifi_manager_inst in the station branch; used to start the wifi
+    // task, to register the manager with the diag console below, and by the
+    // /api/v1/status handler (feature 009 US1) via its by-value snapshot(). Stays
+    // nullptr in provisioning mode and whenever WiFi init failed (the console
+    // `wifi` command then reports unavailable, and no ApiServer is built there).
     WifiManager *wifi_manager = nullptr;
 
     if (!wifi_stack_ok) {
@@ -658,18 +660,48 @@ extern "C" void app_main(void)
     // sensor failed init above — lazy re-init recovers later (parity).
     sensor_task_start(env_sensor);
 
-    // System observer (feature 008 US2): edge-detects WiFi state changes and
-    // pump start/stop and forwards them to the event log. Function-local static
-    // after pumps_force_off() (boot fail-safe rule): it stores only references/
-    // pointers and never touches pump control. wifi_manager is nullptr in
-    // provisioning/headless mode (the observer null-guards it); the pump set is
-    // capability-aware (rev2 single-pump node passes no reservoir). Polled from
-    // the 10 Hz loop below.
+    // /api/v1/ HTTP server (feature 009 US1). Constructed here — after EVERY
+    // sensor plus the config/storage/clock it reports exist — and only in
+    // station mode (wifi_manager is nullptr in provisioning/headless mode, so no
+    // server is built there). Function-local static inside the guard (boot
+    // fail-safe rule: no non-trivial static/global constructors). It holds only
+    // borrowed references (the WifiManager read via its by-value snapshot(), the
+    // sensors via their Locked* wrappers) and is started lazily by the
+    // SystemObserver on the first Connected transition (below), mirroring the
+    // SNTP lifecycle — it is NOT watchdog-subscribed and shares no mutex with
+    // watering beyond the Locked* wrappers (FR-015). pumps_force_off() already
+    // ran first (top of app_main); nothing here touches pump control.
+    api::ApiServer *api_server = nullptr;
+    if (wifi_manager != nullptr) {
+        static api::ApiServer api_server_inst(
+            config, storage, env_sensor, soil_sensor, level_low, level_high,
+            *wifi_manager, wall_clock, sntp, time_provider, plant
 #if BOARD_HAS_RESERVOIR_PUMP
-    static SystemObserver observer(event_logger, wifi_manager, &sntp, &plant,
-                                   &reservoir);
+            ,
+            reservoir
+#endif
+#if BOARD_HAS_INA226
+            ,
+            power_sensor
+#endif
+        );
+        api_server = &api_server_inst;
+    }
+
+    // System observer (feature 008 US2 + feature 009 US1): edge-detects WiFi
+    // state changes and pump start/stop and forwards them to the event log, and
+    // starts SNTP + the API server on the first Connected transition.
+    // Function-local static after pumps_force_off() (boot fail-safe rule): it
+    // stores only references/pointers and never touches pump control.
+    // wifi_manager and api_server are nullptr in provisioning/headless mode (the
+    // observer null-guards them); the pump set is capability-aware (rev2
+    // single-pump node passes no reservoir). Polled from the 10 Hz loop below.
+#if BOARD_HAS_RESERVOIR_PUMP
+    static SystemObserver observer(event_logger, wifi_manager, &sntp, api_server,
+                                   &plant, &reservoir);
 #else
-    static SystemObserver observer(event_logger, wifi_manager, &sntp, &plant);
+    static SystemObserver observer(event_logger, wifi_manager, &sntp, api_server,
+                                   &plant);
 #endif
 
     // Main loop: poll pump enforcement (every pump that exists on this
