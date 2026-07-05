@@ -22,6 +22,7 @@
 #include "cJSON.h"
 
 #include "api/ApiDtos.h"
+#include "api/ApiEnvelope.h"
 #include "api/ApiRequests.h"
 #include "api/ApiSerialize.h"
 
@@ -637,6 +638,51 @@ void test_named_range_to_window(void)
     TEST_ASSERT_EQUAL_UINT32(99u, t1);
 }
 
+// --- error envelope ------------------------------------------------------
+
+void test_error_body_shape(void)
+{
+    std::string body = api::errorBody("x");
+    cJSON* root = cJSON_Parse(body.c_str());
+    TEST_ASSERT_NOT_NULL(root);
+
+    TEST_ASSERT_FALSE(cJSON_IsTrue(cJSON_GetObjectItem(root, "success")));
+    TEST_ASSERT_EQUAL_STRING(
+        "x", cJSON_GetObjectItem(root, "error")->valuestring);
+
+    cJSON_Delete(root);
+}
+
+void test_not_found_body_shape(void)
+{
+    std::string body = api::notFoundBody();
+    cJSON* root = cJSON_Parse(body.c_str());
+    TEST_ASSERT_NOT_NULL(root);
+
+    TEST_ASSERT_FALSE(cJSON_IsTrue(cJSON_GetObjectItem(root, "success")));
+    TEST_ASSERT_EQUAL_STRING(
+        "not found", cJSON_GetObjectItem(root, "error")->valuestring);
+
+    cJSON_Delete(root);
+}
+
+void test_status_line_mapping(void)
+{
+    // The enum -> HTTP status line map is total and cannot drift from the enum.
+    TEST_ASSERT_EQUAL_STRING("200 OK", api::statusLine(api::ApiStatus::Ok));
+    TEST_ASSERT_EQUAL_STRING(
+        "400 Bad Request", api::statusLine(api::ApiStatus::BadRequest));
+    TEST_ASSERT_EQUAL_STRING(
+        "404 Not Found", api::statusLine(api::ApiStatus::NotFound));
+    TEST_ASSERT_EQUAL_STRING(
+        "409 Conflict", api::statusLine(api::ApiStatus::Conflict));
+    TEST_ASSERT_EQUAL_STRING(
+        "500 Internal Server Error",
+        api::statusLine(api::ApiStatus::InternalError));
+    TEST_ASSERT_EQUAL_STRING(
+        "501 Not Implemented", api::statusLine(api::ApiStatus::NotImplemented));
+}
+
 }  // namespace
 
 void run_api_serialize_tests(void)
@@ -660,4 +706,7 @@ void run_api_serialize_tests(void)
     RUN_TEST(test_events_array_fields_and_order);
     RUN_TEST(test_selftest_overall_and_checks);
     RUN_TEST(test_named_range_to_window);
+    RUN_TEST(test_error_body_shape);
+    RUN_TEST(test_not_found_body_shape);
+    RUN_TEST(test_status_line_mapping);
 }
