@@ -10,6 +10,7 @@
 
 #include "esp_log.h"
 #include "esp_task_wdt.h"
+#include "freertos/FreeRTOS.h"  // portNUM_PROCESSORS
 #include "sdkconfig.h"
 
 static const char *TAG = "task_wdt";
@@ -22,7 +23,11 @@ esp_err_t watchdog_init()
     // (CONFIG_ESP_TASK_WDT_PANIC=y) and re-asserted here.
     esp_task_wdt_config_t cfg = {
         .timeout_ms = (uint32_t)CONFIG_WS_TASK_WDT_TIMEOUT_S * 1000u,
-        .idle_core_mask = 0,        // leave idle-task watching as configured by sdkconfig
+        // Watch the idle task on every core, preserving the CONFIG_ESP_TASK_WDT_INIT
+        // default (esp_task_wdt_reconfigure applies the FULL config, so a 0 mask
+        // would UNsubscribe the idle tasks). This keeps the per-core hang detector
+        // in addition to the explicitly-subscribed watering-critical tasks.
+        .idle_core_mask = (1 << portNUM_PROCESSORS) - 1,
         .trigger_panic = true,
     };
     esp_err_t err = esp_task_wdt_reconfigure(&cfg);

@@ -351,12 +351,16 @@ extern "C" void app_main(void)
     static SntpClient sntp;
     sntp.applyTimezone();
 
-    // Record why this boot happened (watchdog/panic/brownout/power-on) exactly
-    // once, before anything else can reset the reason. The pump fail-safe still
-    // ran first (top of app_main); this only observes the cause.
+    // Record why this boot happened (watchdog/panic/brownout/power-on).
+    // esp_reset_reason() is RTC-latched and not cleared by watchdog_init(), so
+    // ordering is not load-bearing; log it early for clarity. Also ESP_LOGI it
+    // to serial so the reason is visible independent of the event store (which
+    // may drop the event if the log is full). The pump fail-safe still ran first
+    // (top of app_main); this only observes the cause.
     const esp_reset_reason_t reset_reason = esp_reset_reason();
-    event_logger.logReset(static_cast<int>(reset_reason),
-                          resetReasonName(static_cast<int>(reset_reason)));
+    ESP_LOGI(TAG, "reset reason: %s",
+             resetReasonName(static_cast<int>(reset_reason)));
+    event_logger.logReset(static_cast<int>(reset_reason));
 
     // One-line usage report (parity: storage usage in the serial status
     // block; FR-008).

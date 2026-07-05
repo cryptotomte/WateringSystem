@@ -35,8 +35,8 @@
  * @brief Map an esp_reset_reason_t integer value to a short name.
  *
  * Pure free function (no IDF include): the caller passes
- * static_cast<int>(esp_reset_reason()). Total over the ESP_RST_* values known
- * at authoring time (0..10); any other value returns "UNKNOWN". Host-tested.
+ * static_cast<int>(esp_reset_reason()). Total over the ESP_RST_* values defined
+ * by IDF v6 (0..15); any other value returns "UNKNOWN". Host-tested.
  */
 const char* resetReasonName(int espResetReason);
 
@@ -51,9 +51,9 @@ public:
         : storage_(storage), clock_(clock) {}
 
     /// kCategoryReset, detail "reset=<reasonName>" (e.g. "reset=TASK_WDT").
-    /// `reason` is the raw esp_reset_reason_t int (kept for the caller's API
-    /// symmetry; the detail carries the human-readable name).
-    void logReset(int reason, const char* reasonName);
+    /// `reason` is the raw esp_reset_reason_t int; the detail is built from the
+    /// internal resetReasonName(reason) mapping so the name cannot mismatch.
+    void logReset(int reason);
 
     /// kCategoryConnectivity, detail "wifi=<stateName>" (e.g. "wifi=Connected").
     void logWifi(const char* stateName);

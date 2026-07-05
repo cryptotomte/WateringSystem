@@ -31,6 +31,13 @@ SntpClient* s_instance = nullptr;
 
 SntpClient::SntpClient()
 {
+    // Single-instance by design (the C-ABI sync callback has no user context and
+    // routes into s_instance). A second live instance would silently steal the
+    // callback route — flag it loudly rather than overwriting quietly.
+    if (s_instance != nullptr) {
+        ESP_LOGE(TAG, "second SntpClient constructed — sync callback routes to "
+                      "the latest instance only");
+    }
     s_instance = this;
 }
 
@@ -53,10 +60,10 @@ void SntpClient::applyTimezone()
     tzset();
 }
 
-void SntpClient::start()
+bool SntpClient::start()
 {
     if (started_) {
-        return;
+        return true;
     }
 
     esp_sntp_config_t cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG(CONFIG_WS_SNTP_SERVER);
@@ -65,15 +72,17 @@ void SntpClient::start()
 
     esp_err_t err = esp_netif_sntp_init(&cfg);
     if (err == ESP_ERR_INVALID_STATE) {
-        // Already initialised (idempotent re-invocation) — treat as success.
+        // Already initialised (idempotent re-invocation) — the service is
+        // running, so report success.
         started_ = true;
-        return;
+        return true;
     }
     if (err != ESP_OK) {
-        // Non-fatal: log and keep running. isTimeSet() stays false until a
-        // later attempt succeeds; the caller must never block on sync.
+        // Non-fatal: log and keep running. Init failed, so the service is NOT
+        // running; report failure so the caller can retry on a later Connected
+        // transition. The caller must never block on sync.
         ESP_LOGW(TAG, "esp_netif_sntp_init failed: %s", esp_err_to_name(err));
-        return;
+        return false;
     }
 
     // Step-set (immediate) mode: apply the server time in one jump rather than
@@ -81,6 +90,7 @@ void SntpClient::start()
     sntp_set_sync_mode(SNTP_SYNC_MODE_IMMED);
     ESP_LOGI(TAG, "SNTP started against %s", CONFIG_WS_SNTP_SERVER);
     started_ = true;
+    return true;
 }
 
 void SntpClient::onSyncCb(struct timeval* tv)
@@ -88,7 +98,10 @@ void SntpClient::onSyncCb(struct timeval* tv)
     if (s_instance == nullptr || tv == nullptr) {
         return;
     }
-    s_instance->status_.synced = true;
+    // synced() is derived from lastSyncEpoch, so stamping the epoch is the whole
+    // update. This runs on the SNTP task; the console `time` command reads
+    // status_ from the REPL task without a lock — a deliberate benign divergence
+    // (aligned word-size reads, diagnostic-only), so no Locked* wrapper is used.
     s_instance->status_.lastSyncEpoch = static_cast<uint32_t>(tv->tv_sec);
     ESP_LOGI(TAG, "wall clock synced: epoch=%u",
              static_cast<unsigned>(tv->tv_sec));

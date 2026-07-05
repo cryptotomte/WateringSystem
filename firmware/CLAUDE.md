@@ -388,8 +388,10 @@ Feature 008 (PR-08) adds two small components plus target-side glue in `main/`.
 local-time formatting via `<ctime>`, host-tested), the `IWallClock` target
 implementation `SystemWallClock` (`time(nullptr)`) and the `SntpClient` starter
 (`esp_netif_sntp` against `CONFIG_WS_SNTP_SERVER`, TZ `CET-1CEST,M3.5.0,M10.5.0/3`).
-`SystemWallClock.cpp` + `SntpClient.cpp` are the only IDF touchpoints (excluded
-from the linux build, same mechanism as storage/sensors/network). `app_main`
+`SntpClient.cpp` is the only genuine IDF touchpoint; `SystemWallClock.cpp` is
+pure POSIX (`time(nullptr)`), kept target-side by convention (the host injects
+`FakeWallClock`). Both are excluded from the linux build (same mechanism as
+storage/sensors/network). `app_main`
 constructs one `SntpClient`, calls `applyTimezone()` once at init, and the
 `SystemObserver` starts the SNTP service **once, on the first
 `WifiState::Connected` transition** (SNTP needs an IP) — never in

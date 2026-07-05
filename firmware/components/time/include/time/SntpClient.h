@@ -47,11 +47,13 @@ public:
      *
      * Initialises esp_netif_sntp against CONFIG_WS_SNTP_SERVER in step-set
      * (immediate) mode with the sync callback registered. Re-invocation is a
-     * no-op (an already-initialised service is treated as success). Failure to
-     * reach the server is non-fatal — logged as a warning; the SNTP service
-     * keeps retrying on its own.
+     * no-op (an already-initialised service is treated as success). Reaching the
+     * server later is the SNTP service's own job; this call never blocks on it.
+     *
+     * @return true if the SNTP service is now running (init OK, or already
+     *         inited); false if init failed — the caller should retry later.
      */
-    void start();
+    bool start();
 
     /// Immutable view of the current synchronisation state.
     const SyncStatus& status() const { return status_; }

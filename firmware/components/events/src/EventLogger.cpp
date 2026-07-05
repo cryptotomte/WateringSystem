@@ -27,6 +27,11 @@ const char* resetReasonName(int espResetReason)
         case 8:  return "DEEPSLEEP";  // ESP_RST_DEEPSLEEP
         case 9:  return "BROWNOUT";   // ESP_RST_BROWNOUT
         case 10: return "SDIO";       // ESP_RST_SDIO
+        case 11: return "USB";        // ESP_RST_USB
+        case 12: return "JTAG";       // ESP_RST_JTAG
+        case 13: return "EFUSE";      // ESP_RST_EFUSE
+        case 14: return "PWR_GLITCH"; // ESP_RST_PWR_GLITCH
+        case 15: return "CPU_LOCKUP"; // ESP_RST_CPU_LOCKUP
         default: return "UNKNOWN";
     }
 }
@@ -41,13 +46,12 @@ void EventLogger::emit(uint8_t category, const std::string& detail)
     }
 }
 
-void EventLogger::logReset(int reason, const char* reasonName)
+void EventLogger::logReset(int reason)
 {
-    // `reason` is retained in the API for caller symmetry; the detail carries
-    // the mapped human-readable name only (contract example: "reset=TASK_WDT").
-    (void)reason;
+    // The detail carries the mapped human-readable name only (contract example:
+    // "reset=TASK_WDT"); mapping internally makes a name mismatch unrepresentable.
     emit(IDataStorage::kCategoryReset,
-         std::string("reset=") + (reasonName ? reasonName : "UNKNOWN"));
+         std::string("reset=") + resetReasonName(reason));
 }
 
 void EventLogger::logWifi(const char* stateName)

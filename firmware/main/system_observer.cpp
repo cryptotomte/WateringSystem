@@ -15,7 +15,12 @@
 
 #include "system_observer.h"
 
+#include "esp_log.h"
+
 namespace {
+
+const char* TAG = "sys_observer";
+
 
 /// Short, stable name for each WifiState (matches the enum labels so the
 /// event detail reads e.g. "wifi=Connected"). Total over the enum.
@@ -38,6 +43,17 @@ void SystemObserver::poll()
     pollWifi();
     pollPump(plant_, "plant", plantLastRunning_);
     pollPump(reservoir_, "reservoir", reservoirLastRunning_);
+
+    // Give the pure logger's dropped-event counter a target-side voice: it can
+    // only count a failed store, so surface any increase here (mirrors the
+    // EspWifiDriver dropped-counter pattern). Never blocks or touches watering.
+    const uint32_t dropped = logger_.droppedEvents();
+    if (dropped > lastDropped_) {
+        ESP_LOGW(TAG, "event log dropped %u events (total %u)",
+                 static_cast<unsigned>(dropped - lastDropped_),
+                 static_cast<unsigned>(dropped));
+        lastDropped_ = dropped;
+    }
 }
 
 void SystemObserver::pollWifi()
@@ -59,8 +75,12 @@ void SystemObserver::pollWifi()
     // sntp_ is nullptr in provisioning/headless mode, so SNTP is simply never
     // started there.
     if (state == WifiState::Connected && sntp_ != nullptr && !sntpStarted_) {
-        sntp_->start();
-        sntpStarted_ = true;
+        // Latch only on success: a failed init (OOM/bad config) leaves the guard
+        // clear so the next Connected transition retries rather than permanently
+        // blocking sync.
+        if (sntp_->start()) {
+            sntpStarted_ = true;
+        }
     }
 }
 

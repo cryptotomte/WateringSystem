@@ -18,14 +18,16 @@
 #include <cstdint>
 
 #include "interfaces/IWallClock.h"
+#include "time/TimeService.h"
 
 /**
  * @brief Manually settable wall clock for deterministic host tests.
  */
 class FakeWallClock : public IWallClock {
 public:
-    /// 2020-01-01T00:00:00Z — mirrors TimeService::kMinPlausibleEpoch.
-    static constexpr uint32_t kDefaultThreshold = 1577836800u;
+    /// 2020-01-01T00:00:00Z — the shared plausibility threshold (compile-time
+    /// reference, not a hand-copied literal).
+    static constexpr uint32_t kDefaultThreshold = TimeService::kMinPlausibleEpoch;
 
     /// Start unset (epoch 0) unless a starting epoch is supplied.
     explicit FakeWallClock(uint32_t startEpoch = 0,

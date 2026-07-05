@@ -35,7 +35,7 @@ void test_log_reset_writes_one_reset_event(void)
     FakeWallClock clock(kFixedEpoch);
     EventLogger logger(store, clock);
 
-    logger.logReset(6 /* ESP_RST_TASK_WDT */, resetReasonName(6));
+    logger.logReset(6 /* ESP_RST_TASK_WDT */);
 
     TEST_ASSERT_EQUAL_size_t(1u, store.events.size());
     TEST_ASSERT_EQUAL_UINT32(kFixedEpoch, store.events[0].epoch);
@@ -101,7 +101,7 @@ void test_write_failure_increments_dropped_and_never_crashes(void)
     store.failWrites = true;
 
     // Every producer path is exercised; none may throw and none may store.
-    logger.logReset(1, resetReasonName(1));
+    logger.logReset(1);
     logger.logWifi("Reconnecting");
     logger.logPumpStart("plant", "unknown");
     logger.logPumpStop("plant", "unknown");

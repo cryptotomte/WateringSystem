@@ -17,7 +17,11 @@ std::string TimeService::formatLocal(uint32_t epoch)
 {
     time_t t = static_cast<time_t>(epoch);
     struct tm lt;
-    localtime_r(&t, &lt);
+    if (localtime_r(&t, &lt) == nullptr) {
+        // Conversion failed (e.g. out-of-range time_t) — never format an
+        // uninitialised tm; return a sentinel instead.
+        return std::string("(time unavailable)");
+    }
     char buf[32];
     strftime(buf, sizeof buf, "%Y-%m-%d %H:%M:%S %z", &lt);
     return std::string(buf);

@@ -857,7 +857,7 @@ int time_cmd(int argc, char **argv)
         return 0;
     }
     const std::string now = TimeService::formatLocal(s_clock->nowEpoch());
-    if (s_sync != nullptr && s_sync->synced) {
+    if (s_sync != nullptr && s_sync->synced()) {
         const std::string last = TimeService::formatLocal(s_sync->lastSyncEpoch);
         printf("OK %s (last sync %s)\n", now.c_str(), last.c_str());
     } else {

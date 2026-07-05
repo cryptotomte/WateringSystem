@@ -86,10 +86,17 @@ private:
     WifiState lastWifiState_ = WifiState::Provisioning;
     bool haveWifiState_ = false;
 
-    // SNTP is started exactly once, on the first transition into Connected.
-    // SntpClient::start() is itself idempotent; this guard avoids calling it on
-    // every later Connected transition.
+    // SNTP is started exactly once, on the first Connected transition where
+    // start() reports success. SntpClient::start() is itself idempotent; this
+    // guard avoids calling it on every later Connected transition, but a failed
+    // init leaves it false so the next Connected transition retries.
     bool sntpStarted_ = false;
+
+    // Last observed EventLogger::droppedEvents() value. The pure logger only
+    // counts a failed store; poll() gives that counter a target-side voice by
+    // ESP_LOGW-ing the delta whenever it increases (mirrors EspWifiDriver's
+    // dropped-counter pattern).
+    uint32_t lastDropped_ = 0;
 
     // Pumps are forced OFF at boot (app_main invariant), so "not running" is
     // the correct initial edge baseline — no spurious start on the first poll.
