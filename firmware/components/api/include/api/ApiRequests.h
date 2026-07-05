@@ -24,6 +24,7 @@
 #ifndef WATERINGSYSTEM_API_APIREQUESTS_H
 #define WATERINGSYSTEM_API_APIREQUESTS_H
 
+#include <cstdint>
 #include <string>
 
 #include "api/ApiDtos.h"
@@ -69,6 +70,25 @@ ConfigSetResult parseConfigSet(const std::string& body);
  * type or malformed JSON is a rejection with an explanatory error.
  */
 PumpCommandResult parsePumpCommand(const std::string& body);
+
+/**
+ * @brief Resolve a named history range into an absolute [t0, t1] epoch window.
+ *
+ * Maps the named ranges to a look-back window ending at @p now:
+ *   - "1h"  -> now-3600
+ *   - "6h"  -> now-21600
+ *   - "24h" -> now-86400
+ *   - "7d"  -> now-604800
+ *   - "30d" -> now-2592000
+ *
+ * On a known range, writes @p t1 = now and @p t0 = now - <range seconds> and
+ * returns true. On an unknown range name, leaves @p t0 / @p t1 untouched and
+ * returns false (the handler then falls back to explicit start/end or the
+ * default 24 h window — that parsing is target-side, T019). Pure and total: no
+ * throw, no allocation beyond the comparison.
+ */
+bool namedRangeToWindow(const std::string& range, uint32_t now, uint32_t& t0,
+                        uint32_t& t1);
 
 }  // namespace api
 

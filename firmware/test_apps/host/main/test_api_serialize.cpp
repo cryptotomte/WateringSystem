@@ -22,6 +22,7 @@
 #include "cJSON.h"
 
 #include "api/ApiDtos.h"
+#include "api/ApiRequests.h"
 #include "api/ApiSerialize.h"
 
 namespace {
@@ -444,6 +445,197 @@ void test_config_serialize_all_fields_no_password(void)
     cJSON_Delete(root);
 }
 
+// --- history -------------------------------------------------------------
+
+void test_history_aligned_series_and_echo(void)
+{
+    api::HistorySeries series;
+    series.metric = "env_temperature";
+    series.reading = "temperature";
+    series.start = 1751000000;
+    series.end = 1751003600;
+    series.timestamps = {1751000000, 1751001800, 1751003600};
+    series.values = {21.5f, 22.0f, 22.5f};
+
+    std::string body = api::serializeHistory(series);
+    cJSON* root = cJSON_Parse(body.c_str());
+    TEST_ASSERT_NOT_NULL(root);
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(root, "success")));
+
+    cJSON* ts = cJSON_GetObjectItem(root, "timestamps");
+    cJSON* vals = cJSON_GetObjectItem(root, "values");
+    TEST_ASSERT_TRUE(cJSON_IsArray(ts));
+    TEST_ASSERT_TRUE(cJSON_IsArray(vals));
+    // timestamps[] and values[] are aligned 1:1.
+    TEST_ASSERT_EQUAL_INT(3, cJSON_GetArraySize(ts));
+    TEST_ASSERT_EQUAL_INT(3, cJSON_GetArraySize(vals));
+    TEST_ASSERT_EQUAL_DOUBLE(
+        1751001800.0, cJSON_GetArrayItem(ts, 1)->valuedouble);
+    TEST_ASSERT_EQUAL_DOUBLE(22.5, cJSON_GetArrayItem(vals, 2)->valuedouble);
+
+    // Echo fields.
+    TEST_ASSERT_EQUAL_STRING(
+        "env_temperature", cJSON_GetObjectItem(root, "metric")->valuestring);
+    TEST_ASSERT_EQUAL_STRING(
+        "temperature", cJSON_GetObjectItem(root, "reading")->valuestring);
+    TEST_ASSERT_EQUAL_DOUBLE(
+        1751000000.0, cJSON_GetObjectItem(root, "start")->valuedouble);
+    TEST_ASSERT_EQUAL_DOUBLE(
+        1751003600.0, cJSON_GetObjectItem(root, "end")->valuedouble);
+    TEST_ASSERT_EQUAL_DOUBLE(
+        3.0, cJSON_GetObjectItem(root, "count")->valuedouble);
+
+    cJSON_Delete(root);
+}
+
+void test_history_empty_series_empty_arrays(void)
+{
+    // A range with no data is a SUCCESS with empty arrays and count 0, never an
+    // error envelope.
+    api::HistorySeries series;
+    series.metric = "soil_moisture";
+    // reading left unset -> echoed as JSON null.
+    series.start = 1751000000;
+    series.end = 1751086400;
+
+    std::string body = api::serializeHistory(series);
+    cJSON* root = cJSON_Parse(body.c_str());
+    TEST_ASSERT_NOT_NULL(root);
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(root, "success")));
+
+    cJSON* ts = cJSON_GetObjectItem(root, "timestamps");
+    cJSON* vals = cJSON_GetObjectItem(root, "values");
+    TEST_ASSERT_TRUE(cJSON_IsArray(ts));
+    TEST_ASSERT_TRUE(cJSON_IsArray(vals));
+    TEST_ASSERT_EQUAL_INT(0, cJSON_GetArraySize(ts));
+    TEST_ASSERT_EQUAL_INT(0, cJSON_GetArraySize(vals));
+    TEST_ASSERT_EQUAL_DOUBLE(
+        0.0, cJSON_GetObjectItem(root, "count")->valuedouble);
+
+    // The reading echo key is present but JSON null when absent from the query.
+    cJSON* reading = cJSON_GetObjectItem(root, "reading");
+    TEST_ASSERT_NOT_NULL(reading);
+    TEST_ASSERT_TRUE(cJSON_IsNull(reading));
+
+    cJSON_Delete(root);
+}
+
+// --- events --------------------------------------------------------------
+
+void test_events_array_fields_and_order(void)
+{
+    // Caller supplies newest-first; order must be preserved verbatim.
+    std::vector<api::EventDto> events;
+    api::EventDto newest;
+    newest.epoch = 1751003600;
+    newest.category = 1;  // pump
+    newest.detail = "plant start 20s";
+    api::EventDto older;
+    older.epoch = 1751000000;
+    older.category = 3;  // connectivity
+    older.detail = "wifi connected";
+    events.push_back(newest);
+    events.push_back(older);
+
+    std::string body = api::serializeEvents(events);
+    cJSON* root = cJSON_Parse(body.c_str());
+    TEST_ASSERT_NOT_NULL(root);
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(root, "success")));
+
+    cJSON* arr = cJSON_GetObjectItem(root, "events");
+    TEST_ASSERT_TRUE(cJSON_IsArray(arr));
+    TEST_ASSERT_EQUAL_INT(2, cJSON_GetArraySize(arr));
+
+    cJSON* first = cJSON_GetArrayItem(arr, 0);
+    TEST_ASSERT_EQUAL_DOUBLE(
+        1751003600.0, cJSON_GetObjectItem(first, "epoch")->valuedouble);
+    TEST_ASSERT_EQUAL_DOUBLE(
+        1.0, cJSON_GetObjectItem(first, "category")->valuedouble);
+    TEST_ASSERT_EQUAL_STRING(
+        "plant start 20s", cJSON_GetObjectItem(first, "detail")->valuestring);
+
+    cJSON* second = cJSON_GetArrayItem(arr, 1);
+    TEST_ASSERT_EQUAL_DOUBLE(
+        1751000000.0, cJSON_GetObjectItem(second, "epoch")->valuedouble);
+    TEST_ASSERT_EQUAL_STRING(
+        "wifi connected", cJSON_GetObjectItem(second, "detail")->valuestring);
+
+    cJSON_Delete(root);
+}
+
+// --- self-test -----------------------------------------------------------
+
+void test_selftest_overall_and_checks(void)
+{
+    api::SelfTestResultDto result;
+    result.overall = false;  // one failing check drags overall down
+    api::SelfTestCheckDto env;
+    env.name = "environmental";
+    env.ok = true;
+    env.detail = "BME280 responding";
+    api::SelfTestCheckDto soil;
+    soil.name = "soil_rs485";
+    soil.ok = false;
+    soil.detail = "no response";
+    result.checks.push_back(env);
+    result.checks.push_back(soil);
+
+    std::string body = api::serializeSelfTest(result);
+    cJSON* root = cJSON_Parse(body.c_str());
+    TEST_ASSERT_NOT_NULL(root);
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(root, "success")));
+    TEST_ASSERT_FALSE(cJSON_IsTrue(cJSON_GetObjectItem(root, "overall")));
+
+    cJSON* checks = cJSON_GetObjectItem(root, "checks");
+    TEST_ASSERT_TRUE(cJSON_IsArray(checks));
+    TEST_ASSERT_EQUAL_INT(2, cJSON_GetArraySize(checks));
+
+    cJSON* first = cJSON_GetArrayItem(checks, 0);
+    TEST_ASSERT_EQUAL_STRING(
+        "environmental", cJSON_GetObjectItem(first, "name")->valuestring);
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(first, "ok")));
+
+    cJSON* second = cJSON_GetArrayItem(checks, 1);
+    TEST_ASSERT_EQUAL_STRING(
+        "soil_rs485", cJSON_GetObjectItem(second, "name")->valuestring);
+    TEST_ASSERT_FALSE(cJSON_IsTrue(cJSON_GetObjectItem(second, "ok")));
+    TEST_ASSERT_EQUAL_STRING(
+        "no response", cJSON_GetObjectItem(second, "detail")->valuestring);
+
+    cJSON_Delete(root);
+}
+
+// --- named range helper --------------------------------------------------
+
+void test_named_range_to_window(void)
+{
+    const uint32_t now = 1751000000u;
+    uint32_t t0 = 0;
+    uint32_t t1 = 0;
+
+    struct { const char* name; uint32_t seconds; } cases[] = {
+        {"1h", 3600u},
+        {"6h", 21600u},
+        {"24h", 86400u},
+        {"7d", 604800u},
+        {"30d", 2592000u},
+    };
+    for (const auto& c : cases) {
+        t0 = 0;
+        t1 = 0;
+        TEST_ASSERT_TRUE(api::namedRangeToWindow(c.name, now, t0, t1));
+        TEST_ASSERT_EQUAL_UINT32(now, t1);
+        TEST_ASSERT_EQUAL_UINT32(now - c.seconds, t0);
+    }
+
+    // Unknown range name -> false; out params left untouched.
+    t0 = 42u;
+    t1 = 99u;
+    TEST_ASSERT_FALSE(api::namedRangeToWindow("bogus", now, t0, t1));
+    TEST_ASSERT_EQUAL_UINT32(42u, t0);
+    TEST_ASSERT_EQUAL_UINT32(99u, t1);
+}
+
 }  // namespace
 
 void run_api_serialize_tests(void)
@@ -462,4 +654,9 @@ void run_api_serialize_tests(void)
     RUN_TEST(test_pump_serialize_fields);
     RUN_TEST(test_pump_list_serialize_array);
     RUN_TEST(test_config_serialize_all_fields_no_password);
+    RUN_TEST(test_history_aligned_series_and_echo);
+    RUN_TEST(test_history_empty_series_empty_arrays);
+    RUN_TEST(test_events_array_fields_and_order);
+    RUN_TEST(test_selftest_overall_and_checks);
+    RUN_TEST(test_named_range_to_window);
 }

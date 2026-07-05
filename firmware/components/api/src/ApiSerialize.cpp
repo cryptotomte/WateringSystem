@@ -220,4 +220,77 @@ std::string serializeConfig(const ConfigDto& config)
     return successBody(root);
 }
 
+std::string serializeHistory(const HistorySeries& series)
+{
+    cJSON* root = cJSON_CreateObject();
+
+    // Aligned timestamps[]/values[]. Empty vectors serialize as empty arrays
+    // (a range with no data is a success, never an error).
+    cJSON* timestamps = cJSON_CreateArray();
+    for (int64_t ts : series.timestamps) {
+        cJSON_AddItemToArray(timestamps,
+                             cJSON_CreateNumber(static_cast<double>(ts)));
+    }
+    cJSON_AddItemToObject(root, "timestamps", timestamps);
+
+    cJSON* values = cJSON_CreateArray();
+    for (float v : series.values) {
+        cJSON_AddItemToArray(values,
+                             cJSON_CreateNumber(static_cast<double>(v)));
+    }
+    cJSON_AddItemToObject(root, "values", values);
+
+    // Echo of the resolved query.
+    cJSON_AddStringToObject(root, "metric", series.metric.c_str());
+    if (series.reading.has_value()) {
+        cJSON_AddStringToObject(root, "reading", series.reading->c_str());
+    } else {
+        cJSON_AddNullToObject(root, "reading");
+    }
+    cJSON_AddNumberToObject(root, "start", static_cast<double>(series.start));
+    cJSON_AddNumberToObject(root, "end", static_cast<double>(series.end));
+    cJSON_AddNumberToObject(root, "count",
+                            static_cast<double>(series.timestamps.size()));
+
+    return successBody(root);
+}
+
+std::string serializeEvents(const std::vector<EventDto>& events)
+{
+    cJSON* root = cJSON_CreateObject();
+    cJSON* arr = cJSON_CreateArray();
+    // Order is preserved as given (caller supplies newest-first).
+    for (const EventDto& ev : events) {
+        cJSON* obj = cJSON_CreateObject();
+        cJSON_AddNumberToObject(obj, "epoch", static_cast<double>(ev.epoch));
+        cJSON_AddNumberToObject(obj, "category",
+                                static_cast<double>(ev.category));
+        if (ev.categoryName.has_value()) {
+            cJSON_AddStringToObject(obj, "categoryName",
+                                    ev.categoryName->c_str());
+        }
+        cJSON_AddStringToObject(obj, "detail", ev.detail.c_str());
+        cJSON_AddItemToArray(arr, obj);
+    }
+    cJSON_AddItemToObject(root, "events", arr);
+    return successBody(root);
+}
+
+std::string serializeSelfTest(const SelfTestResultDto& result)
+{
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "overall", result.overall);
+
+    cJSON* checks = cJSON_CreateArray();
+    for (const SelfTestCheckDto& check : result.checks) {
+        cJSON* obj = cJSON_CreateObject();
+        cJSON_AddStringToObject(obj, "name", check.name.c_str());
+        cJSON_AddBoolToObject(obj, "ok", check.ok);
+        cJSON_AddStringToObject(obj, "detail", check.detail.c_str());
+        cJSON_AddItemToArray(checks, obj);
+    }
+    cJSON_AddItemToObject(root, "checks", checks);
+    return successBody(root);
+}
+
 }  // namespace api

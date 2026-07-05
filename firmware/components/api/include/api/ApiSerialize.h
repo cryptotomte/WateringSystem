@@ -96,6 +96,34 @@ std::string serializePumpList(const std::vector<PumpDto>& pumps);
  */
 std::string serializeConfig(const ConfigDto& config);
 
+/**
+ * @brief Serialize a HistorySeries to the GET history success body.
+ *
+ * Emits `{ success, timestamps:[...], values:[...], metric, reading, start,
+ * end, count }`. `timestamps` and `values` are aligned 1:1; `count` is the
+ * number of points. A range with no data serializes as empty arrays and
+ * `count: 0` (a success, NOT an error). `reading` is a string when the query
+ * carried one, otherwise JSON null (the echo key stays present either way).
+ */
+std::string serializeHistory(const HistorySeries& series);
+
+/**
+ * @brief Serialize a list of EventDto to the GET events success body.
+ *
+ * Emits `{ success, events:[ { epoch, category, detail }, ... ] }`. Order is
+ * preserved exactly as given (the caller supplies them newest-first from
+ * IDataStorage::getEvents). `categoryName` is emitted only when the DTO carries
+ * a known human name (optional set).
+ */
+std::string serializeEvents(const std::vector<EventDto>& events);
+
+/**
+ * @brief Serialize a SelfTestResultDto to the POST selftest success body.
+ *
+ * Emits `{ success, overall, checks:[ { name, ok, detail }, ... ] }`.
+ */
+std::string serializeSelfTest(const SelfTestResultDto& result);
+
 }  // namespace api
 
 #endif /* WATERINGSYSTEM_API_APISERIALIZE_H */

@@ -234,4 +234,27 @@ PumpCommandResult parsePumpCommand(const std::string& body)
     return result;
 }
 
+bool namedRangeToWindow(const std::string& range, uint32_t now, uint32_t& t0,
+                        uint32_t& t1)
+{
+    uint32_t span = 0;
+    if (range == "1h") {
+        span = 3600u;
+    } else if (range == "6h") {
+        span = 21600u;
+    } else if (range == "24h") {
+        span = 86400u;
+    } else if (range == "7d") {
+        span = 604800u;
+    } else if (range == "30d") {
+        span = 2592000u;
+    } else {
+        return false;  // unknown range name: leave t0/t1 untouched.
+    }
+
+    t1 = now;
+    t0 = now - span;
+    return true;
+}
+
 }  // namespace api
