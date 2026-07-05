@@ -2,16 +2,354 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * @file test_api_serialize.cpp
- * @brief Host suite for the pure API JSON serializers (feature 009).
+ * @brief Host suite for the pure API JSON serializers (feature 009, US1/T007).
  *
- * Registers the DTO -> JSON serializer tests. The serializers arrive with the
- * user stories (T009 status/sensors/power, T015 pumps/config, T018 history/
- * events/self-test), so this suite is an empty-but-linking stub for now.
+ * Builds DTOs with known values, runs the serializers, re-parses the output
+ * with cJSON and asserts the envelope shape and field contents. Covers the
+ * US1 read serializers (status / sensors / power) plus the safety invariants:
+ * the wifi password never appears, rev1 power serializes as JSON null, a
+ * `valid=false` soil section is still emitted (non-finite values as null), NPK
+ * channels appear only when their has-flag is set, and a not-set clock
+ * serializes without a bogus epoch.
  */
+
+#include <cmath>
+#include <string>
 
 #include "unity.h"
 
+#include "cJSON.h"
+
+#include "api/ApiDtos.h"
+#include "api/ApiSerialize.h"
+
+namespace {
+
+// --- helpers -------------------------------------------------------------
+
+/// A representative, fully-populated status DTO (rev2, power present).
+api::SystemStatusDto makeStatus()
+{
+    api::SystemStatusDto s;
+    s.mode = "automatic";
+    s.wifi.state = "connected";
+    s.wifi.rssi = -57;
+    s.wifi.ssid = "greenhouse";
+    s.wifi.connected = true;
+    s.wifi.ipAcquired = true;
+    s.wifi.ip = "192.168.1.42";
+    s.time.synced = true;
+    s.time.epoch = 1751000000;
+    s.time.local = "2026-06-27 08:13:20 +0200";
+    s.time.lastSync = 1750999000;
+    s.uptimeMs = 123456;
+    s.resetReason = "POWERON";
+    s.firmware.version = "3.0.0-dev";
+    s.firmware.project = "WateringSystem";
+    s.storage.totalBytes = 960000;
+    s.storage.usedBytes = 48000;
+    s.storage.percentUsed = 5.0f;
+    s.hasPower = true;
+    s.power.valid = true;
+    s.power.busVoltage = 12.1f;
+    s.power.current = 0.35f;
+    s.power.power = 4.235f;
+    return s;
+}
+
+// --- status --------------------------------------------------------------
+
+void test_status_envelope_and_fields(void)
+{
+    std::string body = api::serializeStatus(makeStatus());
+    cJSON* root = cJSON_Parse(body.c_str());
+    TEST_ASSERT_NOT_NULL(root);
+
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(root, "success")));
+    TEST_ASSERT_EQUAL_STRING(
+        "automatic", cJSON_GetObjectItem(root, "mode")->valuestring);
+
+    cJSON* wifi = cJSON_GetObjectItem(root, "wifi");
+    TEST_ASSERT_NOT_NULL(wifi);
+    TEST_ASSERT_EQUAL_STRING(
+        "connected", cJSON_GetObjectItem(wifi, "state")->valuestring);
+    TEST_ASSERT_EQUAL_INT(-57, cJSON_GetObjectItem(wifi, "rssi")->valueint);
+    TEST_ASSERT_EQUAL_STRING(
+        "greenhouse", cJSON_GetObjectItem(wifi, "ssid")->valuestring);
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(wifi, "connected")));
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(wifi, "ipAcquired")));
+    TEST_ASSERT_EQUAL_STRING(
+        "192.168.1.42", cJSON_GetObjectItem(wifi, "ip")->valuestring);
+
+    cJSON* time = cJSON_GetObjectItem(root, "time");
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(time, "synced")));
+    TEST_ASSERT_EQUAL_DOUBLE(
+        1751000000.0, cJSON_GetObjectItem(time, "epoch")->valuedouble);
+
+    cJSON* fw = cJSON_GetObjectItem(root, "firmware");
+    TEST_ASSERT_EQUAL_STRING(
+        "3.0.0-dev", cJSON_GetObjectItem(fw, "version")->valuestring);
+    TEST_ASSERT_EQUAL_STRING(
+        "WateringSystem", cJSON_GetObjectItem(fw, "project")->valuestring);
+
+    cJSON* st = cJSON_GetObjectItem(root, "storage");
+    TEST_ASSERT_EQUAL_DOUBLE(
+        960000.0, cJSON_GetObjectItem(st, "totalBytes")->valuedouble);
+
+    cJSON_Delete(root);
+}
+
+void test_status_never_serializes_wifi_password(void)
+{
+    // There is no password field anywhere in the DTO; assert the key is absent
+    // at the top level and inside the wifi block (defence in depth).
+    std::string body = api::serializeStatus(makeStatus());
+    cJSON* root = cJSON_Parse(body.c_str());
+    TEST_ASSERT_NOT_NULL(root);
+
+    TEST_ASSERT_NULL(cJSON_GetObjectItem(root, "password"));
+    cJSON* wifi = cJSON_GetObjectItem(root, "wifi");
+    TEST_ASSERT_NULL(cJSON_GetObjectItem(wifi, "password"));
+    TEST_ASSERT_NULL(cJSON_GetObjectItem(wifi, "pass"));
+
+    // Belt-and-braces: the literal substring never appears in the raw body.
+    TEST_ASSERT_TRUE(body.find("password") == std::string::npos);
+
+    cJSON_Delete(root);
+}
+
+void test_status_rev1_power_is_json_null(void)
+{
+    api::SystemStatusDto s = makeStatus();
+    s.hasPower = false;  // rev1: no INA226
+
+    std::string body = api::serializeStatus(s);
+    cJSON* root = cJSON_Parse(body.c_str());
+    TEST_ASSERT_NOT_NULL(root);
+
+    cJSON* power = cJSON_GetObjectItem(root, "power");
+    TEST_ASSERT_NOT_NULL(power);          // key present
+    TEST_ASSERT_TRUE(cJSON_IsNull(power));  // value is JSON null
+
+    cJSON_Delete(root);
+}
+
+void test_status_not_set_clock_still_serializes(void)
+{
+    // Un-synced boot state: epoch below the plausibility threshold (0).
+    api::SystemStatusDto s = makeStatus();
+    s.time.synced = false;
+    s.time.epoch = 0;
+    s.time.local = "";
+    s.time.lastSync = 0;
+
+    std::string body = api::serializeStatus(s);
+    cJSON* root = cJSON_Parse(body.c_str());
+    TEST_ASSERT_NOT_NULL(root);
+
+    cJSON* time = cJSON_GetObjectItem(root, "time");
+    TEST_ASSERT_NOT_NULL(time);
+    TEST_ASSERT_FALSE(cJSON_IsTrue(cJSON_GetObjectItem(time, "synced")));
+    TEST_ASSERT_EQUAL_DOUBLE(
+        0.0, cJSON_GetObjectItem(time, "epoch")->valuedouble);
+    TEST_ASSERT_EQUAL_STRING(
+        "", cJSON_GetObjectItem(time, "local")->valuestring);
+
+    cJSON_Delete(root);
+}
+
+// --- sensors -------------------------------------------------------------
+
+void test_sensors_valid_readings(void)
+{
+    api::SensorReadingsDto d;
+    d.environmental.valid = true;
+    d.environmental.temperature = 21.5f;
+    d.environmental.humidity = 48.0f;
+    d.environmental.pressure = 1013.2f;
+    d.level.low.valid = true;
+    d.level.low.waterPresent = true;
+    d.level.high.valid = true;
+    d.level.high.waterPresent = false;
+    d.hasTimestamp = true;
+    d.timestamp = 1751000000;
+
+    std::string body = api::serializeSensors(d);
+    cJSON* root = cJSON_Parse(body.c_str());
+    TEST_ASSERT_NOT_NULL(root);
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(root, "success")));
+
+    cJSON* env = cJSON_GetObjectItem(root, "environmental");
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(env, "valid")));
+    TEST_ASSERT_EQUAL_DOUBLE(
+        21.5, cJSON_GetObjectItem(env, "temperature")->valuedouble);
+
+    cJSON* level = cJSON_GetObjectItem(root, "level");
+    cJSON* low = cJSON_GetObjectItem(level, "low");
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(low, "valid")));
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(low, "waterPresent")));
+    cJSON* high = cJSON_GetObjectItem(level, "high");
+    TEST_ASSERT_FALSE(cJSON_IsTrue(cJSON_GetObjectItem(high, "waterPresent")));
+
+    cJSON* ts = cJSON_GetObjectItem(root, "timestamp");
+    TEST_ASSERT_EQUAL_DOUBLE(1751000000.0, ts->valuedouble);
+
+    cJSON_Delete(root);
+}
+
+void test_sensors_invalid_soil_section_still_emitted_with_null(void)
+{
+    // Soil valid=false with NaN placeholders (the PR-11-not-yet state). The
+    // section is still serialized; non-finite values render as JSON null (our
+    // documented choice — a 0 would read as a real measurement).
+    api::SensorReadingsDto d;
+    d.soil.valid = false;
+    d.soil.moisture = std::nan("");
+    d.soil.temperature = std::nan("");
+    d.soil.humidity = std::nan("");
+    d.soil.ph = std::nan("");
+    d.soil.ec = std::nan("");
+
+    std::string body = api::serializeSensors(d);
+    cJSON* root = cJSON_Parse(body.c_str());
+    TEST_ASSERT_NOT_NULL(root);
+
+    cJSON* soil = cJSON_GetObjectItem(root, "soil");
+    TEST_ASSERT_NOT_NULL(soil);
+    TEST_ASSERT_FALSE(cJSON_IsTrue(cJSON_GetObjectItem(soil, "valid")));
+    TEST_ASSERT_TRUE(cJSON_IsNull(cJSON_GetObjectItem(soil, "moisture")));
+    TEST_ASSERT_TRUE(cJSON_IsNull(cJSON_GetObjectItem(soil, "ph")));
+    TEST_ASSERT_TRUE(cJSON_IsNull(cJSON_GetObjectItem(soil, "ec")));
+
+    cJSON_Delete(root);
+}
+
+void test_sensors_npk_present_only_when_flagged(void)
+{
+    api::SensorReadingsDto d;
+    d.soil.valid = true;
+    d.soil.moisture = 33.0f;
+    d.soil.temperature = 18.0f;
+    d.soil.humidity = 40.0f;
+    d.soil.ph = 6.5f;
+    d.soil.ec = 1.2f;
+    // Only nitrogen reported by the sensor this read.
+    d.soil.hasNitrogen = true;
+    d.soil.nitrogen = 120.0f;
+    d.soil.hasPhosphorus = false;
+    d.soil.hasPotassium = false;
+
+    std::string body = api::serializeSensors(d);
+    cJSON* root = cJSON_Parse(body.c_str());
+    TEST_ASSERT_NOT_NULL(root);
+
+    cJSON* soil = cJSON_GetObjectItem(root, "soil");
+    cJSON* nitrogen = cJSON_GetObjectItem(soil, "nitrogen");
+    TEST_ASSERT_NOT_NULL(nitrogen);
+    TEST_ASSERT_EQUAL_DOUBLE(120.0, nitrogen->valuedouble);
+    // Un-flagged channels are absent (not null, not 0).
+    TEST_ASSERT_NULL(cJSON_GetObjectItem(soil, "phosphorus"));
+    TEST_ASSERT_NULL(cJSON_GetObjectItem(soil, "potassium"));
+
+    cJSON_Delete(root);
+}
+
+void test_sensors_rev1_power_null_and_not_set_timestamp(void)
+{
+    // rev1 (no power) and clock not yet set: power key is JSON null and the
+    // top-level timestamp is JSON null (no bogus 1970 epoch).
+    api::SensorReadingsDto d;
+    d.hasPower = false;
+    d.hasTimestamp = false;
+
+    std::string body = api::serializeSensors(d);
+    cJSON* root = cJSON_Parse(body.c_str());
+    TEST_ASSERT_NOT_NULL(root);
+
+    cJSON* power = cJSON_GetObjectItem(root, "power");
+    TEST_ASSERT_NOT_NULL(power);
+    TEST_ASSERT_TRUE(cJSON_IsNull(power));
+
+    cJSON* ts = cJSON_GetObjectItem(root, "timestamp");
+    TEST_ASSERT_NOT_NULL(ts);
+    TEST_ASSERT_TRUE(cJSON_IsNull(ts));
+
+    cJSON_Delete(root);
+}
+
+// --- power ---------------------------------------------------------------
+
+void test_power_rev2_fields_spread(void)
+{
+    api::PowerDto p;
+    p.valid = true;
+    p.busVoltage = 12.0f;
+    p.current = 0.5f;
+    p.power = 6.0f;
+
+    std::string body = api::serializePower(p);
+    cJSON* root = cJSON_Parse(body.c_str());
+    TEST_ASSERT_NOT_NULL(root);
+
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(root, "success")));
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(root, "valid")));
+    TEST_ASSERT_EQUAL_DOUBLE(
+        12.0, cJSON_GetObjectItem(root, "busVoltage")->valuedouble);
+    TEST_ASSERT_EQUAL_DOUBLE(
+        0.5, cJSON_GetObjectItem(root, "current")->valuedouble);
+    TEST_ASSERT_EQUAL_DOUBLE(
+        6.0, cJSON_GetObjectItem(root, "power")->valuedouble);
+
+    cJSON_Delete(root);
+}
+
+void test_power_non_finite_last_good_is_null(void)
+{
+    // Before the first read the last-good getters return NaN placeholders.
+    api::PowerDto p;
+    p.valid = false;
+    p.busVoltage = std::nan("");
+    p.current = std::nan("");
+    p.power = std::nan("");
+
+    std::string body = api::serializePower(p);
+    cJSON* root = cJSON_Parse(body.c_str());
+    TEST_ASSERT_NOT_NULL(root);
+
+    TEST_ASSERT_FALSE(cJSON_IsTrue(cJSON_GetObjectItem(root, "valid")));
+    TEST_ASSERT_TRUE(cJSON_IsNull(cJSON_GetObjectItem(root, "busVoltage")));
+    TEST_ASSERT_TRUE(cJSON_IsNull(cJSON_GetObjectItem(root, "current")));
+    TEST_ASSERT_TRUE(cJSON_IsNull(cJSON_GetObjectItem(root, "power")));
+
+    cJSON_Delete(root);
+}
+
+void test_power_unavailable_shape(void)
+{
+    std::string body = api::serializePowerUnavailable();
+    cJSON* root = cJSON_Parse(body.c_str());
+    TEST_ASSERT_NOT_NULL(root);
+
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(root, "success")));
+    TEST_ASSERT_FALSE(cJSON_IsTrue(cJSON_GetObjectItem(root, "available")));
+    TEST_ASSERT_TRUE(cJSON_IsNull(cJSON_GetObjectItem(root, "power")));
+
+    cJSON_Delete(root);
+}
+
+}  // namespace
+
 void run_api_serialize_tests(void)
 {
-    // Tests added in T007 / T013 / T017 (US1/US2/US3).
+    RUN_TEST(test_status_envelope_and_fields);
+    RUN_TEST(test_status_never_serializes_wifi_password);
+    RUN_TEST(test_status_rev1_power_is_json_null);
+    RUN_TEST(test_status_not_set_clock_still_serializes);
+    RUN_TEST(test_sensors_valid_readings);
+    RUN_TEST(test_sensors_invalid_soil_section_still_emitted_with_null);
+    RUN_TEST(test_sensors_npk_present_only_when_flagged);
+    RUN_TEST(test_sensors_rev1_power_null_and_not_set_timestamp);
+    RUN_TEST(test_power_rev2_fields_spread);
+    RUN_TEST(test_power_non_finite_last_good_is_null);
+    RUN_TEST(test_power_unavailable_shape);
 }

@@ -8,7 +8,7 @@
  * `Locked*` interfaces + wifi/time/netif/storage state into these structs, then
  * hands them to the pure ApiSerialize functions — so serialization is
  * deterministic and host-tested. Request bodies are parsed by ApiRequests into
- * the *Request/*Command structs here.
+ * the *Request / *Command structs here.
  *
  * NO IDF and NO cJSON includes: DTOs are pure data, carrying no serialization
  * logic. `valid`/`has*` flags and `std::optional` fields express presence

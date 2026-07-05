@@ -20,7 +20,7 @@ if(${IDF_TARGET} STREQUAL "linux")
     idf_component_register(
         SRCS "src/ApiEnvelope.cpp"
              "src/ApiRoutes.cpp"
-             # TODO(US1): "src/ApiSerialize.cpp"
+             "src/ApiSerialize.cpp"
              # TODO(US2): "src/ApiRequests.cpp"
         INCLUDE_DIRS "include"
         REQUIRES interfaces cjson network time events
@@ -34,7 +34,7 @@ else()
     idf_component_register(
         SRCS "src/ApiEnvelope.cpp"
              "src/ApiRoutes.cpp"
-             # TODO(US1): "src/ApiSerialize.cpp"
+             "src/ApiSerialize.cpp"
              # TODO(US2): "src/ApiRequests.cpp"
              # TODO(US1): "src/ApiServer.cpp"
         INCLUDE_DIRS "include"
