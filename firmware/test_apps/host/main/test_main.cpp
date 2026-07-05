@@ -23,6 +23,9 @@ void run_ina226_tests(void);
 void run_wifi_tests(void);
 void run_time_tests(void);
 void run_event_logger_tests(void);
+void run_api_serialize_tests(void);
+void run_api_requests_tests(void);
+void run_api_routes_tests(void);
 
 // Unity requires setUp/tearDown definitions (shared by all suites).
 extern "C" void setUp(void) {}
@@ -41,5 +44,8 @@ extern "C" void app_main(void)
     run_wifi_tests();
     run_time_tests();
     run_event_logger_tests();
+    run_api_serialize_tests();
+    run_api_requests_tests();
+    run_api_routes_tests();
     std::exit(UNITY_END());
 }

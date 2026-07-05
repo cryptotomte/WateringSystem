@@ -1,4 +1,14 @@
 dependencies:
+  espressif/cjson:
+    component_hash: e788323270d90738662d66fffa910bfe1fba019bba087f01557e70c40485b469
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.7.19~2
   espressif/esp-modbus:
     component_hash: 56be3df9f436ce30ee513b9c4a77db13b0c3d6c1f52ee48f2198e7aba4319d3c
     dependencies:
@@ -24,9 +34,10 @@ dependencies:
       type: service
     version: 1.22.1
 direct_dependencies:
+- espressif/cjson
 - espressif/esp-modbus
 - idf
 - joltwallet/littlefs
-manifest_hash: a75946f2281bc7a0ba1812f2e56a4b4bed5255f5aeae0f1f46c455ecd24902e7
+manifest_hash: 8490c85281a5c68f17147fba47803a75bd17559ac5eea88891700c6c26ee96db
 target: esp32
 version: 3.0.0

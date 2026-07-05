@@ -15,7 +15,14 @@ Grounded in the verified codebase map (origin/main, PR-01..08 merged) + `docs/pr
 - **Alternatives**: serialize directly in handlers from `httpd_req_t` — rejected (untestable on host,
   couples logic to IDF).
 
-## D2 — Separate `esp_http_server` in station mode; cJSON via IDF `json`
+## D2 — Separate `esp_http_server` in station mode; cJSON via managed `espressif/cjson`
+
+> **Correction (implementation, 2026-07-05):** IDF v6.0.1 has NO built-in `json` component (removed →
+> registry). cJSON is the pinned managed dep `espressif/cjson ==1.7.19~2` in
+> `firmware/components/api/idf_component.yml`; the api component `REQUIRES ... cjson ...`. Pure C, builds on
+> both esp32 targets and the linux preview target (verified: host 191/0, rev1+rev2 green). `dependencies.lock`
+> gains cjson (deliberate pinned addition; esp-modbus pins untouched). The `REQUIRES json` note below is
+> superseded by `cjson`.
 
 - **Decision**: The API is a **separate** `esp_http_server` instance started in the station branch of
   `app_main` (gated on the first `WifiState::Connected`, mirroring how `SystemObserver` starts SNTP). cJSON

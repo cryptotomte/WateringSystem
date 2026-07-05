@@ -42,8 +42,9 @@ enum class WifiState {
  * task's tick()); a cross-task diagnostic reader (the diag console) may observe
  * a momentarily inconsistent tuple, which is acceptable for status display
  * only. Consistent with WifiManager.h ("Unsynchronized by design").
- * TODO(PR-09): introduce a LockedWifiManager decorator when the HTTP status
- * reader lands.
+ * Cross-task readers (the diag console and, since feature 009, the HTTP
+ * `/api/v1/status` handler) obtain a self-consistent copy through the
+ * LockedWifiManager decorator (network/LockedWifiManager.h).
  */
 struct WifiConnectionSnapshot {
     WifiState state;               ///< current state machine state
