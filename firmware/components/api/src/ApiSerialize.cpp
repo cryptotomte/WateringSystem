@@ -52,6 +52,21 @@ void attachPower(cJSON* root, bool hasPower, const PowerDto& power)
     }
 }
 
+/// Build one pump object `{ name, running, currentRunTimeMs,
+/// accumulatedRunTimeMs, lastStopReason }`. Ownership transfers to the caller.
+cJSON* buildPumpObject(const PumpDto& pump)
+{
+    cJSON* obj = cJSON_CreateObject();
+    cJSON_AddStringToObject(obj, "name", pump.name.c_str());
+    cJSON_AddBoolToObject(obj, "running", pump.running);
+    cJSON_AddNumberToObject(obj, "currentRunTimeMs",
+                            static_cast<double>(pump.currentRunTimeMs));
+    cJSON_AddNumberToObject(obj, "accumulatedRunTimeMs",
+                            static_cast<double>(pump.accumulatedRunTimeMs));
+    cJSON_AddStringToObject(obj, "lastStopReason", pump.lastStopReason.c_str());
+    return obj;
+}
+
 }  // namespace
 
 std::string serializeStatus(const SystemStatusDto& status)
@@ -167,6 +182,41 @@ std::string serializePowerUnavailable()
     cJSON* root = cJSON_CreateObject();
     cJSON_AddBoolToObject(root, "available", false);
     cJSON_AddNullToObject(root, "power");
+    return successBody(root);
+}
+
+std::string serializePump(const PumpDto& pump)
+{
+    // Spread the single pump's fields to the top level of the envelope.
+    return successBody(buildPumpObject(pump));
+}
+
+std::string serializePumpList(const std::vector<PumpDto>& pumps)
+{
+    cJSON* root = cJSON_CreateObject();
+    cJSON* arr = cJSON_CreateArray();
+    for (const PumpDto& pump : pumps) {
+        cJSON_AddItemToArray(arr, buildPumpObject(pump));
+    }
+    cJSON_AddItemToObject(root, "pumps", arr);
+    return successBody(root);
+}
+
+std::string serializeConfig(const ConfigDto& config)
+{
+    cJSON* root = cJSON_CreateObject();
+    addFiniteNumber(root, "moistureThresholdLow", config.moistureThresholdLow);
+    addFiniteNumber(root, "moistureThresholdHigh", config.moistureThresholdHigh);
+    cJSON_AddNumberToObject(root, "wateringDurationS",
+                            static_cast<double>(config.wateringDurationS));
+    cJSON_AddNumberToObject(root, "minWateringIntervalS",
+                            static_cast<double>(config.minWateringIntervalS));
+    cJSON_AddBoolToObject(root, "wateringEnabled", config.wateringEnabled);
+    cJSON_AddNumberToObject(root, "sensorReadIntervalMs",
+                            static_cast<double>(config.sensorReadIntervalMs));
+    cJSON_AddNumberToObject(root, "dataLogIntervalMs",
+                            static_cast<double>(config.dataLogIntervalMs));
+    // No wifi password: the ConfigDto carries no such field by design.
     return successBody(root);
 }
 

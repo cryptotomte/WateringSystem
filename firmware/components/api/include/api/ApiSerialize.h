@@ -27,6 +27,7 @@
 #define WATERINGSYSTEM_API_APISERIALIZE_H
 
 #include <string>
+#include <vector>
 
 #include "api/ApiDtos.h"
 
@@ -66,6 +67,34 @@ std::string serializePower(const PowerDto& power);
  * board-capability shape for rev1 (which contains no INA226 code).
  */
 std::string serializePowerUnavailable();
+
+/**
+ * @brief Serialize one PumpDto to the POST pumps command success body.
+ *
+ * Spreads `name`, `running`, `currentRunTimeMs`, `accumulatedRunTimeMs` and
+ * `lastStopReason` (a string) to the top level via the success envelope. Used
+ * for the resulting pump state after a command.
+ */
+std::string serializePump(const PumpDto& pump);
+
+/**
+ * @brief Serialize a list of PumpDto to the GET pumps success body.
+ *
+ * Emits `{ success, pumps: [ { name, running, currentRunTimeMs,
+ * accumulatedRunTimeMs, lastStopReason }, ... ] }`. The list is
+ * capability-enumerated by the caller (rev1 plant+reservoir, rev2 plant).
+ */
+std::string serializePumpList(const std::vector<PumpDto>& pumps);
+
+/**
+ * @brief Serialize a ConfigDto to the GET config success body.
+ *
+ * Spreads every settable config field (moistureThresholdLow/High,
+ * wateringDurationS, minWateringIntervalS, wateringEnabled,
+ * sensorReadIntervalMs, dataLogIntervalMs) to the top level. The wifi password
+ * is NEVER present (the DTO carries no such field).
+ */
+std::string serializeConfig(const ConfigDto& config);
 
 }  // namespace api
 

@@ -15,6 +15,7 @@
 
 #include <cmath>
 #include <string>
+#include <vector>
 
 #include "unity.h"
 
@@ -337,6 +338,112 @@ void test_power_unavailable_shape(void)
     cJSON_Delete(root);
 }
 
+// --- pumps ---------------------------------------------------------------
+
+void test_pump_serialize_fields(void)
+{
+    api::PumpDto p;
+    p.name = "plant";
+    p.running = true;
+    p.currentRunTimeMs = 5000;
+    p.accumulatedRunTimeMs = 123456;
+    p.lastStopReason = "duration_elapsed";
+
+    std::string body = api::serializePump(p);
+    cJSON* root = cJSON_Parse(body.c_str());
+    TEST_ASSERT_NOT_NULL(root);
+
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(root, "success")));
+    TEST_ASSERT_EQUAL_STRING(
+        "plant", cJSON_GetObjectItem(root, "name")->valuestring);
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(root, "running")));
+    TEST_ASSERT_EQUAL_DOUBLE(
+        5000.0, cJSON_GetObjectItem(root, "currentRunTimeMs")->valuedouble);
+    TEST_ASSERT_EQUAL_DOUBLE(
+        123456.0,
+        cJSON_GetObjectItem(root, "accumulatedRunTimeMs")->valuedouble);
+    TEST_ASSERT_EQUAL_STRING(
+        "duration_elapsed",
+        cJSON_GetObjectItem(root, "lastStopReason")->valuestring);
+
+    cJSON_Delete(root);
+}
+
+void test_pump_list_serialize_array(void)
+{
+    std::vector<api::PumpDto> pumps;
+    api::PumpDto plant;
+    plant.name = "plant";
+    plant.running = false;
+    api::PumpDto reservoir;
+    reservoir.name = "reservoir";
+    reservoir.running = true;
+    pumps.push_back(plant);
+    pumps.push_back(reservoir);
+
+    std::string body = api::serializePumpList(pumps);
+    cJSON* root = cJSON_Parse(body.c_str());
+    TEST_ASSERT_NOT_NULL(root);
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(root, "success")));
+
+    cJSON* arr = cJSON_GetObjectItem(root, "pumps");
+    TEST_ASSERT_TRUE(cJSON_IsArray(arr));
+    TEST_ASSERT_EQUAL_INT(2, cJSON_GetArraySize(arr));
+
+    cJSON* first = cJSON_GetArrayItem(arr, 0);
+    TEST_ASSERT_EQUAL_STRING(
+        "plant", cJSON_GetObjectItem(first, "name")->valuestring);
+    TEST_ASSERT_FALSE(cJSON_IsTrue(cJSON_GetObjectItem(first, "running")));
+
+    cJSON* second = cJSON_GetArrayItem(arr, 1);
+    TEST_ASSERT_EQUAL_STRING(
+        "reservoir", cJSON_GetObjectItem(second, "name")->valuestring);
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(second, "running")));
+
+    cJSON_Delete(root);
+}
+
+// --- config --------------------------------------------------------------
+
+void test_config_serialize_all_fields_no_password(void)
+{
+    api::ConfigDto c;
+    c.moistureThresholdLow = 30.0f;
+    c.moistureThresholdHigh = 55.0f;
+    c.wateringDurationS = 20;
+    c.minWateringIntervalS = 300;
+    c.wateringEnabled = true;
+    c.sensorReadIntervalMs = 5000;
+    c.dataLogIntervalMs = 300000;
+
+    std::string body = api::serializeConfig(c);
+    cJSON* root = cJSON_Parse(body.c_str());
+    TEST_ASSERT_NOT_NULL(root);
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(root, "success")));
+
+    // Every settable config field is present.
+    TEST_ASSERT_EQUAL_DOUBLE(
+        30.0, cJSON_GetObjectItem(root, "moistureThresholdLow")->valuedouble);
+    TEST_ASSERT_EQUAL_DOUBLE(
+        55.0, cJSON_GetObjectItem(root, "moistureThresholdHigh")->valuedouble);
+    TEST_ASSERT_EQUAL_DOUBLE(
+        20.0, cJSON_GetObjectItem(root, "wateringDurationS")->valuedouble);
+    TEST_ASSERT_EQUAL_DOUBLE(
+        300.0, cJSON_GetObjectItem(root, "minWateringIntervalS")->valuedouble);
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(root, "wateringEnabled")));
+    TEST_ASSERT_EQUAL_DOUBLE(
+        5000.0, cJSON_GetObjectItem(root, "sensorReadIntervalMs")->valuedouble);
+    TEST_ASSERT_EQUAL_DOUBLE(
+        300000.0, cJSON_GetObjectItem(root, "dataLogIntervalMs")->valuedouble);
+
+    // The wifi password is never serialized in the config body.
+    TEST_ASSERT_NULL(cJSON_GetObjectItem(root, "password"));
+    TEST_ASSERT_NULL(cJSON_GetObjectItem(root, "wifiPassword"));
+    TEST_ASSERT_TRUE(body.find("password") == std::string::npos);
+
+    cJSON_Delete(root);
+}
+
 }  // namespace
 
 void run_api_serialize_tests(void)
@@ -352,4 +459,7 @@ void run_api_serialize_tests(void)
     RUN_TEST(test_power_rev2_fields_spread);
     RUN_TEST(test_power_non_finite_last_good_is_null);
     RUN_TEST(test_power_unavailable_shape);
+    RUN_TEST(test_pump_serialize_fields);
+    RUN_TEST(test_pump_list_serialize_array);
+    RUN_TEST(test_config_serialize_all_fields_no_password);
 }

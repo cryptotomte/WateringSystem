@@ -12,16 +12,16 @@
 # already exist are listed, so the component configures on both board targets
 # AND on linux from this phase onward:
 #   pure (both branches): ApiEnvelope.cpp (T003), ApiRoutes.cpp (T004),
-#     ApiSerialize.cpp (T007), ApiRequests.cpp (TODO US2).
+#     ApiSerialize.cpp (T007), ApiRequests.cpp (T014).
 #   target-only:          ApiServer.cpp (T010).
 if(${IDF_TARGET} STREQUAL "linux")
-    # Host build: pure sources only (envelope + route table for now; the
-    # serializers/parsers join the same SRCS list in US1/US2).
+    # Host build: pure sources only (envelope, route table, serializers and
+    # request parsers) — no esp_http_server touchpoint.
     idf_component_register(
         SRCS "src/ApiEnvelope.cpp"
              "src/ApiRoutes.cpp"
              "src/ApiSerialize.cpp"
-             # TODO(US2): "src/ApiRequests.cpp"
+             "src/ApiRequests.cpp"
         INCLUDE_DIRS "include"
         REQUIRES interfaces cjson network time events
     )
@@ -36,7 +36,7 @@ else()
              "src/ApiRoutes.cpp"
              "src/ApiSerialize.cpp"
              "src/ApiServer.cpp"
-             # TODO(US2): "src/ApiRequests.cpp"
+             "src/ApiRequests.cpp"
         INCLUDE_DIRS "include"
         REQUIRES interfaces cjson network time events
         PRIV_REQUIRES esp_http_server esp_netif esp_app_format
