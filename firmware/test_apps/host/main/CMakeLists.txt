@@ -13,10 +13,12 @@ idf_component_register(
          "test_api_serialize.cpp"
          "test_api_requests.cpp"
          "test_api_routes.cpp"
+         "test_watering_controller.cpp"
+         "test_reservoir.cpp"
          # Compile-time board-contract TUs (T016): each defines one board
          # selector before including the REAL board/board.h — passing =
          # compiling (static_asserts only, nothing registers with Unity).
          "test_board_contract_rev1.cpp"
          "test_board_contract_rev2.cpp"
-    REQUIRES unity actuators interfaces storage nvs_flash sensors board network time events api cjson
+    REQUIRES unity actuators interfaces storage nvs_flash sensors board network time events api cjson control
 )

@@ -1,0 +1,3 @@
+# Placeholder so include/control/ exists for the control component's
+# INCLUDE_DIRS before WateringController.h / ReservoirController.h land
+# (US1/US2). Remove once real headers are added.

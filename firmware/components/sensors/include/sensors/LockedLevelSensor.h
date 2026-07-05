@@ -19,14 +19,14 @@
  * update, console registration, controllers, ...) goes through the
  * LockedLevelSensor, never through the wrapped object directly.
  *
- * SCOPE: this decorator provides PER-CALL atomicity only, not cross-call.
- * An isValid()-then-isWaterPresent() sequence is NOT protected against an
- * interleaving update() from another task in between — the state may
- * change (or invalidate) between the two calls. Such sequences need
- * higher-level coordination.
- * TODO(PR-11): add a consistent-snapshot helper (one locked call returning
- * validity + logical state) when the controller becomes a second periodic
- * reader — same bookkeeping as the other Locked* wrappers' PR-11 notes.
+ * SCOPE (per-call atomicity, cross-call gap): each interface call is
+ * individually atomic, but an isValid()-then-isWaterPresent() sequence is
+ * NOT protected against an interleaving update() from another task in
+ * between — the state may change (or invalidate) between the two calls.
+ * snapshot() (PR-11) CLOSES that gap: it copies validity + logical state out
+ * under a SINGLE lock, so a reader (controller / API status / console) never
+ * observes a torn validity/state tuple. Any other multi-call sequence still
+ * needs higher-level coordination.
  *
  * Pure C++ (<mutex> is available via pthread on ESP-IDF and on the linux
  * preview target), so the decorator is host-testable.
@@ -38,6 +38,20 @@
 #include <mutex>
 
 #include "interfaces/ILevelSensor.h"
+
+/**
+ * @brief Consistent level snapshot (PR-11): validity + logical state copied
+ * out under one lock so they are mutually consistent.
+ *
+ * waterPresent is meaningful ONLY while valid is true; when invalid it is
+ * false (never a stale or phantom value — the interface contract). The
+ * reservoir truth table treats an invalid sensor as "do not act", never as
+ * "water absent".
+ */
+struct LevelSnapshot {
+    bool valid;
+    bool waterPresent;
+};
 
 /**
  * @brief ILevelSensor decorator that serializes every call with a mutex.
@@ -82,6 +96,23 @@ public:
     {
         std::lock_guard<std::mutex> lock(mutex_);
         sensor_.notifyPowerOn();
+    }
+
+    /**
+     * @brief Copy validity + logical water state out under one lock (PR-11),
+     * closing the isValid()-then-isWaterPresent() cross-call gap.
+     *
+     * update() is NOT part of this call — the main loop owns the update()
+     * cadence; snapshot() only reads the current debounced state, which is
+     * pure in-memory state (no I/O). waterPresent is false whenever invalid.
+     */
+    LevelSnapshot snapshot()
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        LevelSnapshot s;
+        s.valid = sensor_.isValid();
+        s.waterPresent = sensor_.isWaterPresent();
+        return s;
     }
 
 private:

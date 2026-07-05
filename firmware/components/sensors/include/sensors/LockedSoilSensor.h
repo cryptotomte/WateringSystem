@@ -20,12 +20,16 @@
  * registration, controllers, ...) goes through the LockedSoilSensor, never
  * through the wrapped object directly.
  *
- * SCOPE: this decorator provides PER-CALL atomicity only, not cross-call.
- * A read-then-get sequence spanning two calls (read() then getMoisture())
- * is NOT protected against an interleaving read() from another task in
- * between — another task may refresh (or invalidate) the values first.
- * Such sequences need higher-level coordination (a caller-held lock or
- * single-owner task).
+ * SCOPE (per-call atomicity, cross-call gap): each interface call is
+ * individually atomic, but a read-then-get sequence spanning two calls
+ * (read() then getMoisture()) is NOT protected against an interleaving
+ * read() from another task in between — another task may refresh (or
+ * invalidate) the values first. snapshot() (PR-11) CLOSES that gap for the
+ * common consumer case: it copies the last-good values + validity + error
+ * out under a SINGLE lock, so a reader (controller / API status / console)
+ * never observes a torn read/getter tuple. Any other multi-call sequence
+ * still needs higher-level coordination (a caller-held lock or single-owner
+ * task).
  *
  * Pure C++ (<mutex> is available via pthread on ESP-IDF and on the linux
  * preview target), so the decorator is host-testable.
@@ -37,6 +41,31 @@
 #include <mutex>
 
 #include "interfaces/ISoilSensor.h"
+
+/**
+ * @brief Consistent, non-blocking soil-reading snapshot (PR-11).
+ *
+ * All eight quantity values plus the validity/error flags, copied out under
+ * one lock so they are mutually consistent (no torn read()-then-getter
+ * tuple). readOk reports whether the most recent read() through the wrapper
+ * succeeded; available reports whether at least one successful read is on
+ * record, so the last-good values are meaningful even when the latest read
+ * failed (stale-but-usable). lastError is the wrapped sensor's most recent
+ * error code.
+ */
+struct SoilSnapshot {
+    bool readOk;
+    bool available;
+    int lastError;
+    float moisture;
+    float temperature;
+    float humidity;
+    float ph;
+    float ec;
+    float nitrogen;
+    float phosphorus;
+    float potassium;
+};
 
 /**
  * @brief ISoilSensor decorator that serializes every call with a mutex.
@@ -62,7 +91,12 @@ public:
     bool read() override
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        return sensor_.read();
+        const bool ok = sensor_.read();
+        // Cache the outcome so snapshot() can report validity without a
+        // fresh (blocking) bus transaction.
+        lastReadOk_ = ok;
+        hasEverReadOk_ = hasEverReadOk_ || ok;
+        return ok;
     }
 
     bool isAvailable() override
@@ -143,9 +177,41 @@ public:
         return sensor_.calibrateEC(referenceValue);
     }
 
+    /**
+     * @brief Copy the last-good reading + validity + error out under one
+     * lock (PR-11), closing the read-then-getter cross-call gap.
+     *
+     * NON-BLOCKING by contract: it performs NO fresh read() and NO
+     * isAvailable() probe — both are RS485/Modbus bus I/O and must never run
+     * in a status/API/controller path (QUIRK 5). The periodic soil reader
+     * owns the read() cadence; this returns the current cached values.
+     * readOk = the most recent read() through this wrapper succeeded;
+     * available = at least one successful read is on record (last-good values
+     * are meaningful); lastError = the wrapped sensor's current error code.
+     */
+    SoilSnapshot snapshot()
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        SoilSnapshot s;
+        s.readOk = lastReadOk_;
+        s.available = hasEverReadOk_;
+        s.lastError = sensor_.getLastError();
+        s.moisture = sensor_.getMoisture();
+        s.temperature = sensor_.getTemperature();
+        s.humidity = sensor_.getHumidity();
+        s.ph = sensor_.getPH();
+        s.ec = sensor_.getEC();
+        s.nitrogen = sensor_.getNitrogen();
+        s.phosphorus = sensor_.getPhosphorus();
+        s.potassium = sensor_.getPotassium();
+        return s;
+    }
+
 private:
     ISoilSensor& sensor_;
     mutable std::mutex mutex_;
+    bool lastReadOk_ = false;    ///< result of the most recent read()
+    bool hasEverReadOk_ = false; ///< any successful read() on record
 };
 
 #endif /* WATERINGSYSTEM_SENSORS_LOCKEDSOILSENSOR_H */

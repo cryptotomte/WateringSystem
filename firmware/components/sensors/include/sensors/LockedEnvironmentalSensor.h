@@ -24,15 +24,14 @@
  * registration, sensor task, controllers, ...) goes through the
  * LockedEnvironmentalSensor, never through the wrapped object directly.
  *
- * SCOPE: this decorator provides PER-CALL atomicity only, not cross-call.
- * A read-then-getters sequence spanning multiple calls (read() then
- * getTemperature()/getHumidity()/getPressure()) is NOT protected against
- * an interleaving read() from another task in between — another task may
- * refresh (or invalidate) the values first. Such sequences need
- * higher-level coordination.
- * TODO(PR-11): add a consistent-snapshot helper (one locked call returning
- * all three values + validity) when the controller becomes a second
- * periodic reader — same bookkeeping as LockedSoilSensor's PR-11 notes.
+ * SCOPE (per-call atomicity, cross-call gap): each interface call is
+ * individually atomic, but a read-then-getters sequence spanning multiple
+ * calls (read() then getTemperature()/getHumidity()/getPressure()) is NOT
+ * protected against an interleaving read() from another task in between.
+ * snapshot() (PR-11) CLOSES that gap: it copies all three values + validity
+ * out under a SINGLE lock, so a reader (controller / API status / console)
+ * never observes a torn read/getter tuple. Any other multi-call sequence
+ * still needs higher-level coordination.
  *
  * Pure C++ (<mutex> is available via pthread on ESP-IDF and on the linux
  * preview target), so the decorator is host-testable.
@@ -44,6 +43,21 @@
 #include <mutex>
 
 #include "interfaces/IEnvironmentalSensor.h"
+
+/**
+ * @brief Consistent, non-blocking environmental snapshot (PR-11).
+ *
+ * Temperature/humidity/pressure plus validity, copied out under one lock so
+ * they are mutually consistent. valid reports whether the most recent read()
+ * through the wrapper succeeded (fresh data); when false the values are the
+ * last-good reading (or the NaN placeholders before the first success).
+ */
+struct EnvSnapshot {
+    bool valid;
+    float temperature;
+    float humidity;
+    float pressure;
+};
 
 /**
  * @brief IEnvironmentalSensor decorator that serializes every call with a
@@ -74,7 +88,11 @@ public:
     bool read() override
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        return sensor_.read();
+        const bool ok = sensor_.read();
+        // Cache the outcome so snapshot() can report validity without a
+        // fresh (blocking) bus transaction.
+        lastReadOk_ = ok;
+        return ok;
     }
 
     bool isAvailable() override
@@ -107,9 +125,31 @@ public:
         return sensor_.getPressure();
     }
 
+    /**
+     * @brief Copy the last-good T/RH/P + validity out under one lock (PR-11),
+     * closing the read-then-getter cross-call gap.
+     *
+     * NON-BLOCKING by contract: it performs NO fresh read() and NO
+     * isAvailable() probe — both are I2C bus I/O and must never run in a
+     * status/API/controller path (QUIRK 5). The sensor task owns the read()
+     * cadence; this returns the current cached values. valid = the most
+     * recent read() through this wrapper succeeded.
+     */
+    EnvSnapshot snapshot()
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        EnvSnapshot s;
+        s.valid = lastReadOk_;
+        s.temperature = sensor_.getTemperature();
+        s.humidity = sensor_.getHumidity();
+        s.pressure = sensor_.getPressure();
+        return s;
+    }
+
 private:
     IEnvironmentalSensor& sensor_;
     mutable std::mutex mutex_;
+    bool lastReadOk_ = false; ///< result of the most recent read()
 };
 
 #endif /* WATERINGSYSTEM_SENSORS_LOCKEDENVIRONMENTALSENSOR_H */
