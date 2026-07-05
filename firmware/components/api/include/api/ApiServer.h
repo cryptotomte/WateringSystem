@@ -21,8 +21,12 @@
  *   POST /api/v1/pumps/{name} — start/run/stop a pump (cap+rules in the pump)
  *   GET  /api/v1/config       — current config (never the wifi password)
  *   POST /api/v1/config       — apply a validated config subset (persisted)
- * Unknown routes answer the JSON 404 envelope. The remaining US3 routes
- * (history/events/selftest/ota) are added in later tasks.
+ * plus the US3 history/diagnostic endpoints:
+ *   GET  /api/v1/history      — bounded sensor-history series (query-windowed)
+ *   GET  /api/v1/events       — newest-first event log (count-bounded)
+ *   POST /api/v1/selftest     — bounded sensor/RS485 diagnostic (see below)
+ *   POST /api/v1/ota          — contract stub, 501 until PR-13 implements it
+ * Unknown routes answer the JSON 404 envelope.
  *
  * PRIV rule (same as ProvisioningPortal / EspI2cBus): esp_http_server.h appears
  * ONLY in the .cpp; the server handle is held here as an opaque void* and the
@@ -40,8 +44,10 @@
 #ifndef WATERINGSYSTEM_API_APISERVER_H
 #define WATERINGSYSTEM_API_APISERVER_H
 
+#include <cstddef>
 #include <string>
 
+#include "api/ApiDtos.h"
 #include "board/board.h"
 #include "interfaces/IConfigStore.h"
 #include "interfaces/IDataStorage.h"
@@ -221,6 +227,42 @@ public:
      *         unexpectedly fails to persist an already-validated value.
      */
     ApiResponse applyConfigSet(const std::string& body);
+
+    /**
+     * @brief Resolve a GET /api/v1/history query and build the response.
+     *
+     * @param query  the parsed query (metric [required], optional reading, and
+     *               either a named range or explicit start/end epochs). The
+     *               file-local handler extracts these from the URL query string.
+     * @return the history series (200) on success; a 400 error envelope when the
+     *         metric is missing or a named range is unknown. An in-range window
+     *         with no stored data is a success with empty arrays, not an error.
+     *
+     * Resolves the window from `range` (via namedRangeToWindow against the wall
+     * clock), else from explicit start/end, else the last 24 h, then reads it
+     * with IDataStorage::getSensorReadings — a NON-BLOCKING filesystem read, no
+     * bus access.
+     */
+    ApiResponse buildHistoryResponse(const HistoryQuery& query);
+
+    /**
+     * @brief Build the GET /api/v1/events success body (newest-first).
+     *
+     * @param count  maximum number of events to return (already bounded by the
+     *               handler). Reads IDataStorage::getEvents (non-blocking).
+     */
+    std::string buildEventsBody(std::size_t count);
+
+    /**
+     * @brief Run the bounded sensor/RS485 self-test and build its result body.
+     *
+     * This is the ONE documented exception to QUIRK 5: an on-demand diagnostic
+     * that issues a real, bounded read() on the environmental and soil sensors
+     * (through their Locked* wrappers, so it is serialized with the other bus
+     * users). It runs on the httpd task, off the 10 Hz watering loop, and makes
+     * no watering decision. Every other handler stays non-blocking.
+     */
+    std::string buildSelfTestBody();
 
 private:
     /// Current device IPv4 address on the STA interface ("" when none).

@@ -22,7 +22,9 @@
 #include "api/ApiServer.h"
 
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -266,6 +268,153 @@ esp_err_t configSetHandler(httpd_req_t* req)
 
     const ApiResponse resp = server->applyConfigSet(body);
     return sendJson(req, resp.status, resp.body);
+}
+
+/// URL-query buffer cap: the v1 query strings are a few short key=value pairs;
+/// a longer query is truncated to this bound (no unbounded stack allocation).
+constexpr size_t kMaxQueryLen = 256;
+
+/// Per-value cap for a single query parameter (metric names / short ints).
+constexpr size_t kMaxQueryValueLen = 64;
+
+/// Read one URL query parameter into @p out. Returns true when @p key is
+/// present (its decoded value copied to @p out), false when there is no query
+/// string, the key is absent, or the value overflows the value buffer.
+bool queryParam(httpd_req_t* req, const char* key, std::string& out)
+{
+    size_t qlen = httpd_req_get_url_query_len(req) + 1;
+    if (qlen <= 1) {
+        return false;  // no query string
+    }
+    if (qlen > kMaxQueryLen) {
+        qlen = kMaxQueryLen;
+    }
+    char q[kMaxQueryLen];
+    if (httpd_req_get_url_query_str(req, q, qlen) != ESP_OK) {
+        return false;
+    }
+    char val[kMaxQueryValueLen];
+    if (httpd_query_key_value(q, key, val, sizeof val) != ESP_OK) {
+        return false;
+    }
+    out.assign(val);
+    return true;
+}
+
+/// Parse a base-10 epoch string into @p out; returns true only on a fully
+/// consumed, non-negative value (a malformed value leaves @p out untouched).
+bool parseEpoch(const std::string& s, int64_t& out)
+{
+    if (s.empty()) {
+        return false;
+    }
+    char* end = nullptr;
+    const long long v = std::strtoll(s.c_str(), &end, 10);
+    if (end == s.c_str() || *end != '\0' || v < 0) {
+        return false;
+    }
+    out = static_cast<int64_t>(v);
+    return true;
+}
+
+/// Map a stored event category id to its stable lowercase name, or nullptr for
+/// an unknown category (the DTO then omits the categoryName echo). Mirrors the
+/// IDataStorage category constants (same vocabulary as the event logger).
+const char* eventCategoryName(int category)
+{
+    switch (category) {
+    case IDataStorage::kCategoryPump:
+        return "pump";
+    case IDataStorage::kCategoryFailsafe:
+        return "failsafe";
+    case IDataStorage::kCategoryConnectivity:
+        return "connectivity";
+    case IDataStorage::kCategoryOta:
+        return "ota";
+    case IDataStorage::kCategoryReset:
+        return "reset";
+    default:
+        return nullptr;
+    }
+}
+
+/// Default and hard-cap event counts for GET /api/v1/events.
+constexpr std::size_t kDefaultEventCount = 50;
+constexpr std::size_t kMaxEventCount = 200;
+
+esp_err_t historyHandler(httpd_req_t* req)
+{
+    ApiServer* server = self(req);
+    if (server == nullptr) {
+        return sendJson(req, "500 Internal Server Error",
+                        errorBody("server misconfigured"));
+    }
+
+    // Extract the query parameters; validation + window resolution live in the
+    // pure-ish builder (buildHistoryResponse) so the handler is thin.
+    HistoryQuery query;
+    std::string value;
+    if (queryParam(req, "metric", value)) {
+        query.metric = value;
+    }
+    if (queryParam(req, "reading", value)) {
+        query.reading = value;
+    }
+    if (queryParam(req, "range", value)) {
+        query.range = value;
+    }
+    int64_t epoch = 0;
+    if (queryParam(req, "start", value) && parseEpoch(value, epoch)) {
+        query.start = epoch;
+    }
+    if (queryParam(req, "end", value) && parseEpoch(value, epoch)) {
+        query.end = epoch;
+    }
+
+    const ApiResponse resp = server->buildHistoryResponse(query);
+    return sendJson(req, resp.status, resp.body);
+}
+
+esp_err_t eventsHandler(httpd_req_t* req)
+{
+    ApiServer* server = self(req);
+    if (server == nullptr) {
+        return sendJson(req, "500 Internal Server Error",
+                        errorBody("server misconfigured"));
+    }
+
+    std::size_t count = kDefaultEventCount;
+    std::string value;
+    if (queryParam(req, "count", value)) {
+        char* end = nullptr;
+        const long v = std::strtol(value.c_str(), &end, 10);
+        if (end != value.c_str() && *end == '\0' && v > 0) {
+            count = static_cast<std::size_t>(v);
+        }
+    }
+    if (count > kMaxEventCount) {
+        count = kMaxEventCount;
+    }
+    return sendJson(req, "200 OK", server->buildEventsBody(count));
+}
+
+esp_err_t selfTestHandler(httpd_req_t* req)
+{
+    ApiServer* server = self(req);
+    if (server == nullptr) {
+        return sendJson(req, "500 Internal Server Error",
+                        errorBody("server misconfigured"));
+    }
+    // The one handler that performs a real (bounded) bus read — see
+    // buildSelfTestBody: an explicit diagnostic, off the watering critical path.
+    return sendJson(req, "200 OK", server->buildSelfTestBody());
+}
+
+esp_err_t otaHandler(httpd_req_t* req)
+{
+    // Contract stub: PR-13 implements the OTA execution. Until then the route
+    // exists (so it is documented/enumerable) but answers a fixed 501.
+    return sendJson(req, "501 Not Implemented", errorBody("OTA not implemented"));
 }
 
 }  // namespace
@@ -528,6 +677,120 @@ ApiResponse ApiServer::applyConfigSet(const std::string& body)
     return {"200 OK", buildConfigBody()};
 }
 
+ApiResponse ApiServer::buildHistoryResponse(const HistoryQuery& query)
+{
+    // metric is required — the storage layer is keyed by it.
+    if (query.metric.empty()) {
+        return {"400 Bad Request", errorBody("metric is required")};
+    }
+
+    const uint32_t now = wallClock_.nowEpoch();
+    constexpr uint32_t kDefaultWindowS = 86400;  // last 24 h
+    uint32_t t0 = 0;
+    uint32_t t1 = 0;
+
+    if (query.range.has_value()) {
+        // A named range resolves to an absolute window ending at now; an
+        // unknown range name is a client error.
+        if (!namedRangeToWindow(*query.range, now, t0, t1)) {
+            return {"400 Bad Request", errorBody("unknown range")};
+        }
+    } else if (query.start.has_value() || query.end.has_value()) {
+        // Explicit window: a missing end defaults to now; a missing start
+        // defaults to 24 h before the end.
+        t1 = query.end.has_value() ? static_cast<uint32_t>(*query.end) : now;
+        if (query.start.has_value()) {
+            t0 = static_cast<uint32_t>(*query.start);
+        } else {
+            t0 = t1 >= kDefaultWindowS ? t1 - kDefaultWindowS : 0;
+        }
+    } else {
+        // No window given: default to the last 24 h.
+        t1 = now;
+        t0 = now >= kDefaultWindowS ? now - kDefaultWindowS : 0;
+    }
+
+    HistorySeries series;
+    series.metric = query.metric;
+    series.reading = query.reading;  // echoed only; storage is keyed by metric
+    series.start = static_cast<int64_t>(t0);
+    series.end = static_cast<int64_t>(t1);
+
+    // Non-blocking filesystem read (no bus access). An empty result is a 200
+    // with empty arrays — a window with no data is a success, not an error.
+    const std::vector<SensorReading> readings =
+        storage_.getSensorReadings(query.metric, t0, t1);
+    series.timestamps.reserve(readings.size());
+    series.values.reserve(readings.size());
+    for (const SensorReading& r : readings) {
+        series.timestamps.push_back(static_cast<int64_t>(r.epoch));
+        series.values.push_back(r.value);
+    }
+
+    return {"200 OK", serializeHistory(series)};
+}
+
+std::string ApiServer::buildEventsBody(std::size_t count)
+{
+    // Non-blocking: the event log lives on the filesystem. getEvents is
+    // newest-first; the DTO adds a human category name when the id is known.
+    const std::vector<EventRecord> records = storage_.getEvents(count);
+    std::vector<EventDto> events;
+    events.reserve(records.size());
+    for (const EventRecord& r : records) {
+        EventDto dto;
+        dto.epoch = static_cast<int64_t>(r.epoch);
+        dto.category = static_cast<int>(r.category);
+        const char* name = eventCategoryName(dto.category);
+        if (name != nullptr) {
+            dto.categoryName = name;
+        }
+        dto.detail = r.detail;
+        events.push_back(std::move(dto));
+    }
+    return serializeEvents(events);
+}
+
+std::string ApiServer::buildSelfTestBody()
+{
+    // DOCUMENTED QUIRK-5 EXCEPTION: unlike every other handler, the self-test
+    // deliberately issues a real bus read() on each sensor. It is bounded (one
+    // attempt per sensor, no retry — the drivers do not loop) and runs on the
+    // httpd task, off the 10 Hz watering loop; the injected Locked* wrappers
+    // serialize each read() with the other bus users, so a concurrent console
+    // or sensor-task read is never corrupted. No watering decision is made.
+    SelfTestResultDto result;
+    bool overall = true;
+
+    {
+        SelfTestCheckDto check;
+        check.name = "environmental";
+        check.ok = env_.read();
+        check.detail =
+            check.ok ? std::string("ok")
+                     : ("read failed, error " +
+                        std::to_string(env_.getLastError()));
+        overall = overall && check.ok;
+        result.checks.push_back(std::move(check));
+    }
+
+    {
+        // The soil sensor read() is the RS485/Modbus round-trip self-test.
+        SelfTestCheckDto check;
+        check.name = "soil";
+        check.ok = soil_.read();
+        check.detail =
+            check.ok ? std::string("ok")
+                     : ("read failed, error " +
+                        std::to_string(soil_.getLastError()));
+        overall = overall && check.ok;
+        result.checks.push_back(std::move(check));
+    }
+
+    result.overall = overall;
+    return serializeSelfTest(result);
+}
+
 bool ApiServer::start()
 {
     if (server_ != nullptr) {
@@ -594,6 +857,30 @@ bool ApiServer::start()
             .uri = "/api/v1/config",
             .method = HTTP_POST,
             .handler = &configSetHandler,
+            .user_ctx = this,
+        },
+        {
+            .uri = "/api/v1/history",
+            .method = HTTP_GET,
+            .handler = &historyHandler,
+            .user_ctx = this,
+        },
+        {
+            .uri = "/api/v1/events",
+            .method = HTTP_GET,
+            .handler = &eventsHandler,
+            .user_ctx = this,
+        },
+        {
+            .uri = "/api/v1/selftest",
+            .method = HTTP_POST,
+            .handler = &selfTestHandler,
+            .user_ctx = this,
+        },
+        {
+            .uri = "/api/v1/ota",
+            .method = HTTP_POST,
+            .handler = &otaHandler,
             .user_ctx = this,
         },
     };
