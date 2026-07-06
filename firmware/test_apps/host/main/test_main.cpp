@@ -26,6 +26,7 @@ void run_event_logger_tests(void);
 void run_api_serialize_tests(void);
 void run_api_requests_tests(void);
 void run_api_routes_tests(void);
+void run_api_static_tests(void);
 void run_watering_controller_tests(void);
 void run_reservoir_tests(void);
 
@@ -49,6 +50,7 @@ extern "C" void app_main(void)
     run_api_serialize_tests();
     run_api_requests_tests();
     run_api_routes_tests();
+    run_api_static_tests();
     run_watering_controller_tests();
     run_reservoir_tests();
     std::exit(UNITY_END());
