@@ -28,6 +28,31 @@
 #define WATERINGSYSTEM_INTERFACES_ISOILSENSOR_H
 
 /**
+ * @brief Consistent, non-blocking soil-reading snapshot (PR-11).
+ *
+ * All eight quantity values plus the validity/error flags, copied out
+ * atomically so they are mutually consistent (no torn read()-then-getter
+ * tuple). readOk reports whether the most recent read() succeeded; available
+ * reports whether at least one successful read is on record, so the last-good
+ * values are meaningful even when the latest read failed (stale-but-usable).
+ * lastError is the sensor's most recent error code. Default member
+ * initializers make a default-constructed snapshot safe (no read yet).
+ */
+struct SoilSnapshot {
+    bool readOk = false;
+    bool available = false;
+    int lastError = 0;
+    float moisture = 0.0f;
+    float temperature = 0.0f;
+    float humidity = 0.0f;
+    float ph = 0.0f;
+    float ec = 0.0f;
+    float nitrogen = 0.0f;
+    float phosphorus = 0.0f;
+    float potassium = 0.0f;
+};
+
+/**
  * @brief Soil sensor: atomic multi-quantity reads with parity validation.
  */
 class ISoilSensor {
@@ -56,6 +81,22 @@ public:
      * @return true if a fully valid reading was taken.
      */
     virtual bool read() = 0;
+
+    /**
+     * @brief Coherent, NON-BLOCKING snapshot of the last-good reading.
+     *
+     * Returns {readOk, available, lastError, values} copied out atomically
+     * (the Locked wrapper copies under a single lock, closing the
+     * read()-then-getter cross-call gap). readOk = the most recent read()
+     * succeeded; available = at least one successful read is on record (the
+     * ever-read-ok history), so the last-good values are meaningful even after
+     * a later read failure; lastError = the current error code.
+     *
+     * NON-BLOCKING by contract: it performs NO fresh read() and NO
+     * isAvailable() bus I/O — the caller drives the read() cadence and this
+     * only reads cached state (QUIRK 5).
+     */
+    virtual SoilSnapshot snapshot() = 0;
 
     /**
      * @brief Probe sensor presence with a REAL 1-register bus read (parity).

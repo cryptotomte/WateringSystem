@@ -44,6 +44,7 @@
 #include "sensors/GpioLevelSensor.h"
 #include "sensors/LockedEnvironmentalSensor.h"
 #include "sensors/LockedLevelSensor.h"
+#include "sensors/LockedModbusClient.h"
 #include "sensors/LockedSoilSensor.h"
 #include "sensors/ModbusSoilSensor.h"
 #if BOARD_HAS_INA226
@@ -53,6 +54,10 @@
 #include "sensors/LockedPowerSensor.h"
 #endif
 #include "api/ApiServer.h"
+#include "control/WateringController.h"
+#if BOARD_HAS_RESERVOIR_PUMP
+#include "control/ReservoirController.h"
+#endif
 #include "network/EspWifiDriver.h"
 #include "network/ProvisioningPortal.h"
 #include "network/WifiBootMode.h"
@@ -68,6 +73,7 @@
 
 #include "diag_console.h"
 #include "sensor_task.h"
+#include "watering_task.h"
 #include "system_observer.h"
 #include "task_watchdog.h"
 #include "wifi_task.h"
@@ -508,7 +514,8 @@ extern "C" void app_main(void)
     // sensor access goes through the wrapper. No periodic read task in
     // feature 004 (arrives with PR-11) — reads happen on console command
     // only.
-    static EspModbusClient modbus_client;
+    static EspModbusClient modbus_client_raw;
+    static LockedModbusClient modbus_client(modbus_client_raw);
     static ModbusSoilSensor soil_sensor_raw(modbus_client);
     static LockedSoilSensor soil_sensor(soil_sensor_raw);
 
@@ -624,6 +631,18 @@ extern "C" void app_main(void)
                  BOARD_PIN_LEVEL_HIGH);
     }
 
+    // Watering controllers (feature 011). Pure decision logic over the same
+    // Locked* wrappers every other task uses; run on their own watchdog-
+    // registered task (below), never on the network/HTTP path (FR-017). The
+    // 10 Hz loop still owns precise pump-timing enforcement.
+    static WateringController watering_controller(
+        soil_sensor, env_sensor, plant, config, storage, time_provider,
+        wall_clock, event_logger);
+#if BOARD_HAS_RESERVOIR_PUMP
+    static ReservoirController reservoir_controller(
+        level_low, level_high, reservoir, time_provider, event_logger);
+#endif
+
     // Serial diagnostic REPL (rig testing; contracts/serial-diagnostic.md).
     // Pump registration is capability-aware: single-pump boards register
     // exactly the plant pump — `pump reservoir` does not exist there
@@ -659,6 +678,21 @@ extern "C" void app_main(void)
     // 5 s environmental poll task (feature 005). Started even when the
     // sensor failed init above — lazy re-init recovers later (parity).
     sensor_task_start(env_sensor);
+
+    // Decision-layer watering task (feature 011). Runs the pure controllers at
+    // the sensor-read cadence on their own watchdog-registered task: the
+    // WateringController is the periodic soil reader (its blocking Modbus read
+    // refreshes the LockedSoilSensor cache /sensors serves) and the reservoir
+    // fill state machine ticks alongside it (rev1). The 10 Hz loop below is
+    // unchanged and still owns precise pump-timing enforcement. The mode flag
+    // reaches the controllers purely through `config` (read each tick) — no
+    // direct API↔controller call.
+#if BOARD_HAS_RESERVOIR_PUMP
+    watering_task_start(watering_controller, reservoir_controller, config,
+                        event_logger);
+#else
+    watering_task_start(watering_controller, config, event_logger);
+#endif
 
     // /api/v1/ HTTP server (feature 009 US1). Constructed here — after EVERY
     // sensor plus the config/storage/clock it reports exist — and only in

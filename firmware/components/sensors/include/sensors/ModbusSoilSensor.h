@@ -59,6 +59,7 @@ public:
     // ISoilSensor
     bool initialize() override;
     bool read() override;
+    SoilSnapshot snapshot() override;
     bool isAvailable() override;
     int getLastError() override;
 
@@ -122,6 +123,12 @@ private:
     uint8_t deviceAddress_;
     bool initialized_ = false;
     int lastError_ = 0;
+
+    // Read history for snapshot() (no bus I/O): lastReadOk_ tracks the most
+    // recent read() outcome; hasEverReadOk_ latches once any read() succeeded
+    // so the last-good values are known to be meaningful (available).
+    bool lastReadOk_ = false;
+    bool hasEverReadOk_ = false;
 
     // Last-good reading (published only by a fully successful read()).
     float moisture_ = 0.0f;

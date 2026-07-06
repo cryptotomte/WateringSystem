@@ -5,17 +5,26 @@
  * @brief Scriptable ISoilSensor test double (header-only).
  *
  * Serves the host tests of soil-sensor CONSUMERS (watering controller /
- * sensor manager, PR-11): set the seven quantity values and the
+ * sensor manager, PR-11): set the eight quantity values and the
  * initialize()/read()/isAvailable() results, script the error code, and
  * assert on the call counters. The sensor's own decode/validation logic is
  * tested against the REAL ModbusSoilSensor via MockModbusClient — never
  * through this mock. Never compiled into target builds (only included from
  * test code). No IDF includes.
+ *
+ * Consistency helpers (PR-11, mirroring MockEnvironmentalSensor):
+ * scriptSuccessfulRead()/scriptFailedRead() keep outcome, error code and
+ * getter values coherent per read() step (a failed read never touches the
+ * values — the interface's last-good contract), instead of hand-setting the
+ * public fields into an incoherent combination. The plain public fields stay
+ * for back-compat: with NO script, read() behaves exactly as before
+ * (returns readResult, getters serve the manually-set values).
  */
 
 #ifndef WATERINGSYSTEM_SENSORS_TESTING_MOCKSOILSENSOR_H
 #define WATERINGSYSTEM_SENSORS_TESTING_MOCKSOILSENSOR_H
 
+#include <cstddef>
 #include <vector>
 
 #include "interfaces/ISoilSensor.h"
@@ -56,11 +65,42 @@ public:
     int initializeCalls = 0;
     int readCalls = 0;
     int isAvailableCalls = 0;
+
+    // Read history consumed by snapshot() (mirrors the real sensor). read()
+    // maintains them, but they are public (mock "all state public" style) so a
+    // consumer test can drive snapshot()'s availability directly — e.g. force
+    // the controller's "soil-unavailable" branch. lastReadOk = the most recent
+    // read() outcome; hasEverReadOk = any read() has ever succeeded (available).
+    bool lastReadOk = false;
+    bool hasEverReadOk = false;
     /// Every calibrate*() reference-value argument, in call order (the
     /// vector size doubles as the per-quantity call counter).
     std::vector<float> calibrateMoistureCalls;
     std::vector<float> calibratePhCalls;
     std::vector<float> calibrateEcCalls;
+
+    // -- Consistency helpers (script one read() outcome each, FIFO) ----------
+
+    /// Script the next read() to succeed: read() returns true, error 0, and
+    /// the getters serve exactly these values afterwards (readResult and the
+    /// public value fields are updated coherently when the step is consumed).
+    void scriptSuccessfulRead(float moistureValue, float temperatureValue,
+                              float humidityValue, float phValue,
+                              float ecValue, float nitrogenValue,
+                              float phosphorusValue, float potassiumValue)
+    {
+        script_.push_back({true, 0, moistureValue, temperatureValue,
+                           humidityValue, phValue, ecValue, nitrogenValue,
+                           phosphorusValue, potassiumValue});
+    }
+
+    /// Script the next read() to fail with @p error: read() returns false and
+    /// leaves the getter values untouched (last-good contract).
+    void scriptFailedRead(int error)
+    {
+        script_.push_back(
+            {false, error, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f});
+    }
 
     // -- ISoilSensor ---------------------------------------------------------
 
@@ -73,7 +113,58 @@ public:
     bool read() override
     {
         ++readCalls;
-        return readResult;
+        if (script_.empty()) {
+            // Unscripted: legacy behaviour — return the plain field, getters
+            // serve the manually-set values. Track the same outcome so
+            // snapshot() stays coherent with the getters.
+            lastReadOk = readResult;
+            hasEverReadOk = hasEverReadOk || readResult;
+            return readResult;
+        }
+        const Step& step = script_[next_];
+        if (next_ + 1 < script_.size()) {
+            ++next_;  // exhausted scripts repeat the last step forever
+        }
+        if (!step.ok) {
+            readResult = false;
+            lastError = step.error;
+            lastReadOk = false;
+            return false;  // values untouched — last-good contract
+        }
+        // Publish the coherent values into the public fields so the getters
+        // (which serve those fields) stay in sync with the read outcome.
+        moisture = step.moisture;
+        temperature = step.temperature;
+        humidity = step.humidity;
+        ph = step.ph;
+        ec = step.ec;
+        nitrogen = step.nitrogen;
+        phosphorus = step.phosphorus;
+        potassium = step.potassium;
+        readResult = true;
+        lastError = 0;
+        lastReadOk = true;
+        hasEverReadOk = true;
+        return true;
+    }
+
+    SoilSnapshot snapshot() override
+    {
+        // Coherent, non-blocking: report the read history + the current field
+        // values (the same ones the getters serve).
+        SoilSnapshot s;
+        s.readOk = lastReadOk;
+        s.available = hasEverReadOk;
+        s.lastError = lastError;
+        s.moisture = moisture;
+        s.temperature = temperature;
+        s.humidity = humidity;
+        s.ph = ph;
+        s.ec = ec;
+        s.nitrogen = nitrogen;
+        s.phosphorus = phosphorus;
+        s.potassium = potassium;
+        return s;
     }
 
     bool isAvailable() override
@@ -110,6 +201,24 @@ public:
         calibrateEcCalls.push_back(referenceValue);
         return calibrateResult;
     }
+
+private:
+    /// One scripted read() outcome; values are only meaningful when ok.
+    struct Step {
+        bool ok;
+        int error;
+        float moisture;
+        float temperature;
+        float humidity;
+        float ph;
+        float ec;
+        float nitrogen;
+        float phosphorus;
+        float potassium;
+    };
+
+    std::vector<Step> script_;
+    std::size_t next_ = 0;
 };
 
 #endif /* WATERINGSYSTEM_SENSORS_TESTING_MOCKSOILSENSOR_H */

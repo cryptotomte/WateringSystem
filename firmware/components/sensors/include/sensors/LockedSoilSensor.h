@@ -20,12 +20,16 @@
  * registration, controllers, ...) goes through the LockedSoilSensor, never
  * through the wrapped object directly.
  *
- * SCOPE: this decorator provides PER-CALL atomicity only, not cross-call.
- * A read-then-get sequence spanning two calls (read() then getMoisture())
- * is NOT protected against an interleaving read() from another task in
- * between — another task may refresh (or invalidate) the values first.
- * Such sequences need higher-level coordination (a caller-held lock or
- * single-owner task).
+ * SCOPE (per-call atomicity, cross-call gap): each interface call is
+ * individually atomic, but a read-then-get sequence spanning two calls
+ * (read() then getMoisture()) is NOT protected against an interleaving
+ * read() from another task in between — another task may refresh (or
+ * invalidate) the values first. snapshot() (PR-11) CLOSES that gap for the
+ * common consumer case: it copies the last-good values + validity + error
+ * out under a SINGLE lock, so a reader (controller / API status / console)
+ * never observes a torn read/getter tuple. Any other multi-call sequence
+ * still needs higher-level coordination (a caller-held lock or single-owner
+ * task).
  *
  * Pure C++ (<mutex> is available via pthread on ESP-IDF and on the linux
  * preview target), so the decorator is host-testable.
@@ -37,6 +41,9 @@
 #include <mutex>
 
 #include "interfaces/ISoilSensor.h"
+
+// SoilSnapshot is defined in interfaces/ISoilSensor.h (owned by the interface
+// so the pure controller can consume snapshot() through ISoilSensor).
 
 /**
  * @brief ISoilSensor decorator that serializes every call with a mutex.
@@ -141,6 +148,26 @@ public:
     {
         std::lock_guard<std::mutex> lock(mutex_);
         return sensor_.calibrateEC(referenceValue);
+    }
+
+    /**
+     * @brief Copy the last-good reading + validity + error out under one
+     * lock (PR-11), closing the read-then-getter cross-call gap.
+     *
+     * Locks and delegates to the wrapped sensor's snapshot(): the base tracks
+     * the read history (readOk / ever-read-ok) and holds the last-good values,
+     * and the lock makes that member-read atomic vs a concurrent read() on
+     * another task.
+     *
+     * NON-BLOCKING by contract: the base's snapshot() performs NO fresh read()
+     * and NO isAvailable() probe — both are RS485/Modbus bus I/O and must never
+     * run in a status/API/controller path (QUIRK 5). The periodic soil reader
+     * owns the read() cadence; this returns the current cached values.
+     */
+    SoilSnapshot snapshot() override
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return sensor_.snapshot();
     }
 
 private:
