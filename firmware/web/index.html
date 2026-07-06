@@ -163,11 +163,12 @@
                         </div>
 
                         <!-- Reservoir Control -->
-                        <div class="space-y-6">
+                        <!-- Hidden on single-pump (rev2) nodes by JS when /api/v1/pumps has no reservoir entry -->
+                        <div id="reservoir-section" class="space-y-6">
                             <h3 class="section-title">Reservoir</h3>
 
-                            <!-- Reservoir Enable -->
-                            <div class="flex items-center justify-between">
+                            <!-- Reservoir Enable — removed in v1 (reservoir is a plain pump + level sensors) -->
+                            <div class="flex items-center justify-between hidden">
                                 <label for="reservoir-toggle" class="label mb-0">Reservoir Feature:</label>
                                 <div class="flex items-center">
                                     <span id="reservoir-status" class="text-sm text-slate-500 dark:text-slate-400 mr-2">Disabled</span>
@@ -178,8 +179,8 @@
                                 </div>
                             </div>
 
-                            <!-- Automatic Level Control -->
-                            <div class="flex items-center justify-between">
+                            <!-- Automatic Level Control — removed in v1 (no auto-level endpoint; level sensors drive the display only) -->
+                            <div class="flex items-center justify-between hidden">
                                 <label for="reservoir-auto-level-toggle" class="label mb-0">Auto Level Control:</label>
                                 <div class="flex items-center">
                                     <span id="reservoir-auto-level-status" class="text-sm text-slate-500 dark:text-slate-400 mr-2">Disabled</span>
@@ -209,8 +210,8 @@
                             <div class="pt-4 section-border space-y-3">
                                 <!-- Manual Fill Duration -->
                                 <div class="w-full">
-                                    <label for="reservoir-duration-input" class="label">Manual Fill Duration (sec, 0=auto):</label>
-                                    <input type="number" id="reservoir-duration-input" min="0" max="300" value="60" class="input" disabled>
+                                    <label for="reservoir-duration-input" class="label">Manual Fill Duration (sec):</label>
+                                    <input type="number" id="reservoir-duration-input" min="1" max="300" value="60" class="input" disabled>
                                 </div>
                                 <!-- Manual Fill Buttons -->
                                 <div class="w-full flex space-x-2">
@@ -295,8 +296,8 @@
                             <input type="number" id="watering-duration-setting" min="1" max="300" class="input">
                         </div>
                         <div>
-                            <label for="min-watering-interval" class="label">Min Interval Between Waterings (hrs):</label>
-                            <input type="number" id="min-watering-interval" min="1" max="72" step="1" class="input">
+                            <label for="min-watering-interval" class="label">Min Interval Between Waterings (sec):</label>
+                            <input type="number" id="min-watering-interval" min="1" max="604800" step="1" class="input">
                         </div>
                         <button type="submit" class="w-full btn-primary text-sm">Save Settings</button>
                     </form>
@@ -308,6 +309,11 @@
                         <div class="info-label">IP Address: <span id="system-ip" class="info-value">--</span></div>
                         <div class="info-label">Storage Usage: <span id="storage-usage" class="info-value">--</span></div>
                         <div class="info-label">Version: <span class="info-value">v2.3</span></div>
+                        <!-- Firmware OTA — contract stub (POST /api/v1/ota returns 501 until PR-13) -->
+                        <div class="info-label flex items-center justify-between">
+                            <span>Firmware Update:</span>
+                            <button id="ota-update-btn" type="button" class="btn-secondary text-xs">Check OTA</button>
+                        </div>
                     </div>
                 </section>
             </div>

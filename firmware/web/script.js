@@ -5,7 +5,7 @@
 
 // Configuration
 const API_CONFIG = {
-    ENDPOINT: '',  // Changed from '/api' to empty string
+    ENDPOINT: '/api/v1',  // Versioned HTTP API v1 prefix (feature 009 contract)
     REFRESH_INTERVAL: 5000, // 5 seconds - fast sensor updates
     STATUS_REFRESH_INTERVAL: 5000, // 5 seconds - system status updates (same as sensors for water level responsiveness)
     CHART_REFRESH_INTERVAL: 120000, // 2 minutes - chart updates
@@ -72,6 +72,7 @@ function populateElements() {
         autoWateringStatus: document.getElementById('auto-watering-status'),
         autoWateringToggle: document.getElementById('auto-watering-toggle'),
           // Reservoir controls
+        reservoirSection: document.getElementById('reservoir-section'),
         reservoirStatus: document.getElementById('reservoir-status'),
         reservoirToggle: document.getElementById('reservoir-toggle'),
         reservoirAutoLevelStatus: document.getElementById('reservoir-auto-level-status'),
@@ -99,6 +100,7 @@ function populateElements() {
         // System info
         systemIp: document.getElementById('system-ip'),
         storageUsage: document.getElementById('storage-usage'),
+        otaUpdateBtn: document.getElementById('ota-update-btn'),
 
         // Modals and notifications
         notificationContainer: document.getElementById('notification-container'),
@@ -168,6 +170,8 @@ function initApp() {
     console.log('Starting initial data fetch...');
     fetchSensorData();
     fetchSystemStatus();
+    // v1: config lives at its own endpoint (was inside /status)
+    fetchConfig();
     // Note: fetchHistoricalData() is called by updateChartOptions() above
 
     // Start auto-refresh
@@ -302,15 +306,12 @@ function setupEventListeners() {
     // Auto watering toggle
     elements.autoWateringToggle.addEventListener('change', (e) => {
         setAutoWatering(e.target.checked);
-    });    // Reservoir controls
-    elements.reservoirToggle.addEventListener('change', (e) => {
-        setReservoirPumpEnabled(e.target.checked);
     });
 
-    elements.reservoirAutoLevelToggle.addEventListener('change', (e) => {
-        setReservoirAutoLevelControl(e.target.checked);
-    });
-
+    // Reservoir controls — v1 has no enable/disable or auto-level-control
+    // endpoints (the reservoir is a plain pump + level sensors), so only the
+    // manual start/stop controls remain; the enable + auto-level toggles are
+    // hidden in index.html and no longer wired.
     elements.startReservoirPumpBtn.addEventListener('click', () => {
         showConfirmation(
             'Are you sure you want to start filling the reservoir?',
@@ -330,6 +331,11 @@ function setupEventListeners() {
         e.preventDefault();
         saveSettings();
     });
+
+    // Firmware OTA (contract stub until PR-13)
+    if (elements.otaUpdateBtn) {
+        elements.otaUpdateBtn.addEventListener('click', triggerOtaUpdate);
+    }
 
     // Chart controls
     elements.chartSensor.addEventListener('change', updateChartOptions);
@@ -416,83 +422,102 @@ async function fetchSensorData() {
  * @param {Object} data - Sensor data from the API
  */
 function updateSensorDisplay(data) {
-    // Update environmental sensor readings
+    // Null-safe writer for a `.reading-value` element. v1 fields are nullable
+    // (present but null until a reader is valid); never call .toFixed on null.
+    const setReading = (element, value, digits = 1) => {
+        if (!element) return;
+        const valueElement = element.querySelector('.reading-value');
+        if (!valueElement) return;
+        valueElement.textContent = (typeof value === 'number' && isFinite(value))
+            ? value.toFixed(digits)
+            : '--';
+    };
+
+    // Update environmental sensor readings (v1: `valid` flag + nullable fields)
     if (data.environmental) {
-        if (data.environmental.success) {
-            if (elements.envTemperature) {
-                const valueElement = elements.envTemperature.querySelector('.reading-value');
-                if (valueElement) {
-                    valueElement.textContent = data.environmental.temperature.toFixed(1);
-                }
-            }
-
-            if (elements.envHumidity) {
-                const valueElement = elements.envHumidity.querySelector('.reading-value');
-                if (valueElement) {
-                    valueElement.textContent = data.environmental.humidity.toFixed(1);
-                }
-            }
-
-            if (elements.envPressure) {
-                const valueElement = elements.envPressure.querySelector('.reading-value');
-                if (valueElement) {
-                    valueElement.textContent = data.environmental.pressure.toFixed(1);
-                }
-            }
+        const env = data.environmental;
+        if (env.valid) {
+            setReading(elements.envTemperature, env.temperature);
+            setReading(elements.envHumidity, env.humidity);
+            setReading(elements.envPressure, env.pressure);
         } else {
-            console.warn('Environmental sensor read failed:', data.environmental.error);
+            // Placeholder when the reading is not valid
+            setReading(elements.envTemperature, null);
+            setReading(elements.envHumidity, null);
+            setReading(elements.envPressure, null);
         }
     }
 
-    // Update soil sensor readings
+    // Update soil sensor readings (v1: `valid` flag — false until PR-11 wires
+    // the periodic reader — + nullable fields; NPK present only when reported)
     if (data.soil) {
-        if (data.soil.success) {
-            if (elements.soilMoisture) {
-                const valueElement = elements.soilMoisture.querySelector('.reading-value');
-                if (valueElement) {
-                    valueElement.textContent = data.soil.moisture.toFixed(1);
-                }
-            }
-
-            if (elements.soilTemperature) {
-                const valueElement = elements.soilTemperature.querySelector('.reading-value');
-                if (valueElement) {
-                    valueElement.textContent = data.soil.temperature.toFixed(1);
-                }
-            }
-
-            if (elements.soilPh) {
-                const valueElement = elements.soilPh.querySelector('.reading-value');
-                if (valueElement) {
-                    valueElement.textContent = data.soil.ph.toFixed(1);
-                }
-            }
-
-            if (elements.soilEc) {
-                const valueElement = elements.soilEc.querySelector('.reading-value');
-                if (valueElement) {
-                    valueElement.textContent = data.soil.ec.toFixed(1);
-                }
-            }
+        const soil = data.soil;
+        if (soil.valid) {
+            setReading(elements.soilMoisture, soil.moisture);
+            setReading(elements.soilTemperature, soil.temperature);
+            setReading(elements.soilPh, soil.ph);
+            setReading(elements.soilEc, soil.ec);
 
             // Only update NPK if present in data and element exists
-            if (elements.soilNpk && data.soil.nitrogen !== undefined) {
+            if (elements.soilNpk && soil.nitrogen !== undefined && soil.nitrogen !== null) {
                 const valueElement = elements.soilNpk.querySelector('.reading-value');
                 if (valueElement) {
-                    const n = data.soil.nitrogen !== undefined ? data.soil.nitrogen.toFixed(1) : '--';
-                    const p = data.soil.phosphorus !== undefined ? data.soil.phosphorus.toFixed(1) : '--';
-                    const k = data.soil.potassium !== undefined ? data.soil.potassium.toFixed(1) : '--';
-                    valueElement.textContent = `N:${n} P:${p} K:${k}`;
+                    const fmt = (v) => (typeof v === 'number' && isFinite(v)) ? v.toFixed(1) : '--';
+                    valueElement.textContent = `N:${fmt(soil.nitrogen)} P:${fmt(soil.phosphorus)} K:${fmt(soil.potassium)}`;
                     elements.soilNpk.classList.remove('hidden');
                 }
             }
         } else {
-            console.warn('Soil sensor read failed:', data.soil.error);
+            // Placeholder when the reading is not valid
+            setReading(elements.soilMoisture, null);
+            setReading(elements.soilTemperature, null);
+            setReading(elements.soilPh, null);
+            setReading(elements.soilEc, null);
         }
+    }
+
+    // Reservoir level marks (v1 /sensors `level` = { low, high }, each
+    // { valid, waterPresent }). Drives the reservoir water-level display.
+    if (data.level) {
+        updateWaterLevelDisplay(data.level);
     }
 
     // Update connection status
     updateConnectionStatus(true);
+}
+
+/**
+ * Update the reservoir water-level display from the two /sensors level marks.
+ * v1 exposes two discrete sensors (low + high), each with a `valid` flag; an
+ * invalid mark is a settling/unknown state and MUST NOT render as wet or dry.
+ * @param {Object} level - { low: {valid, waterPresent}, high: {valid, waterPresent} }
+ */
+function updateWaterLevelDisplay(level) {
+    if (!elements.waterLevelText || !elements.waterLevelIndicator) return;
+    const low = level.low || {};
+    const high = level.high || {};
+    const isDarkMode = document.documentElement.classList.contains('dark');
+    const blueColor = isDarkMode ? 'bg-blue-400' : 'bg-blue-600';
+    const redColor = isDarkMode ? 'bg-red-400' : 'bg-red-600';
+    const grayColor = isDarkMode ? 'bg-gray-500' : 'bg-gray-400';
+
+    let levelText, levelPercentage, barColorClass;
+    if (high.valid && high.waterPresent) {
+        levelText = 'Full'; levelPercentage = 100; barColorClass = blueColor;
+    } else if (low.valid && low.waterPresent) {
+        levelText = 'OK'; levelPercentage = 60; barColorClass = blueColor;
+    } else if (low.valid && !low.waterPresent) {
+        levelText = 'Low'; levelPercentage = 10; barColorClass = redColor;
+    } else {
+        // One or both marks not yet valid (settling) — never show wet/dry.
+        levelText = 'Settling…'; levelPercentage = 0; barColorClass = grayColor;
+    }
+
+    elements.waterLevelIndicator.style.width = `${levelPercentage}%`;
+    const colorClassesToRemove = ['bg-blue-600', 'bg-yellow-500', 'bg-red-600', 'bg-gray-400', 'bg-blue-400', 'bg-amber-400', 'bg-red-400', 'bg-gray-500', 'bg-blue-500'];
+    elements.waterLevelIndicator.classList.remove(...colorClassesToRemove);
+    elements.waterLevelIndicator.classList.add(barColorClass);
+    elements.waterLevelText.textContent = levelText;
 }
 
 /**
@@ -507,12 +532,17 @@ async function fetchSystemStatus() {
             throw new Error(`HTTP error ${response.status}`);
         }        const data = await response.json();        console.log('System status received:', data);
         updateSystemStatus(data);
-        
+
         // Update connection status based on actual WiFi connection from server data
-        const wifiConnected = data.network && data.network.connected;
-        console.log('DEBUG: Network data:', data.network);
+        // (v1: `wifi` replaces the legacy `network` block)
+        const wifiConnected = data.wifi && data.wifi.connected;
+        console.log('DEBUG: WiFi data:', data.wifi);
         console.log('DEBUG: WiFi connected:', wifiConnected);
         updateConnectionStatus(wifiConnected);
+
+        // Pump running state moved out of /status into /pumps (v1). Fold the
+        // pump fetch into the status refresh cycle so it stays live.
+        fetchPumpStatus();
         console.log('fetchSystemStatus() completed successfully');
     } catch (error) {
         console.error('Error fetching system status:', error);
@@ -526,43 +556,138 @@ async function fetchSystemStatus() {
  * @param {Object} data - System status data from the API
  */
 function updateSystemStatus(data) {
-    // Update watering status
-    appState.isWatering = data.pumpRunning;
-    updateWateringStatus(data.pumpRunning, data.remainingTime);
-
-    // Update auto watering status
-    appState.autoWateringEnabled = data.wateringEnabled;
-    elements.autoWateringToggle.checked = data.wateringEnabled;
-    elements.autoWateringStatus.textContent = data.wateringEnabled ? 'Enabled' : 'Disabled';    // Update reservoir status if available
-    if (data.reservoir) {
-        appState.reservoir.enabled = data.reservoir.enabled;
-        appState.reservoir.autoLevelControlEnabled = data.reservoir.autoLevelControlEnabled || false;
-        appState.reservoir.pumpRunning = data.reservoir.pumpRunning;
-        appState.reservoir.lowLevelDetected = data.reservoir.lowLevelDetected;
-        appState.reservoir.highLevelDetected = data.reservoir.highLevelDetected;
-
-        updateReservoirStatus(data.reservoir);
+    // Automatic-mode indicator. v1 status carries `mode` ("automatic"/"manual")
+    // derived server-side from wateringEnabled — the legacy flat
+    // `wateringEnabled` field is gone from /status.
+    if (data.mode !== undefined) {
+        const automatic = data.mode === 'automatic';
+        appState.autoWateringEnabled = automatic;
+        if (elements.autoWateringToggle) {
+            elements.autoWateringToggle.checked = automatic;
+        }
+        if (elements.autoWateringStatus) {
+            elements.autoWateringStatus.textContent = automatic ? 'Enabled' : 'Disabled';
+        }
     }
 
-    // Update system info
-    if (data.network) {
-        elements.systemIp.textContent = data.network.ip || '--';
+    // Update system info (v1: `wifi` replaces the legacy `network` block).
+    if (data.wifi) {
+        elements.systemIp.textContent = data.wifi.ip || '--';
     }
 
-    if (data.storage) {
-        const usedPercent = ((data.storage.usedKB / data.storage.totalKB) * 100).toFixed(1);
-        elements.storageUsage.textContent = `${usedPercent}% (${data.storage.usedKB} KB / ${data.storage.totalKB} KB)`;
+    // Storage (v1: byte counts + percentUsed; the legacy body reported KB).
+    if (data.storage && typeof data.storage.totalBytes === 'number' && data.storage.totalBytes > 0) {
+        const usedKB = Math.round((data.storage.usedBytes || 0) / 1024);
+        const totalKB = Math.round(data.storage.totalBytes / 1024);
+        const usedPercent = (typeof data.storage.percentUsed === 'number')
+            ? data.storage.percentUsed.toFixed(1)
+            : (((data.storage.usedBytes || 0) / data.storage.totalBytes) * 100).toFixed(1);
+        elements.storageUsage.textContent = `${usedPercent}% (${usedKB} KB / ${totalKB} KB)`;
     }
 
-    // Update settings if available
-    if (data.config) {
-        appState.settings = {
-            moistureThresholdLow: data.config.moistureThresholdLow,
-            moistureThresholdHigh: data.config.moistureThresholdHigh,
-            wateringDuration: data.config.wateringDuration,
-            minWateringInterval: data.config.minWateringInterval
-        };
-        updateSettingsForm(appState.settings);
+    // NOTE: pump running state now comes from GET /api/v1/pumps (see
+    // fetchPumpStatus) and config values from GET /api/v1/config (see
+    // fetchConfig); /status no longer carries pumpRunning/remainingTime/
+    // wateringEnabled/config/reservoir, so they are read there instead.
+}
+
+/**
+ * Fetch pump running state from the API.
+ * v1 moved pump running state out of /status into GET /api/v1/pumps.
+ */
+async function fetchPumpStatus() {
+    try {
+        const response = await fetch(`${API_CONFIG.ENDPOINT}/pumps`);
+        if (!response.ok) {
+            throw new Error(`HTTP error ${response.status}`);
+        }
+        const data = await response.json();
+        updatePumpStatus(data);
+    } catch (error) {
+        console.error('Error fetching pump status:', error);
+    }
+}
+
+/**
+ * Update pump running indicators from the /pumps list.
+ * @param {Object} data - Pump list response { success, pumps: [...] }
+ */
+function updatePumpStatus(data) {
+    const pumps = (data && Array.isArray(data.pumps)) ? data.pumps : [];
+
+    // The plant pump drives the main watering status indicator. v1 /pumps
+    // exposes `running` + `currentRunTimeMs` but no remaining/target duration,
+    // so we drive the running indicator only (no synthetic countdown).
+    const plant = pumps.find(p => p && p.name === 'plant');
+    if (plant) {
+        appState.isWatering = plant.running;
+        updateWateringStatus(plant.running);
+    }
+
+    // Reservoir pump is absent on single-pump rev2 nodes — hide the entire
+    // reservoir section when /pumps has no `reservoir` entry, otherwise drive
+    // its running indicator + manual controls from the pump state.
+    const reservoir = pumps.find(p => p && p.name === 'reservoir');
+    if (elements.reservoirSection) {
+        elements.reservoirSection.classList.toggle('hidden', !reservoir);
+    }
+    if (reservoir) {
+        appState.reservoir.pumpRunning = reservoir.running;
+        updateReservoirPumpIndicator(reservoir.running);
+    }
+}
+
+/**
+ * Update the reservoir pump running indicator + manual control button states
+ * from the /pumps `reservoir` entry. v1 has no enable/auto-level concept, so
+ * the manual controls are always available when the pump exists.
+ * @param {boolean} running - Whether the reservoir pump is currently running
+ */
+function updateReservoirPumpIndicator(running) {
+    if (elements.reservoirDurationInput) elements.reservoirDurationInput.disabled = false;
+    if (elements.startReservoirPumpBtn) elements.startReservoirPumpBtn.disabled = running;
+    if (elements.stopReservoirPumpBtn) elements.stopReservoirPumpBtn.disabled = !running;
+
+    if (!elements.reservoirPumpStatus) return;
+    const dot = elements.reservoirPumpStatus.querySelector('.status-dot');
+    const text = elements.reservoirPumpStatus.querySelector('.status-text');
+    if (!dot || !text) return;
+    dot.classList.remove('status-inactive', 'status-active', 'status-running', 'status-warning');
+    if (running) {
+        dot.classList.add('status-running');
+        text.textContent = 'Pump Running';
+    } else {
+        dot.classList.add('status-active');
+        text.textContent = 'Pump Ready';
+    }
+}
+
+/**
+ * Fetch current configuration from the API.
+ * v1 moved config out of /status into a dedicated GET /api/v1/config.
+ */
+async function fetchConfig() {
+    try {
+        const response = await fetch(`${API_CONFIG.ENDPOINT}/config`);
+        if (!response.ok) {
+            throw new Error(`HTTP error ${response.status}`);
+        }
+        const data = await response.json();
+        if (data && data.success) {
+            // Map v1 field names/units into the existing form model. The
+            // duration/interval values are SECONDS here (were possibly labeled
+            // in other units in the old UI); the save-side conversions/labels
+            // are a separate later mission.
+            appState.settings = {
+                moistureThresholdLow: data.moistureThresholdLow,
+                moistureThresholdHigh: data.moistureThresholdHigh,
+                wateringDuration: data.wateringDurationS,
+                minWateringInterval: data.minWateringIntervalS
+            };
+            updateSettingsForm(appState.settings);
+        }
+    } catch (error) {
+        console.error('Error fetching configuration:', error);
     }
 }
 
@@ -665,113 +790,57 @@ function updateWateringStatus(isWatering, remainingTime) {
     appState.isWatering = isWatering;
 }
 
+// NOTE: the legacy `updateReservoirStatus()` (enable/auto-level/level-guess
+// display) was removed in the v1 adaptation — the reservoir is now a plain
+// pump (running indicator via updateReservoirPumpIndicator from /pumps) plus
+// the two level marks (updateWaterLevelDisplay from /sensors). There is no
+// enable/disable or auto-level-control concept in the v1 contract.
+
 /**
- * Update the reservoir status display (Tailwind Version adapted for Dark Mode)
- * @param {Object} reservoirData - Reservoir status data from the API
+ * Read a readable message from a v1 error response. v1 errors are
+ * `{ success:false, error:"..." }` with a 4xx/5xx status. Falls back to the
+ * HTTP status when the body is missing/unparseable.
+ * @param {Response} response - the failed fetch Response
+ * @returns {Promise<string>} a human-readable error message
  */
-function updateReservoirStatus(reservoirData) {
-    elements.reservoirToggle.checked = reservoirData.enabled;
-    elements.reservoirStatus.textContent = reservoirData.enabled ? 'Enabled' : 'Disabled';
-
-    // Update automatic level control toggle
-    elements.reservoirAutoLevelToggle.checked = reservoirData.autoLevelControlEnabled || false;
-    elements.reservoirAutoLevelStatus.textContent = reservoirData.autoLevelControlEnabled ? 'Enabled' : 'Disabled';
-    elements.reservoirAutoLevelToggle.disabled = !reservoirData.enabled;
-
-    elements.startReservoirPumpBtn.disabled = !reservoirData.enabled || reservoirData.pumpRunning || reservoirData.highLevelDetected;
-    elements.stopReservoirPumpBtn.disabled = !reservoirData.enabled || !reservoirData.pumpRunning;
-    elements.reservoirDurationInput.disabled = !reservoirData.enabled;
-
-    let levelPercentage = 0;
-    let levelText = 'Unknown';
-    let barColorClass;
-    const isDarkMode = document.documentElement.classList.contains('dark');    // Define color classes for different states
-    const blueColor = isDarkMode ? 'bg-blue-400' : 'bg-blue-600';
-    const yellowColor = isDarkMode ? 'bg-amber-400' : 'bg-yellow-500';
-    const redColor = isDarkMode ? 'bg-red-400' : 'bg-red-600';
-    const grayColor = isDarkMode ? 'bg-gray-500' : 'bg-gray-400';
-    const brandAccent = 'bg-blue-500'; // Brand accent color
-
-    if (reservoirData.highLevelDetected) {
-        levelPercentage = 100;
-        levelText = 'Full';
-        barColorClass = brandAccent; // Use brand accent for full
-    } else if (reservoirData.lowLevelDetected) {
-        levelPercentage = 50; // Assuming low means not empty, but needs attention
-        levelText = 'Medium';
-        barColorClass = yellowColor;
-    } else { // Neither high nor low detected, assume critically low or empty
-        levelPercentage = 10;
-        levelText = 'Low';
-        barColorClass = redColor;
-    }
-
-    // If reservoir is disabled, show a neutral/empty state for the bar
-    if (!reservoirData.enabled) {
-        levelPercentage = 0;
-        levelText = 'Disabled';
-        barColorClass = grayColor;    }
-
-    elements.waterLevelIndicator.style.width = `${levelPercentage}%`;
-    // Remove all potential background color classes and add the new one
-    const colorClassesToRemove = ['bg-blue-600', 'bg-yellow-500', 'bg-red-600', 'bg-gray-400', 'bg-blue-400', 'bg-amber-400', 'bg-red-400', 'bg-gray-500', 'bg-blue-500'];
-    elements.waterLevelIndicator.classList.remove(...colorClassesToRemove);
-    elements.waterLevelIndicator.classList.add(barColorClass);
-
-
-    elements.waterLevelText.textContent = levelText;
-
-    const pumpStatusDot = elements.reservoirPumpStatus.querySelector('.status-dot');
-    const pumpStatusText = elements.reservoirPumpStatus.querySelector('.status-text');
-
-    pumpStatusDot.classList.remove('status-inactive', 'status-active', 'status-running', 'status-warning');
-
-    if (reservoirData.pumpRunning) {
-        pumpStatusDot.classList.add('status-running');
-        pumpStatusText.textContent = 'Pump Running';
-    } else if (reservoirData.enabled) {
-        if (levelPercentage <= 10 && levelText === 'Low') { // Check if level is critically low
-            pumpStatusDot.classList.add('status-warning');
-            pumpStatusText.textContent = 'Pump Ready (Level Low)';
-        } else {
-            pumpStatusDot.classList.add('status-active');
-            pumpStatusText.textContent = 'Pump Ready';
+async function readApiError(response) {
+    try {
+        const data = await response.json();
+        if (data && typeof data.error === 'string' && data.error) {
+            return data.error;
         }
-    } else {
-        pumpStatusDot.classList.add('status-inactive');
-        pumpStatusText.textContent = 'Pump Inactive (Disabled)';
+    } catch (e) {
+        // fall through to the status-based message
     }
+    return `HTTP error ${response.status}`;
 }
 
 /**
- * Enable or disable auto-watering via API
- * @param {boolean} enabled - Whether auto-watering should be enabled
+ * Enable or disable automatic-mode watering via the v1 config endpoint.
+ * v1 has no `/control/auto`; the mode is derived server-side from
+ * `wateringEnabled`, so we POST that config field as JSON.
+ * @param {boolean} enabled - Whether automatic watering should be enabled
  */
 async function setAutoWatering(enabled) {
     try {
-        const formData = new URLSearchParams();
-        formData.append('enabled', enabled.toString());
-        
-        const response = await fetch(`${API_CONFIG.ENDPOINT}/control/auto`, {
+        const response = await fetch(`${API_CONFIG.ENDPOINT}/config`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
+                'Content-Type': 'application/json'
             },
-            body: formData
+            body: JSON.stringify({ wateringEnabled: enabled })
         });
 
         if (!response.ok) {
-            throw new Error(`HTTP error ${response.status}`);
+            throw new Error(await readApiError(response));
         }
 
-        const data = await response.json();
-        if (data.success) {
-            appState.autoWateringEnabled = enabled;
-            elements.autoWateringStatus.textContent = enabled ? 'Enabled' : 'Disabled';
-            showNotification('Auto-Watering', `Auto-watering has been ${enabled ? 'enabled' : 'disabled'}.`, 'info');
-        } else {
-            throw new Error(data.message || 'Unknown error');
-        }
+        // v1 returns the resulting ConfigResponse (no `message` field); a 2xx
+        // is success. Re-fetch status so the derived mode indicator updates.
+        appState.autoWateringEnabled = enabled;
+        elements.autoWateringStatus.textContent = enabled ? 'Enabled' : 'Disabled';
+        showNotification('Auto-Watering', `Auto-watering has been ${enabled ? 'enabled' : 'disabled'}.`, 'info');
+        fetchSystemStatus();
     } catch (error) {
         console.error('Error setting auto-watering:', error);
         showNotification('Auto-Watering Error', `Failed to ${enabled ? 'enable' : 'disable'} auto-watering: ${error.message}`, 'error');
@@ -820,44 +889,37 @@ async function saveSettings() {
         return;
     }
 
-    // Debug info - Log what we're about to send
-    console.log('Sending settings to server:', settings);
+    // v1 config body uses the contract field names/units and JSON. The form
+    // fields already carry seconds (GET /config populates them from
+    // wateringDurationS / minWateringIntervalS), so send seconds directly.
+    const body = {
+        moistureThresholdLow: settings.moistureThresholdLow,
+        moistureThresholdHigh: settings.moistureThresholdHigh,
+        wateringDurationS: settings.wateringDuration,
+        minWateringIntervalS: settings.minWateringInterval
+    };
+
+    console.log('Sending settings to server:', body);
     console.log('Using endpoint:', `${API_CONFIG.ENDPOINT}/config`);
 
     try {
-        // Try with form data first (which is known to work in other endpoints)
-        const formData = new URLSearchParams();
-        formData.append('moistureThresholdLow', settings.moistureThresholdLow);
-        formData.append('moistureThresholdHigh', settings.moistureThresholdHigh);
-        formData.append('wateringDuration', settings.wateringDuration);
-        formData.append('minWateringInterval', settings.minWateringInterval);
-
-        console.log('Sending as URL-encoded form data');
-
         const response = await fetch(`${API_CONFIG.ENDPOINT}/config`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
+                'Content-Type': 'application/json'
             },
-            body: formData
+            body: JSON.stringify(body)
         });
 
-        // Debug info - Log response details
-        console.log('Response status:', response.status);
-
+        // v1 rejects an out-of-range field with a 4xx {success:false,error}.
         if (!response.ok) {
-            throw new Error(`HTTP error ${response.status}`);
+            throw new Error(await readApiError(response));
         }
 
-        const data = await response.json();
-        console.log('Response data:', data);
-
-        if (data.success) {
-            appState.settings = settings;
-            showNotification('Settings Saved', 'System settings have been updated.', 'success');
-        } else {
-            throw new Error(data.message || 'Unknown error');
-        }
+        // Success returns the new ConfigResponse (no `message` field); a 2xx
+        // is success on its own.
+        appState.settings = settings;
+        showNotification('Settings Saved', 'System settings have been updated.', 'success');
     } catch (error) {
         console.error('Error saving settings:', error);
         showNotification('Settings Error', `Failed to save settings: ${error.message}`, 'error');
@@ -1018,18 +1080,26 @@ async function fetchHistoricalData() {
         return;
     }
 
+    // v1 takes a single `metric` name (e.g. env_temperature, soil_moisture)
+    // built from the sensor group + reading, plus a named `range`. The two
+    // dropdown values already map directly: `${sensor}_${reading}`.
+    const metric = `${sensor}_${reading}`;
+
     showChartLoading();
     try {
-        const response = await fetch(`${API_CONFIG.ENDPOINT}/history?sensor=${sensor}&reading=${reading}&range=${timeRange}`);
+        const response = await fetch(`${API_CONFIG.ENDPOINT}/history?metric=${encodeURIComponent(metric)}&range=${encodeURIComponent(timeRange)}`);
         if (!response.ok) {
-            throw new Error(`HTTP error ${response.status}`);
+            throw new Error(await readApiError(response));
         }
 
+        // Response shape { success, timestamps, values, metric, ... }; empty
+        // arrays (no data / soil not-yet-valid) render as an empty chart, not
+        // an error (handled in updateChart).
         const data = await response.json();
         updateChart(data, `${sensor === 'env' ? 'Environmental' : 'Soil'} ${elements.chartReading.options[elements.chartReading.selectedIndex].text}`);
     } catch (error) {
         console.error('Error fetching historical data:', error);
-        showNotification('Chart Error', 'Failed to load historical data.', 'error');
+        showNotification('Chart Error', `Failed to load historical data: ${error.message}`, 'error');
     } finally {
         hideChartLoading();
     }
@@ -1253,40 +1323,37 @@ function removeNotification(notification) {
  * @param {number} duration - Watering duration in seconds
  */
 async function startWatering(duration) {
+    // v1 clamps durationS to 1..300 server-side; clamp client-side too.
+    const durationVal = Math.min(300, Math.max(1, parseInt(duration) || 20));
+
     try {
-        // Convert duration to integer or use default
-        const durationVal = parseInt(duration) || 20;
+        console.log(`Starting plant pump for ${durationVal} seconds (POST /pumps/plant)`);
 
-        // Create form data instead of JSON to avoid server-side crash
-        const formData = new URLSearchParams();
-        formData.append('duration', durationVal);
-
-        console.log(`Starting watering for ${durationVal} seconds using form data`);
-
-        const response = await fetch(`${API_CONFIG.ENDPOINT}/control/water/start`, {
+        const response = await fetch(`${API_CONFIG.ENDPOINT}/pumps/plant`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
+                'Content-Type': 'application/json'
             },
-            body: formData
+            body: JSON.stringify({ action: 'run', durationS: durationVal })
         });
 
+        // 409 = pump already running; surface the contract message.
+        if (response.status === 409) {
+            const msg = await readApiError(response);
+            showNotification('Watering', msg || 'Pump already running', 'warning');
+            fetchPumpStatus();
+            return;
+        }
         if (!response.ok) {
-            throw new Error(`HTTP error ${response.status}`);
+            throw new Error(await readApiError(response));
         }
 
-        const data = await response.json();
-
-        if (data.success) {
-            showNotification('Watering Started', `Watering started for ${durationVal} seconds.`, 'success');
-            // Update UI immediately for better responsiveness
-            updateWateringStatus(true);
-
-            // Immediately fetch system status to get remaining time
-            await fetchSystemStatus();
-        } else {
-            throw new Error(data.message || 'Unknown error');
-        }
+        // v1 returns the resulting PumpResponse (no `message` field).
+        showNotification('Watering Started', `Watering started for ${durationVal} seconds.`, 'success');
+        // Update UI immediately for better responsiveness, then re-fetch the
+        // pump list to refresh the running indicator.
+        updateWateringStatus(true);
+        fetchPumpStatus();
     } catch (error) {
         console.error('Error starting watering:', error);
         showNotification('Watering Error', `Failed to start watering: ${error.message}`, 'error');
@@ -1294,120 +1361,69 @@ async function startWatering(duration) {
 }
 
 /**
- * Stop watering via API
+ * Stop watering via API (idempotent no-op if already stopped)
  */
 async function stopWatering() {
     try {
-        const response = await fetch(`${API_CONFIG.ENDPOINT}/control/water/stop`, {
-            method: 'POST'
+        const response = await fetch(`${API_CONFIG.ENDPOINT}/pumps/plant`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ action: 'stop' })
         });
 
         if (!response.ok) {
-            throw new Error(`HTTP error ${response.status}`);
+            throw new Error(await readApiError(response));
         }
 
-        const data = await response.json();
-        if (data.success) {
-            showNotification('Watering Stopped', 'Watering has been stopped.', 'info');
-            updateWateringStatus(false);
-        } else {
-            throw new Error(data.message || 'Unknown error');
-        }
+        showNotification('Watering Stopped', 'Watering has been stopped.', 'info');
+        updateWateringStatus(false);
+        fetchPumpStatus();
     } catch (error) {
         console.error('Error stopping watering:', error);
         showNotification('Watering Error', `Failed to stop watering: ${error.message}`, 'error');
     }
 }
 
-/**
- * Enable or disable the reservoir pump feature via API
- * @param {boolean} enabled - Whether the reservoir pump feature should be enabled
- */
-async function setReservoirPumpEnabled(enabled) {
-    try {
-        // Use form data instead of JSON for better compatibility
-        const formData = new URLSearchParams();
-        formData.append('command', enabled ? 'enable' : 'disable');
-
-        const response = await fetch(`${API_CONFIG.ENDPOINT}/reservoir`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            body: formData
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error ${response.status}`);
-        }
-
-        const data = await response.json();
-        if (data.success) {
-            appState.reservoir.enabled = enabled;
-            showNotification('Reservoir Pump', `Reservoir pump feature has been ${enabled ? 'enabled' : 'disabled'}.`, 'info');
-
-            // Update UI immediately for better responsiveness
-            updateReservoirStatus({
-                ...appState.reservoir,
-                enabled: enabled
-            });
-
-            // Fetch full status to ensure everything is in sync
-            fetchSystemStatus();
-        } else {
-            throw new Error(data.message || 'Unknown error');
-        }
-    } catch (error) {
-        console.error('Error setting reservoir pump feature:', error);
-        showNotification('Reservoir Error', `Failed to ${enabled ? 'enable' : 'disable'} reservoir pump feature: ${error.message}`, 'error');
-
-        // Revert UI to previous state
-        elements.reservoirToggle.checked = appState.reservoir.enabled;
-    }
-}
+// v1 has NO reservoir enable/disable and NO auto-level-control endpoint — the
+// reservoir is a plain pump plus the level sensors. The legacy
+// `setReservoirPumpEnabled()` and `setReservoirAutoLevelControl()` functions
+// (POST /reservoir command verbs) were removed accordingly; only manual
+// start/stop remain, retargeted to POST /api/v1/pumps/reservoir (same shape as
+// the plant pump).
 
 /**
- * Start reservoir filling via API
- * @param {number} duration - Filling duration in seconds (0 for automatic stop at high level)
+ * Start the reservoir fill pump for a timed run via POST /pumps/reservoir.
+ * @param {number} duration - Fill duration in seconds (clamped to 1..300)
  */
 async function startReservoirFilling(duration) {
-    try {
-        // Use form data instead of JSON for better compatibility
-        const formData = new URLSearchParams();
-        formData.append('command', 'start');
-        formData.append('duration', parseInt(duration) || 0);
+    // v1 durationS is a bounded timed run (1..300 s); there is no "0 = auto".
+    const durationVal = Math.min(300, Math.max(1, parseInt(duration) || 60));
 
-        const response = await fetch(`${API_CONFIG.ENDPOINT}/reservoir`, {
+    try {
+        const response = await fetch(`${API_CONFIG.ENDPOINT}/pumps/reservoir`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
+                'Content-Type': 'application/json'
             },
-            body: formData
+            body: JSON.stringify({ action: 'run', durationS: durationVal })
         });
 
+        // 409 = pump already running.
+        if (response.status === 409) {
+            const msg = await readApiError(response);
+            showNotification('Reservoir', msg || 'Pump already running', 'warning');
+            fetchPumpStatus();
+            return;
+        }
         if (!response.ok) {
-            throw new Error(`HTTP error ${response.status}`);
+            throw new Error(await readApiError(response));
         }
 
-        const data = await response.json();
-        if (data.success) {
-            if (parseInt(duration) > 0) {
-                showNotification('Reservoir Filling Started', `Reservoir filling started for ${duration} seconds.`, 'success');
-            } else {
-                showNotification('Reservoir Filling Started', 'Reservoir filling started (will stop automatically when full).', 'success');
-            }
-
-            // Update UI immediately for better responsiveness
-            updateReservoirStatus({
-                ...appState.reservoir,
-                pumpRunning: true
-            });
-
-            // Fetch full status to ensure everything is in sync
-            fetchSystemStatus();
-        } else {
-            throw new Error(data.message || 'Unknown error');
-        }
+        showNotification('Reservoir Filling Started', `Reservoir filling started for ${durationVal} seconds.`, 'success');
+        // Re-fetch the pump list to refresh the running indicator.
+        fetchPumpStatus();
     } catch (error) {
         console.error('Error starting reservoir filling:', error);
         showNotification('Reservoir Error', `Failed to start reservoir filling: ${error.message}`, 'error');
@@ -1415,40 +1431,24 @@ async function startReservoirFilling(duration) {
 }
 
 /**
- * Stop reservoir pump via API
+ * Stop the reservoir pump via POST /pumps/reservoir (idempotent).
  */
 async function stopReservoirPump() {
     try {
-        const formData = new URLSearchParams();
-        formData.append('command', 'stop');
-        
-        const response = await fetch(`${API_CONFIG.ENDPOINT}/reservoir`, {
+        const response = await fetch(`${API_CONFIG.ENDPOINT}/pumps/reservoir`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
+                'Content-Type': 'application/json'
             },
-            body: formData
+            body: JSON.stringify({ action: 'stop' })
         });
 
         if (!response.ok) {
-            throw new Error(`HTTP error ${response.status}`);
+            throw new Error(await readApiError(response));
         }
 
-        const data = await response.json();
-        if (data.success) {
-            showNotification('Reservoir Pump Stopped', 'Reservoir pump has been stopped.', 'info');
-
-            // Update UI immediately for better responsiveness
-            updateReservoirStatus({
-                ...appState.reservoir,
-                pumpRunning: false
-            });
-
-            // Fetch full status to ensure everything is in sync
-            fetchSystemStatus();
-        } else {
-            throw new Error(data.message || 'Unknown error');
-        }
+        showNotification('Reservoir Pump Stopped', 'Reservoir pump has been stopped.', 'info');
+        fetchPumpStatus();
     } catch (error) {
         console.error('Error stopping reservoir pump:', error);
         showNotification('Reservoir Error', `Failed to stop reservoir pump: ${error.message}`, 'error');
@@ -1456,49 +1456,31 @@ async function stopReservoirPump() {
 }
 
 /**
- * Enable or disable automatic reservoir level control via API
- * @param {boolean} enabled - Whether automatic level control should be enabled
+ * Trigger a firmware OTA update. v1 answers a fixed 501 stub until PR-13; show
+ * a clean "not available yet" message on 501 rather than an error/crash.
  */
-async function setReservoirAutoLevelControl(enabled) {
+async function triggerOtaUpdate() {
     try {
-        // Use form data for better compatibility
-        const formData = new URLSearchParams();
-        formData.append('command', enabled ? 'enable-auto-level' : 'disable-auto-level');
-
-        const response = await fetch(`${API_CONFIG.ENDPOINT}/reservoir`, {
+        const response = await fetch(`${API_CONFIG.ENDPOINT}/ota`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
+                'Content-Type': 'application/json'
             },
-            body: formData
+            body: JSON.stringify({})
         });
 
+        if (response.status === 501) {
+            showNotification('Firmware Update', 'OTA not available yet (PR-13).', 'info');
+            return;
+        }
         if (!response.ok) {
-            throw new Error(`HTTP error ${response.status}`);
+            throw new Error(await readApiError(response));
         }
 
-        const data = await response.json();
-        if (data.success) {
-            appState.reservoir.autoLevelControlEnabled = enabled;
-            showNotification('Auto Level Control', `Automatic level control has been ${enabled ? 'enabled' : 'disabled'}.`, 'info');
-
-            // Update UI immediately for better responsiveness
-            updateReservoirStatus({
-                ...appState.reservoir,
-                autoLevelControlEnabled: enabled
-            });
-
-            // Fetch full status to ensure everything is in sync
-            fetchSystemStatus();
-        } else {
-            throw new Error(data.message || 'Unknown error');
-        }
+        showNotification('Firmware Update', 'OTA update started.', 'success');
     } catch (error) {
-        console.error('Error setting automatic level control:', error);
-        showNotification('Reservoir Error', `Failed to ${enabled ? 'enable' : 'disable'} automatic level control: ${error.message}`, 'error');
-
-        // Revert UI to previous state
-        elements.reservoirAutoLevelToggle.checked = appState.reservoir.autoLevelControlEnabled;
+        console.error('Error triggering OTA update:', error);
+        showNotification('Firmware Update Error', `OTA request failed: ${error.message}`, 'error');
     }
 }
 
