@@ -121,6 +121,33 @@ static void content_type_no_extension(void)
     TEST_ASSERT_EQUAL_STRING("application/octet-stream", contentTypeForPath("noext"));
 }
 
+static void sanitize_double_slash_rejected(void)
+{
+    TEST_ASSERT_FALSE(sanitizeAssetPath("//etc/passwd").has_value());
+}
+
+static void sanitize_trailing_dotdot_rejected(void)
+{
+    TEST_ASSERT_FALSE(sanitizeAssetPath("/assets/..").has_value());
+}
+
+static void content_type_js_case_insensitive(void)
+{
+    TEST_ASSERT_EQUAL_STRING("application/javascript", contentTypeForPath("bundle.JS"));
+}
+
+static void content_type_htm_alias(void)
+{
+    TEST_ASSERT_EQUAL_STRING("text/html", contentTypeForPath("page.htm"));
+}
+
+static void sanitize_empty_maps_to_index(void)
+{
+    auto res = sanitizeAssetPath("");
+    TEST_ASSERT_TRUE(res.has_value());
+    TEST_ASSERT_EQUAL_STRING("index.html", res.value().c_str());
+}
+
 void run_api_static_tests(void)
 {
     RUN_TEST(sanitize_root_maps_to_index);
@@ -141,4 +168,9 @@ void run_api_static_tests(void)
     RUN_TEST(content_type_svg);
     RUN_TEST(content_type_unknown_extension);
     RUN_TEST(content_type_no_extension);
+    RUN_TEST(sanitize_double_slash_rejected);
+    RUN_TEST(sanitize_trailing_dotdot_rejected);
+    RUN_TEST(content_type_js_case_insensitive);
+    RUN_TEST(content_type_htm_alias);
+    RUN_TEST(sanitize_empty_maps_to_index);
 }

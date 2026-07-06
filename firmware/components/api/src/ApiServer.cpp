@@ -149,7 +149,12 @@ esp_err_t staticFileHandler(httpd_req_t* req)
     }
     httpd_resp_set_type(req, contentTypeForPath(*rel));
     httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    httpd_resp_set_hdr(req, "Cache-Control", "max-age=3600");
+    // The HTML shell must always revalidate so a frontend-changing OTA (PR-13)
+    // is picked up immediately; static libs stay cached for an hour.
+    const bool isHtml =
+        rel->size() >= 5 && rel->compare(rel->size() - 5, 5, ".html") == 0;
+    httpd_resp_set_hdr(req, "Cache-Control",
+                       isHtml ? "no-cache" : "max-age=3600");
     char buf[1024];
     size_t n;
     esp_err_t sendErr = ESP_OK;
@@ -159,9 +164,19 @@ esp_err_t staticFileHandler(httpd_req_t* req)
             break;
         }
     }
+    // std::fread returns 0 on BOTH EOF and a read error, so a mid-file
+    // littlefs failure would otherwise exit the loop with sendErr == ESP_OK.
+    // Capture ferror before fclose; on a read error return ESP_FAIL WITHOUT
+    // the terminating empty chunk, so the client sees a broken connection
+    // rather than a bogus "complete" (truncated) gzip body.
+    const bool readError = (std::ferror(f) != 0);
     std::fclose(f);
     if (sendErr != ESP_OK) {
         return sendErr;
+    }
+    if (readError) {
+        ESP_LOGE(TAG, "read error streaming %s (truncated)", full.c_str());
+        return ESP_FAIL;
     }
     return httpd_resp_send_chunk(req, nullptr, 0);
 }

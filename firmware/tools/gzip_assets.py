@@ -55,6 +55,11 @@ def main() -> int:
         return 1
     os.makedirs(args.dst, exist_ok=True)
     n = gzip_tree(args.src, args.dst)
+    if n == 0:
+        # Fail loudly rather than ship an asset-less littlefs image as success.
+        print(f"error: no assets compressed from {args.src} "
+              f"(empty or misconfigured)", file=sys.stderr)
+        return 1
     print(f"gzip_assets: {n} file(s) -> {args.dst}")
     return 0
 

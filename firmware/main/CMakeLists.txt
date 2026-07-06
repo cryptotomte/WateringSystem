@@ -26,7 +26,9 @@ set(GZIP_TOOL "${CMAKE_CURRENT_SOURCE_DIR}/../tools/gzip_assets.py")
 idf_build_get_property(python PYTHON)
 
 # Collect the web sources so the stage target re-runs when any of them change.
-file(GLOB_RECURSE WEB_SRC_FILES "${WEB_SRC_DIR}/*")
+# CONFIGURE_DEPENDS re-globs on every build so an ADDED/REMOVED asset is picked
+# up (not just edits to existing files).
+file(GLOB_RECURSE WEB_SRC_FILES CONFIGURE_DEPENDS "${WEB_SRC_DIR}/*")
 
 add_custom_command(
     OUTPUT "${WEB_IMAGE_DIR}/.stamp"

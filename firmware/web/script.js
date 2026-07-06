@@ -458,13 +458,19 @@ function updateSensorDisplay(data) {
             setReading(elements.soilPh, soil.ph);
             setReading(elements.soilEc, soil.ec);
 
-            // Only update NPK if present in data and element exists
-            if (elements.soilNpk && soil.nitrogen !== undefined && soil.nitrogen !== null) {
+            // Show NPK only when present in data; hide/blank it otherwise so a
+            // stale N:.. P:.. K:.. never lingers when the field drops out.
+            if (elements.soilNpk) {
                 const valueElement = elements.soilNpk.querySelector('.reading-value');
-                if (valueElement) {
-                    const fmt = (v) => (typeof v === 'number' && isFinite(v)) ? v.toFixed(1) : '--';
-                    valueElement.textContent = `N:${fmt(soil.nitrogen)} P:${fmt(soil.phosphorus)} K:${fmt(soil.potassium)}`;
+                if (soil.nitrogen !== undefined && soil.nitrogen !== null) {
+                    if (valueElement) {
+                        const fmt = (v) => (typeof v === 'number' && isFinite(v)) ? v.toFixed(1) : '--';
+                        valueElement.textContent = `N:${fmt(soil.nitrogen)} P:${fmt(soil.phosphorus)} K:${fmt(soil.potassium)}`;
+                    }
                     elements.soilNpk.classList.remove('hidden');
+                } else {
+                    if (valueElement) valueElement.textContent = 'N:-- P:-- K:--';
+                    elements.soilNpk.classList.add('hidden');
                 }
             }
         } else {
@@ -473,6 +479,12 @@ function updateSensorDisplay(data) {
             setReading(elements.soilTemperature, null);
             setReading(elements.soilPh, null);
             setReading(elements.soilEc, null);
+            // Blank + re-hide NPK so a previously shown value is not read as live.
+            if (elements.soilNpk) {
+                const valueElement = elements.soilNpk.querySelector('.reading-value');
+                if (valueElement) valueElement.textContent = 'N:-- P:-- K:--';
+                elements.soilNpk.classList.add('hidden');
+            }
         }
     }
 
@@ -1174,7 +1186,9 @@ function updateChart(data, label) {
     }
 
     // Update chart data
-    appState.chart.data.labels = data.timestamps.map(t => new Date(t));
+    // /api/v1/history sends epoch SECONDS (see docs/api/openapi.yaml); the Date
+    // constructor expects milliseconds, so convert here or points land near 1970.
+    appState.chart.data.labels = data.timestamps.map(t => new Date(t * 1000));
     appState.chart.data.datasets[0].data = data.values;
     appState.chart.data.datasets[0].label = `${label} (${unit})`;
 

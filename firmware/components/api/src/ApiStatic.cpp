@@ -39,6 +39,8 @@ std::optional<std::string> sanitizeAssetPath(const std::string& uri)
     // leading '/' (a "//..." absolute-escape attempt), is rejected.
     if (path.front() == '/') {
         path.erase(0, 1);
+        // Defensive guard: unreachable in practice ("/" already returned
+        // index.html above), kept as a belt-and-braces check.
         if (path.empty()) {
             return std::nullopt;
         }
