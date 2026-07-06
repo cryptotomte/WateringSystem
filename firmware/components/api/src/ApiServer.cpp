@@ -24,6 +24,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <optional>
@@ -41,8 +42,10 @@
 #include "api/ApiRequests.h"
 #include "api/ApiRoutes.h"
 #include "api/ApiSerialize.h"
+#include "api/ApiStatic.h"
 #include "events/EventLogger.h"
 #include "network/WifiState.h"
+#include "storage/StorageMount.h"
 #include "time/TimeService.h"
 
 namespace api {
@@ -126,6 +129,41 @@ esp_err_t powerHandler(httpd_req_t* req)
                         errorBody("server misconfigured"));
     }
     return sendJson(req, ApiStatus::Ok, server->buildPowerBody());
+}
+
+// Serve a gzipped static asset from littlefs. Registered as the GET /* catch-all
+// AFTER the exact /api/v1/ routes, so those match first; any other GET falls
+// here. Assets are stored pre-gzipped at <base>/<path>.gz (feature 010). File
+// I/O only, off the watering buses (same isolation class as history/events).
+esp_err_t staticFileHandler(httpd_req_t* req)
+{
+    const std::optional<std::string> rel = sanitizeAssetPath(req->uri);
+    if (!rel.has_value()) {
+        return sendJson(req, ApiStatus::NotFound, errorBody("not found"));
+    }
+    const std::string full =
+        std::string(StorageMount::kBasePath) + "/" + *rel + ".gz";
+    FILE* f = std::fopen(full.c_str(), "rb");
+    if (f == nullptr) {
+        return sendJson(req, ApiStatus::NotFound, errorBody("not found"));
+    }
+    httpd_resp_set_type(req, contentTypeForPath(*rel));
+    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+    httpd_resp_set_hdr(req, "Cache-Control", "max-age=3600");
+    char buf[1024];
+    size_t n;
+    esp_err_t sendErr = ESP_OK;
+    while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) {
+        sendErr = httpd_resp_send_chunk(req, buf, n);
+        if (sendErr != ESP_OK) {
+            break;
+        }
+    }
+    std::fclose(f);
+    if (sendErr != ESP_OK) {
+        return sendErr;
+    }
+    return httpd_resp_send_chunk(req, nullptr, 0);
 }
 
 /// Global 404: any unregistered route answers the JSON error envelope (parity
@@ -907,6 +945,12 @@ bool ApiServer::start()
             .uri = "/api/v1/ota",
             .method = HTTP_POST,
             .handler = &otaHandler,
+            .user_ctx = this,
+        },
+        {
+            .uri = "/*",
+            .method = HTTP_GET,
+            .handler = &staticFileHandler,
             .user_ctx = this,
         },
     };

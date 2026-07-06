@@ -39,6 +39,6 @@ else()
              "src/ApiStatic.cpp"
         INCLUDE_DIRS "include"
         REQUIRES interfaces cjson network time events
-        PRIV_REQUIRES esp_http_server esp_netif esp_app_format
+        PRIV_REQUIRES esp_http_server esp_netif esp_app_format storage
     )
 endif()
