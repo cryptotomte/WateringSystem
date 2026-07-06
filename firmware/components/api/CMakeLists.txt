@@ -20,6 +20,7 @@ if(${IDF_TARGET} STREQUAL "linux")
              "src/ApiRoutes.cpp"
              "src/ApiSerialize.cpp"
              "src/ApiRequests.cpp"
+             "src/ApiStatic.cpp"
         INCLUDE_DIRS "include"
         REQUIRES interfaces cjson network time events
     )
@@ -35,8 +36,9 @@ else()
              "src/ApiSerialize.cpp"
              "src/ApiServer.cpp"
              "src/ApiRequests.cpp"
+             "src/ApiStatic.cpp"
         INCLUDE_DIRS "include"
         REQUIRES interfaces cjson network time events
-        PRIV_REQUIRES esp_http_server esp_netif esp_app_format
+        PRIV_REQUIRES esp_http_server esp_netif esp_app_format storage
     )
 endif()

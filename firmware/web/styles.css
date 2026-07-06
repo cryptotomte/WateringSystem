@@ -1,0 +1,464 @@
+/* styles.css - WateringSystem UI Styles
+ * Pure CSS styles for both light and dark mode
+ * Note: @apply directives don't work with Tailwind CDN, so we use pure CSS
+ */
+
+/* ===== CSS Custom Properties ===== */
+:root {
+    --brand-accent: #3b82f6;
+    --brand-accent-hover: #2563eb;
+    --status-connected: #10B981;
+    --status-disconnected: #F87171;
+    --status-active: #60A5FA;
+    --status-inactive: #6B7280;
+    --status-warning: #FBBF24;
+    --status-running: #34D399;
+
+    /* Light mode colors */
+    --bg-card: #ffffff;
+    --bg-input: #ffffff;
+    --bg-toggle: #cbd5e1;
+    --border-color: #e2e8f0;
+    --text-primary: #1e293b;
+    --text-secondary: #475569;
+    --text-muted: #64748b;
+}
+
+.dark {
+    --bg-card: #1e293b;
+    --bg-input: #334155;
+    --bg-toggle: #475569;
+    --border-color: #334155;
+    --text-primary: #f1f5f9;
+    --text-secondary: #cbd5e1;
+    --text-muted: #94a3b8;
+}
+
+/* ===== Base Card Styles ===== */
+.card {
+    background-color: var(--bg-card);
+    padding: 1rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    transition: background-color 0.2s, color 0.2s;
+}
+
+@media (min-width: 640px) {
+    .card {
+        padding: 1.5rem;
+    }
+}
+
+.card-header {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.5rem;
+}
+
+/* ===== Button Styles ===== */
+.btn-primary {
+    background-color: #3b82f6;
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 0.25rem;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.15s ease-in-out;
+}
+
+.btn-primary:hover {
+    background-color: #2563eb;
+}
+
+.btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-success {
+    background-color: #22c55e;
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 0.25rem;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.15s ease-in-out;
+}
+
+.btn-success:hover {
+    background-color: #16a34a;
+}
+
+.btn-success:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-danger {
+    background-color: #ef4444;
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 0.25rem;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.15s ease-in-out;
+}
+
+.btn-danger:hover {
+    background-color: #dc2626;
+}
+
+.btn-danger:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-warning {
+    background-color: #f97316;
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 0.25rem;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.15s ease-in-out;
+}
+
+.btn-warning:hover {
+    background-color: #ea580c;
+}
+
+.btn-warning:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-secondary {
+    background-color: #64748b;
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 0.25rem;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.15s ease-in-out;
+}
+
+.btn-secondary:hover {
+    background-color: #475569;
+}
+
+.btn-secondary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ===== Form Input Styles ===== */
+.input, .select {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-input);
+    color: var(--text-primary);
+    border-radius: 0.25rem;
+    font-size: 0.875rem;
+    transition: border-color 0.15s, background-color 0.2s, color 0.2s;
+}
+
+.input:focus, .select:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+}
+
+.input:disabled, .select:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background-color: var(--border-color);
+}
+
+.label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    margin-bottom: 0.25rem;
+}
+
+/* ===== Toggle Switch Styles ===== */
+.toggle-wrapper {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+}
+
+.toggle-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.toggle-slider {
+    width: 2.75rem;
+    height: 1.5rem;
+    background-color: var(--bg-toggle);
+    border-radius: 9999px;
+    position: relative;
+    transition: background-color 0.2s;
+}
+
+.toggle-slider::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 1.25rem;
+    height: 1.25rem;
+    background-color: white;
+    border-radius: 9999px;
+    transition: transform 0.2s;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.toggle-input:checked + .toggle-slider {
+    background-color: #3b82f6;
+}
+
+.toggle-input:checked + .toggle-slider::after {
+    transform: translateX(1.25rem);
+}
+
+.toggle-input:focus + .toggle-slider {
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+}
+
+.toggle-input:disabled + .toggle-slider {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ===== Sensor Row Styles ===== */
+.sensor-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.875rem;
+}
+
+.reading-label {
+    color: var(--text-muted);
+}
+
+.reading-value {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.reading-unit {
+    color: var(--text-muted);
+    margin-left: 0.25rem;
+}
+
+/* ===== Section Styles ===== */
+.section-title {
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+.section-border {
+    border-top: 1px solid var(--border-color);
+}
+
+/* ===== Info Styles ===== */
+.info-label {
+    color: var(--text-muted);
+}
+
+.info-value {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+/* ===== Status Indicators ===== */
+.status-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 6px;
+    transition: background-color 0.3s ease;
+}
+
+.status-connected {
+    background-color: var(--status-connected);
+}
+
+.status-disconnected {
+    background-color: var(--status-disconnected);
+}
+
+.status-active {
+    background-color: var(--status-active);
+}
+
+.status-inactive {
+    background-color: var(--status-inactive);
+}
+
+.status-warning {
+    background-color: var(--status-warning);
+}
+
+.status-running {
+    background-color: var(--status-running);
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* ===== Loading States ===== */
+.skeleton {
+    background: linear-gradient(90deg, var(--border-color) 25%, var(--bg-toggle) 50%, var(--border-color) 75%);
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s infinite;
+    border-radius: 0.25rem;
+}
+
+@keyframes skeleton-loading {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+.loading-spinner {
+    display: inline-flex;
+    align-items: center;
+}
+
+/* ===== Progress Bar ===== */
+.progress-bar {
+    width: 100%;
+    background-color: var(--border-color);
+    border-radius: 9999px;
+    height: 0.625rem;
+    overflow: hidden;
+}
+
+.progress-fill {
+    background-color: #3b82f6;
+    height: 100%;
+    border-radius: 9999px;
+    transition: width 0.5s ease-out;
+}
+
+/* ===== Chart Container ===== */
+#data-chart {
+    height: 300px !important;
+}
+
+.chart-container {
+    position: relative;
+    height: 300px;
+    background-color: var(--bg-card);
+    border-radius: 0.25rem;
+}
+
+.chart-skeleton {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* ===== Notification Styles ===== */
+.notification {
+    max-width: 350px;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    transition: opacity 0.3s, transform 0.3s;
+    background-color: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+
+.notification.success {
+    border-left: 4px solid var(--status-connected);
+}
+
+.notification.error {
+    border-left: 4px solid var(--status-disconnected);
+}
+
+.notification.info {
+    border-left: 4px solid var(--status-active);
+}
+
+.notification.warning {
+    border-left: 4px solid var(--status-warning);
+}
+
+.notification.fade-out {
+    opacity: 0;
+    transform: translateX(100%);
+}
+
+/* ===== Modal Styles ===== */
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.6);
+    overflow-y: auto;
+    height: 100%;
+    width: 100%;
+    z-index: 40;
+    display: none;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-backdrop.flex {
+    display: flex;
+}
+
+.modal-content {
+    position: relative;
+    margin: 0 auto;
+    padding: 1.25rem;
+    border: 1px solid var(--border-color);
+    width: 100%;
+    max-width: 24rem;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    border-radius: 0.5rem;
+    background-color: var(--bg-card);
+}
+
+.modal-title {
+    font-size: 1.125rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.modal-message {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+/* ===== Footer ===== */
+.footer {
+    margin-top: 2rem;
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}

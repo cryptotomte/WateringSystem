@@ -13,6 +13,7 @@ idf_component_register(
          "test_api_serialize.cpp"
          "test_api_requests.cpp"
          "test_api_routes.cpp"
+         "test_api_static.cpp"
          "test_watering_controller.cpp"
          "test_reservoir.cpp"
          # Compile-time board-contract TUs (T016): each defines one board

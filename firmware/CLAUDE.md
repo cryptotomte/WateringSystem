@@ -568,6 +568,47 @@ the diagnostic probe can no longer overlap bus transactions. Lock order is alway
 (soil mutex → modbus mutex) or (modbus mutex alone) — no deadlock. HIL checklist:
 `specs/011-watering-controller-host-tests/checklists/hil.md`.
 
+## Frontend from littlefs (feature 010)
+
+Feature 010 (PR-10) serves the web dashboard from the littlefs `storage`
+partition over the SAME `esp_http_server` that exposes `/api/v1/`, minimally
+adapted to the frozen contract — it is the end-to-end test client. No redesign,
+no framework (that is a separate PRD).
+
+- **Source of truth: `firmware/web/`** — adapted COPIES of the frozen `data/`
+  frontend (`index.html`/`script.js`/`styles.css`/`favicon.ico`); `data/` stays
+  read-only, `wifi_setup.html` is not carried over (its `/api/wifi/*` endpoints
+  do not exist in v1). `firmware/web/vendor/` holds the third-party libs vendored
+  locally so the greenhouse client needs NO internet: Chart.js 4.4.3,
+  chartjs-adapter-date-fns 3.0.0, and a PURGED Tailwind 3.4.17 CSS. See
+  `firmware/web/README.md` for pinned versions + the manual Tailwind regen step.
+- **Build pipeline:** `firmware/tools/gzip_assets.py` deterministically
+  (`mtime=0`, level 9) gzips `firmware/web/` into a build staging dir merged with
+  the `storage_image/` seed; `firmware/main/CMakeLists.txt` stages it and points
+  `littlefs_create_partition_image` at it (assets land at `/storage/*.gz`,
+  coexisting with runtime history/event files). NO committed `.gz`, NO
+  node/Tailwind toolchain in CI — only Python gzip (Constitution III). `.md`
+  files are excluded from the image.
+- **Static serving:** a `GET /*` catch-all in `ApiServer` (target-only),
+  registered LAST so the exact `/api/v1/` routes match first; it sanitizes the
+  path (`ApiStatic` — pure, host-tested: `sanitizeAssetPath` rejects `..`/NUL/
+  backslash/absolute-escape, maps `/`→`index.html`; `contentTypeForPath`), opens
+  `<StorageMount base>/<path>.gz`, and streams it with `Content-Encoding: gzip`
+  + content-type + `Cache-Control`. Missing/rejected → the JSON 404 envelope.
+  GET-only (POST API routes unaffected); file I/O only, off the watering buses
+  (isolation class of `/history`); no second server/port/task.
+- **JS adaptation (`firmware/web/script.js`):** `ENDPOINT=/api/v1`; reads
+  `environmental/soil .valid` (null-safe — soil `valid:false` until PR-11);
+  status remapped (wifi not network, storage in bytes, `mode` string) with pump
+  state from `GET /pumps` and config from `GET /config`; JSON POST bodies for
+  mode/config/pump-run-stop with 409/4xx handling. Reservoir UI reduced to manual
+  start/stop + level display (v1 has no enable/auto-level endpoint) and hidden on
+  single-pump rev2. History by `?metric=&range=`. OTA button hits the `/ota` 501
+  stub (real OTA is PR-13). The frozen `/api/v1/` contract is unchanged — any
+  genuine contract gap is escalated as a PR-09 amendment, never patched here.
+
+HIL checklist: `specs/010-frontend-littlefs-assets/checklists/hil.md`.
+
 ## Partition layout (4MB flash)
 
 nvs (0x9000, 16K) | otadata (0xd000, 8K) | phy_init (0xf000, 4K) |
