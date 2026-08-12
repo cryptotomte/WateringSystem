@@ -15,6 +15,25 @@
 #define CONFIG_BOARD_REV2 1
 #include "board/board.h"
 
+// FROZEN rev2 pin values (feature 012, FR-002). Every number below comes from
+// the SYNC 1 map in hardware/rev2/design-notes/02-mcu.md §2.2 (frozen
+// 2026-08-12): the board exists, so changing one here changes nothing in
+// copper. Pinning them makes an accidental edit a build failure rather than a
+// profile that silently disagrees with the PCB.
+static_assert(BOARD_PIN_I2C_SDA == 21 && BOARD_PIN_I2C_SCL == 22,
+              "rev2 board contract: I2C pins per the frozen SYNC 1 map");
+static_assert(BOARD_PIN_RS485_TX == 16 && BOARD_PIN_RS485_RX == 17,
+              "rev2 board contract: RS485 UART pins per the frozen SYNC 1 map");
+static_assert(BOARD_RS485_UART_PORT == 2,
+              "rev2 board contract: Modbus RTU on UART2 (parity: legacy "
+              "Serial2, docs/parity-checklist.md §5)");
+static_assert(BOARD_PIN_MAIN_PUMP == 26,
+              "rev2 board contract: plant pump pin per the frozen SYNC 1 map");
+static_assert(BOARD_PIN_LEVEL_LOW == 32 && BOARD_PIN_LEVEL_HIGH == 33,
+              "rev2 board contract: level pins per the frozen SYNC 1 map");
+static_assert(BOARD_PIN_STATUS_LED == 2,
+              "rev2 board contract: status LED pin per the frozen SYNC 1 map");
+
 // rev2 is the single-pump node: capability flag 0 AND the pin REMOVED
 // (flag=0 ⇒ pin undefined — the compile-error enforcement this feature's
 // US2 rests on; same pattern as BOARD_PIN_RS485_DE).
@@ -26,8 +45,8 @@ static_assert(BOARD_HAS_RESERVOIR_PUMP == 0,
 #endif
 
 // rev2 carries the pump INA226 at 0x40 (A0 = A1 = GND). The board-profile
-// address map also lists 0x41 (solar INA226 — populated on this node since
-// the 2026-08-12 decision; its driver lands in PR-14) and 0x77 (BME280).
+// address map also lists 0x41 (solar INA226 — populated on this node, see
+// 01-power.md §1.5; its driver lands in PR-14) and 0x77 (BME280).
 // BOARD_INA226_ADDR names the PUMP monitor specifically.
 static_assert(BOARD_HAS_INA226 == 1,
               "rev2 board contract: INA226 pump monitor present");
@@ -103,7 +122,8 @@ static_assert(BOARD_PIN_SENS_PWR_EN == 25,
               "by hardware default)");
 
 // Expansion reservation (feature 012, FR-004). J7 carries VSPI
-// SCK/MOSI/MISO plus CS and IRQ on IO18/19/23/4/27; core firmware must not
+// SCK=IO18, MISO=IO19, MOSI=IO23 plus CS=IO4 and IRQ=IO27
+// (08-expansion.md §8.3); core firmware must not
 // claim any of them on rev2. board.h enforces this too — this TU is the
 // belt to that header's braces: the contract survives even if the header
 // check is ever removed. NOTE: this is a rev2-ONLY invariant; rev1

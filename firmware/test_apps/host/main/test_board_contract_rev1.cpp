@@ -24,6 +24,33 @@
 #define CONFIG_BOARD_REV1_DEVKIT 1
 #include "board/board.h"
 
+// FROZEN rev1 values (feature 012, FR-002). Feature 012 reshaped the rev2
+// profile and must not have moved a single rev1 pin; these asserts are the
+// durable guard, so a later rev2 edit that strays into the rev1 branch fails
+// the host build instead of silently re-pinning the running bench rig.
+// Source of truth: docs/parity-checklist.md, extracted from src/main.cpp.
+static_assert(BOARD_PIN_I2C_SDA == 21 && BOARD_PIN_I2C_SCL == 22,
+              "rev1 board contract: I2C pins unchanged (FR-002)");
+// RS485 TX=16/RX=17 per src/main.cpp — docs/hardware.md has them swapped
+// (docs/parity-checklist.md QUIRK 6); the checklist wins.
+static_assert(BOARD_PIN_RS485_TX == 16 && BOARD_PIN_RS485_RX == 17,
+              "rev1 board contract: RS485 UART pins unchanged (FR-002, "
+              "parity checklist QUIRK 6)");
+static_assert(BOARD_HAS_RS485_DE == 1,
+              "rev1 board contract: manual direction control (SP3485 path)");
+#ifndef BOARD_PIN_RS485_DE
+#error "rev1 board contract: BOARD_PIN_RS485_DE must be defined"
+#endif
+static_assert(BOARD_PIN_RS485_DE == 25,
+              "rev1 board contract: RS485 DE pin unchanged (FR-002)");
+static_assert(BOARD_RS485_UART_PORT == 2,
+              "rev1 board contract: Modbus RTU on UART2 (parity: legacy "
+              "Serial2, docs/parity-checklist.md §5)");
+static_assert(BOARD_PIN_MAIN_PUMP == 26,
+              "rev1 board contract: plant pump pin unchanged (FR-002)");
+static_assert(BOARD_PIN_STATUS_LED == 2,
+              "rev1 board contract: status LED pin unchanged (FR-002)");
+
 // rev1 is the two-pump bench node: the capability flag is set AND the pin
 // exists (flag ⇒ pin, the board.h consistency assert's positive branch).
 static_assert(BOARD_HAS_RESERVOIR_PUMP == 1,

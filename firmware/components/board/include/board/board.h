@@ -97,6 +97,15 @@
  * drawn, ERC clean, components ordered). Changing one here changes nothing
  * on the board — pin changes go schematic-first and re-open this profile
  * deliberately.
+ *
+ * MAINTENANCE SENTINEL: adding ANY new BOARD_PIN_* to this section requires
+ * two hand edits elsewhere, because the preprocessor cannot enumerate macros
+ * — nothing detects an omission:
+ *   (a) add it to the expansion-reservation check at the bottom of this
+ *       header (BOARD_PIN_IS_EXPANSION list), and
+ *   (b) add it to the disjointness/frozen-value asserts in
+ *       firmware/test_apps/host/main/test_board_contract_rev2.cpp.
+ * A pin left out of those lists is silently unguarded.
  * ------------------------------------------------------------------------ */
 
 #define BOARD_NAME                      "rev2"
@@ -146,10 +155,11 @@
 #define BOARD_LEVEL_SETTLE_MS           500
 
 /* Pump current monitoring (INA226 on the shared I2C bus).
- * Rev 2 I2C address map (07-i2c-env.md §7.4, frozen 2026-08-12):
+ * Rev 2 I2C address map (07-i2c-env.md §7.3, frozen 2026-08-12):
  *   0x40  INA226 pump monitor (A0 = A1 = GND)
  *   0x41  INA226 solar/panel telemetry (A0 → VS) — populated on this node
- *         (decision 2026-08-12; driver support PR-14)
+ *         (01-power.md §1.5: decision 2026-06-20, populate gate cleared
+ *         2026-08-10; driver support PR-14)
  *   0x77  BME280 (SDO → VDDIO, rev1 parity; the driver still probes
  *         0x76 first and settles on whichever answers)
  * The ALERT pin is not connected — no Mask/Enable/Alert register use.
@@ -271,6 +281,75 @@
 #endif
 #endif
 
+/* The rev2-only power/rail pins must not collide with a core function pin or
+ * with each other. Each check is guarded by its capability flag, exactly like
+ * the reservoir-pump checks above: where the signal does not exist the pin
+ * macro is undefined and must stay a compile error when referenced — never be
+ * papered over here. Without these, a typo that puts a rail signal on the
+ * pump gate (SENS_PWR_EN == MAIN_PUMP) would compile silently. */
+#if BOARD_HAS_VBAT_SENSE
+#if (BOARD_PIN_VBAT_SENSE == BOARD_PIN_MAIN_PUMP) ||  \
+    (BOARD_PIN_VBAT_SENSE == BOARD_PIN_LEVEL_LOW) ||  \
+    (BOARD_PIN_VBAT_SENSE == BOARD_PIN_LEVEL_HIGH) || \
+    (BOARD_PIN_VBAT_SENSE == BOARD_PIN_I2C_SDA) ||    \
+    (BOARD_PIN_VBAT_SENSE == BOARD_PIN_I2C_SCL) ||    \
+    (BOARD_PIN_VBAT_SENSE == BOARD_PIN_RS485_TX) ||   \
+    (BOARD_PIN_VBAT_SENSE == BOARD_PIN_RS485_RX) ||   \
+    (BOARD_PIN_VBAT_SENSE == BOARD_PIN_STATUS_LED)
+#error "Board sanity: BOARD_PIN_VBAT_SENSE collides with a core function pin"
+#endif
+#endif
+#if BOARD_HAS_PWR_PG
+#if (BOARD_PIN_PWR_PG == BOARD_PIN_MAIN_PUMP) ||  \
+    (BOARD_PIN_PWR_PG == BOARD_PIN_LEVEL_LOW) ||  \
+    (BOARD_PIN_PWR_PG == BOARD_PIN_LEVEL_HIGH) || \
+    (BOARD_PIN_PWR_PG == BOARD_PIN_I2C_SDA) ||    \
+    (BOARD_PIN_PWR_PG == BOARD_PIN_I2C_SCL) ||    \
+    (BOARD_PIN_PWR_PG == BOARD_PIN_RS485_TX) ||   \
+    (BOARD_PIN_PWR_PG == BOARD_PIN_RS485_RX) ||   \
+    (BOARD_PIN_PWR_PG == BOARD_PIN_STATUS_LED)
+#error "Board sanity: BOARD_PIN_PWR_PG collides with a core function pin"
+#endif
+#endif
+#if BOARD_HAS_SENS_PWR_EN
+#if (BOARD_PIN_SENS_PWR_EN == BOARD_PIN_MAIN_PUMP) ||  \
+    (BOARD_PIN_SENS_PWR_EN == BOARD_PIN_LEVEL_LOW) ||  \
+    (BOARD_PIN_SENS_PWR_EN == BOARD_PIN_LEVEL_HIGH) || \
+    (BOARD_PIN_SENS_PWR_EN == BOARD_PIN_I2C_SDA) ||    \
+    (BOARD_PIN_SENS_PWR_EN == BOARD_PIN_I2C_SCL) ||    \
+    (BOARD_PIN_SENS_PWR_EN == BOARD_PIN_RS485_TX) ||   \
+    (BOARD_PIN_SENS_PWR_EN == BOARD_PIN_RS485_RX) ||   \
+    (BOARD_PIN_SENS_PWR_EN == BOARD_PIN_STATUS_LED)
+#error "Board sanity: BOARD_PIN_SENS_PWR_EN collides with a core function pin"
+#endif
+#endif
+#if BOARD_HAS_VBAT_SENSE && BOARD_HAS_PWR_PG
+#if BOARD_PIN_VBAT_SENSE == BOARD_PIN_PWR_PG
+#error "Board sanity: BOARD_PIN_VBAT_SENSE and BOARD_PIN_PWR_PG must differ"
+#endif
+#endif
+#if BOARD_HAS_VBAT_SENSE && BOARD_HAS_SENS_PWR_EN
+#if BOARD_PIN_VBAT_SENSE == BOARD_PIN_SENS_PWR_EN
+#error "Board sanity: BOARD_PIN_VBAT_SENSE and BOARD_PIN_SENS_PWR_EN must differ"
+#endif
+#endif
+#if BOARD_HAS_PWR_PG && BOARD_HAS_SENS_PWR_EN
+#if BOARD_PIN_PWR_PG == BOARD_PIN_SENS_PWR_EN
+#error "Board sanity: BOARD_PIN_PWR_PG and BOARD_PIN_SENS_PWR_EN must differ"
+#endif
+#endif
+
+/* Every capability flag must be DEFINED, not merely 0 or 1. An undefined
+ * macro evaluates to 0 in #if without a diagnostic, so a flag lost in an edit
+ * would silently delete the behavior it gates (and, worse, silently disable
+ * the flag-guarded sanity checks above) instead of failing the build. */
+#if !defined(BOARD_HAS_BTN_MANUAL) || !defined(BOARD_HAS_BTN_CONFIG) ||   \
+    !defined(BOARD_HAS_VBAT_SENSE) || !defined(BOARD_HAS_PWR_PG) ||      \
+    !defined(BOARD_HAS_SENS_PWR_EN) || !defined(BOARD_HAS_RS485_DE) ||   \
+    !defined(BOARD_HAS_RESERVOIR_PUMP) || !defined(BOARD_HAS_INA226)
+#error "Board sanity: every capability flag must be defined (0 or 1)"
+#endif
+
 /* Feature flag consistency: BOARD_HAS_RS485_DE == 1 iff the DE pin exists */
 #if BOARD_HAS_RS485_DE && !defined(BOARD_PIN_RS485_DE)
 #error "Board sanity: BOARD_HAS_RS485_DE is 1 but BOARD_PIN_RS485_DE is not defined"
@@ -334,7 +413,9 @@
 #endif
 
 /* Expansion-header reservation — REV 2 ONLY.
- * J7 carries VSPI SCK/MOSI/MISO plus CS and IRQ on IO18/19/23/4/27; core
+ * J7 carries VSPI SCK/MISO/MOSI plus CS and IRQ on IO18/19/23/4/27 — read
+ * pairwise: SCK=IO18, MISO=IO19, MOSI=IO23, CS=IO4, IRQ=IO27
+ * (08-expansion.md §8.3). Core
  * firmware must never claim one of them, or an attached expansion device
  * fights the core (and its bus traffic can be misread as core input).
  * This is deliberately NOT a cross-board check: rev1 legitimately uses IO18

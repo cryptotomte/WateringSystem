@@ -15,7 +15,7 @@ app_main, and contract tests. Verified divergences that remain:
 | 2 | Boot path reads the phantom button: `app_main.cpp` configures IO18 as input and polls it (with STATUS_LED feedback) to enter provisioning | `app_main.cpp:148-217` |
 | 3 | Missing signals: `VBAT_SENSE` (IO34), `PWR_PG` (IO35), `SENS_PWR_EN` (IO25) undefined | grep over `board.h`; `01-power.md` §1.0a; `rev2-firmware-notes.md` FW-1/FW-6 |
 | 4 | 11 stale `TODO(SYNC1)` markers + "provisionally mirror rev 1" header | grep count |
-| 5 | Stale comment: I²C map calls 0x41 "solar footprint, DNP"; solar group is populated per 2026-08-12 decision | `board.h` rev2 INA226 block; `01-power.md` §1.5 |
+| 5 | Stale comment: I²C map calls 0x41 "solar footprint, DNP"; solar group is populated per the 2026-06-20 decision (gate cleared 2026-08-10) | `board.h` rev2 INA226 block; `01-power.md` §1.5 |
 
 All present rev2 pin VALUES verified correct against the frozen contract
 (I2C 21/22, RS485 16/17, pump 26, level 32/33, LED 2). The fix is

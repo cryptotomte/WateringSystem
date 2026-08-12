@@ -43,8 +43,9 @@ against the frozen design leaves three real divergence classes:
    saying the pin map "provisionally mirrors rev 1" — but SYNC 1 (the pin-map
    freeze) has happened and every present value matches the frozen contract.
    Also one stale hardware comment: the I²C address-map note calls the solar
-   INA226 (0x41) "footprint, DNP", but the populate decision of 2026-08-12
-   made it a populated device on this node.
+   INA226 (0x41) "footprint, DNP", but the populate decision of 2026-06-20
+   (gate cleared 2026-08-10, `01-power.md` §1.5) made it a populated device
+   on this node.
 
 Already correct on `origin/main` — to be regression-guarded, not re-done:
 single-pump profile with compile-error enforcement, level-sensor polarity and
@@ -69,7 +70,7 @@ map) and `00-architecture.md` §0.5 pin contract (both on the
 | Battery voltage sense | IO34 | input-only, ADC1; ADC2 unusable with WiFi — **missing today** |
 | Buck power-good | IO35 | input-only, open-drain externally pulled up; IO34–39 have no internal pulls — **missing today** |
 | Manual / config buttons | — | **do not exist on rev2** (BOOT/RESET only) — profile must say so |
-| Expansion (reserved, untouchable) | IO18/19/23/4/27 | J7: VSPI SCK/MOSI/MISO + CS/IRQ; core firmware must not claim any of them |
+| Expansion (reserved, untouchable) | IO18/19/23/4/27 | J7: VSPI SCK=IO18, MISO=IO19, MOSI=IO23, CS=IO4, IRQ=IO27 (`08-expansion.md` §8.3); core firmware must not claim any of them |
 
 ## User Scenarios & Testing *(mandatory)*
 
