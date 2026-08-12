@@ -98,14 +98,16 @@
  * on the board — pin changes go schematic-first and re-open this profile
  * deliberately.
  *
- * MAINTENANCE SENTINEL: adding ANY new BOARD_PIN_* to this section requires
- * two hand edits elsewhere, because the preprocessor cannot enumerate macros
- * — nothing detects an omission:
- *   (a) add it to the expansion-reservation check at the bottom of this
- *       header (BOARD_PIN_IS_EXPANSION list), and
- *   (b) add it to the disjointness/frozen-value asserts in
- *       firmware/test_apps/host/main/test_board_contract_rev2.cpp.
- * A pin left out of those lists is silently unguarded.
+ * MAINTENANCE SENTINEL: adding ANY new BOARD_PIN_* or BOARD_HAS_* to this
+ * section requires hand edits elsewhere, because the preprocessor cannot
+ * enumerate macros — nothing detects an omission:
+ *   (a) add a new pin to the expansion-reservation check at the bottom of
+ *       this header (BOARD_PIN_IS_EXPANSION list),
+ *   (b) add a new pin to the frozen-value and expansion-set asserts in
+ *       firmware/test_apps/host/main/test_board_contract_rev2.cpp, and
+ *   (c) add a new BOARD_HAS_* flag to the capability-flag definedness check
+ *       at the top of the sanity section below.
+ * A macro left out of those lists is silently unguarded.
  * ------------------------------------------------------------------------ */
 
 #define BOARD_NAME                      "rev2"
@@ -227,6 +229,20 @@
  * A wrong or inconsistent pin table must fail the build, not the rig.
  * ------------------------------------------------------------------------ */
 
+/* Every capability flag must be DEFINED, not merely 0 or 1. An undefined
+ * macro evaluates to 0 in #if without a diagnostic, so a flag lost in an edit
+ * would silently delete the behavior it gates instead of failing the build.
+ * This check comes FIRST, ahead of every flag-guarded check below: those
+ * checks are themselves gated on these flags, so an undefined flag would
+ * otherwise silently switch OFF the very collision checks it is supposed to
+ * enable. Ordering makes that structurally impossible. */
+#if !defined(BOARD_HAS_BTN_MANUAL) || !defined(BOARD_HAS_BTN_CONFIG) ||   \
+    !defined(BOARD_HAS_VBAT_SENSE) || !defined(BOARD_HAS_PWR_PG) ||      \
+    !defined(BOARD_HAS_SENS_PWR_EN) || !defined(BOARD_HAS_RS485_DE) ||   \
+    !defined(BOARD_HAS_RESERVOIR_PUMP) || !defined(BOARD_HAS_INA226)
+#error "Board sanity: every capability flag must be defined (0 or 1)"
+#endif
+
 /* Pin distinctness within each function group. Checks that reference the
  * reservoir pump pin are guarded: on single-pump boards the pin does not
  * exist (BOARD_HAS_RESERVOIR_PUMP == 0), and an unguarded reference must
@@ -338,16 +354,14 @@
 #error "Board sanity: BOARD_PIN_PWR_PG and BOARD_PIN_SENS_PWR_EN must differ"
 #endif
 #endif
-
-/* Every capability flag must be DEFINED, not merely 0 or 1. An undefined
- * macro evaluates to 0 in #if without a diagnostic, so a flag lost in an edit
- * would silently delete the behavior it gates (and, worse, silently disable
- * the flag-guarded sanity checks above) instead of failing the build. */
-#if !defined(BOARD_HAS_BTN_MANUAL) || !defined(BOARD_HAS_BTN_CONFIG) ||   \
-    !defined(BOARD_HAS_VBAT_SENSE) || !defined(BOARD_HAS_PWR_PG) ||      \
-    !defined(BOARD_HAS_SENS_PWR_EN) || !defined(BOARD_HAS_RS485_DE) ||   \
-    !defined(BOARD_HAS_RESERVOIR_PUMP) || !defined(BOARD_HAS_INA226)
-#error "Board sanity: every capability flag must be defined (0 or 1)"
+/* Latent cross-check: unreachable on both boards today, since no board has
+ * both signals (rev1 DE=25 without a sensor rail, rev2 SENS_PWR_EN=25 without
+ * a DE pin). A future board combining them would land both on IO25 and
+ * collide silently — the double guard keeps the check honest until then. */
+#if BOARD_HAS_SENS_PWR_EN && BOARD_HAS_RS485_DE
+#if BOARD_PIN_SENS_PWR_EN == BOARD_PIN_RS485_DE
+#error "Board sanity: BOARD_PIN_SENS_PWR_EN collides with the RS485 DE pin"
+#endif
 #endif
 
 /* Feature flag consistency: BOARD_HAS_RS485_DE == 1 iff the DE pin exists */
