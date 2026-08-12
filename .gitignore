@@ -82,3 +82,4 @@ docs/testing.md
 docs/user-guide.md
 docs/safety.md
 .playwright-mcp/
+*.lck
