@@ -1,1 +1,3 @@
-{"feature_directory":"specs/006-level-sensors-ina226"}
+{
+  "feature_directory": "specs/012-rev2-pin-map"
+}

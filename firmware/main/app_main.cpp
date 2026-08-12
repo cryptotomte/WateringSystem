@@ -80,6 +80,7 @@
 
 static const char *TAG = "app_main";
 
+#if BOARD_HAS_BTN_CONFIG
 // Config-button emergency-provisioning hold (feature 007, US3). Parity
 // (docs/parity-checklist.md §7): the config button held >= 5 s during startup
 // forces WiFi provisioning; the status LED blinks every 100 ms while the hold
@@ -88,6 +89,7 @@ static const char *TAG = "app_main";
 // connect-attempt toggle (that one runs later, from wifi_task.cpp).
 static constexpr uint32_t kConfigButtonHoldMs = 5000;   // hold to force prov.
 static constexpr uint32_t kConfigButtonBlinkMs = 100;   // LED toggle interval
+#endif
 
 /**
  * @brief Drive every pump GPIO that exists on this board to a safe OFF
@@ -141,9 +143,18 @@ static void pumps_force_off(void)
     }
 }
 
+#if BOARD_HAS_BTN_CONFIG
 /**
  * @brief Read the config button at boot and confirm a >= 5 s hold (feature
  * 007, US3/T024/T026).
+ *
+ * Compiled ONLY on boards that actually have a config button
+ * (BOARD_HAS_BTN_CONFIG, feature 012 FR-003). The frozen rev2 board has no
+ * such button, and the pin this path used to read (IO18) is EXP_SCK on that
+ * board — an expansion-header signal the boot path must never touch, since
+ * expansion-bus traffic could be misread as a held button. On buttonless
+ * boards the credentials-absent path is the sole provisioning trigger
+ * (feature 007), unchanged.
  *
  * The config button (BOARD_PIN_BTN_CONFIG, GPIO18) is wired to GND and read
  * with an internal pull-up, so it is active LOW: held == logic 0 (parity: the
@@ -222,6 +233,7 @@ static bool config_button_held_at_boot(void)
              static_cast<unsigned long>(kConfigButtonHoldMs));
     return true;
 }
+#endif /* BOARD_HAS_BTN_CONFIG */
 
 extern "C" void app_main(void)
 {
@@ -394,8 +406,17 @@ extern "C" void app_main(void)
     // hold window. Credential VALUES are never logged: we only test whether an
     // SSID is present. WiFi never touches the watering path (FR-014);
     // everything below stays after the pump fail-safe.
+    //
+    // Boards without a config button (BOARD_HAS_BTN_CONFIG == 0, e.g. the
+    // frozen rev2) never take the button branch: the read is compiled out and
+    // the credentials-absent path is the sole provisioning trigger (feature
+    // 012 FR-003). No GPIO is claimed for a button that does not exist.
     const bool wifi_credentials_present = !config.getWifiSsid().empty();
+#if BOARD_HAS_BTN_CONFIG
     const bool config_button_held = config_button_held_at_boot();
+#else
+    const bool config_button_held = false;
+#endif
     const WifiBootMode wifi_boot_mode =
         decideBootMode(wifi_credentials_present, config_button_held);
 
