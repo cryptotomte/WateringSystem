@@ -1,0 +1,42 @@
+Reference,Quantity,Value,Footprint,MPN,LCSC,JLCPCB_Type,Description,Verified
+U1,1,ESP32-WROOM-32E-N4,Module,ESP32-WROOM-32E-N4,C701341,Extended,"ESP32 module 4MB flash",Yes
+U2,1,CP2102N,QFN-28,CP2102N-A02-GQFN28R,C964632,Extended,USB-to-UART bridge,Yes
+U3,1,THVD1426,SOT-5x3 (DRL),THVD1426DRLR,C5215922,Extended,"RS485 auto-direction 3-5.5V (ersätter MAX13487E som kräver 5V). OBS SOT-paket hos LCSC - SOIC-8 (THVD1426DR) via Mouser/Digikey",Yes
+U4,1,MP2307DN-LF-Z,SOIC-8-EP,MP2307DN-LF-Z,C18921,Extended,"Buck 4.75-23V in 3A out",Yes
+U5,2,INA226AIDGSR,MSOP-10,INA226AIDGSR,C49851,Extended,"Current/voltage monitor I2C 16-bit",Yes
+U6,1,BME280,LGA-8,BME280,C92489,Extended,"Temp/humidity/pressure sensor Bosch",Yes
+Q1,2,2N7002,SOT-23,2N7002,C8545,Basic,"N-MOSFET 60V 115mA (Jiangsu Changjing)",Yes
+Q2,2,NCE4060K,DPAK (TO-252),NCE4060K,C150550,Extended,"N-MOSFET 40V 60A logic-level (ersätter AOD514)",Yes
+Q3,1,AO3401A,SOT-23,AO3401A,C15127,Basic,"P-MOSFET reverse-polarity",Yes
+D1,2,SS54,SMA,SS54,C22452,Basic,"Schottky 5A 40V (MDD)",Yes
+D2,2,SMBJ16CA,SMB,SMBJ16CA,C151255,Extended,"TVS bidirectional 16V (Littelfuse)",Yes
+D3,1,SMBJ15CA,SMB,SMBJ15CA,C78809,Extended,"TVS bidirectional 15V (Littelfuse)",Yes
+D4,1,SM712.TCT,SOT-23,SM712.TCT,C12067,Extended,"RS485 TVS array (Semtech)",Yes
+L1,1,22uH,SMD power inductor,(välj),C3911669,Extended,"Coilcraft MSS1278-223MLD eller alternativ",Partial
+R1,1,2 mOhm 2W,2512,WPB2512QLR002FYR,C20350205,Extended,"Current shunt 2mΩ 1% 2W (Littelfuse)",Yes
+R2,1,2 mOhm 2W,2512,WPB2512QLR002FYR,C20350205,Extended,"Current shunt 2mΩ 1% 2W (Littelfuse)",Yes
+R3,1,120R,0603,(0603WAF1200T5E),C22787,Basic,"RS485-terminering",Yes
+R4,1,680R,0603,(0603WAF6800T5E),C23253,Basic,"RS485 bias-pullup",Yes
+R5,1,680R,0603,(0603WAF6800T5E),C23253,Basic,"RS485 bias-pulldown",Yes
+R6,2,10k,0603,(0603WAF1002T5E),C25804,Basic,"XKC-Y26 OUT pullup",Yes
+R7,2,10k,0603,(0603WAF1002T5E),C25804,Basic,"2N7002 drain pullup",Yes
+R8,2,10k,0603,(0603WAF1002T5E),C25804,Basic,"AOD514 gate-pulldown",Yes
+R9,2,100R,0603,(0603WAF1000T5E),C22775,Basic,"NCE4060K gate-resistor",Yes
+R10,2,5.1k,0603,(0603WAF5101T5E),C23186,Basic,"USB-C CC1/CC2 pulldown",Yes
+R11,2,10k,0603,(0603WAF1002T5E),C25804,Basic,"EN/BOOT pullups",Yes
+R12,1,1k,0603,(0603WAF1001T5E),C21190,Basic,"Power LED limit",Yes
+C1,4,10uF 25V,0805,(CL21A106KQQNNNE),C45783,Basic,"Buck input + bypass",Yes
+C2,2,22uF 10V,0805,(CL21A226KOQNNNE),C45783,Basic,"Buck output cap (3.3V)",Partial
+C3,5,100nF 16V,0402,(CL05B104KO5NNNC),C1525,Basic,"Bypass per IC",Yes
+C5,1,470uF 25V,SMD electrolytic,(välj alternativ),C134781,Extended,"Bulk input cap - verifiera modell",Partial
+SW1,1,Tactile switch,SMD 6x6mm,TS-1187A-B-A-B,C318884,Extended,"BOOT-knapp",Partial
+SW2,1,Tactile switch,SMD 6x6mm,TS-1187A-B-A-B,C318884,Extended,"RESET-knapp",Partial
+J1,1,USB-C receptacle,16-pin SMD,TYPE-C-31-M-12,C165948,Extended,"USB-C connector (Korean Hroparts)",Yes
+J2,1,2-pin terminal block,5.08mm pitch,(Weidmüller),(välj),Extended,"12V-input (XY308V eller annan)",No
+J3,2,2-pin terminal block,5.08mm pitch,(Weidmüller),(välj),Extended,"Pump output",No
+J4,1,JST XH 4-pin,XH-4P,B4B-XH-A(LF)(SN),C144395,Extended,"Soil-sensor (RS485)",Yes
+J5,2,JST XH 4-pin,XH-4P,B4B-XH-A(LF)(SN),C144395,Extended,"Nivåsensorer XKC-Y26",Yes
+J6,1,JTAG header 6-pin,2.54mm,(generic),C2337,Basic,"JTAG header",Partial
+LED1,1,LED grön,0603,17-21SUGC,C72043,Basic,"Power-indikator",Partial
+LED2,1,LED röd,0603,17-21SURC,C72041,Basic,"Status-LED",Partial
+F1,1,Polyfuse 1A,1812,(välj alternativ),C3762102,Extended,"0ZCG0050AF2C Bel Fuse eller alternativ",Partial
