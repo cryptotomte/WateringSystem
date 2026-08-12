@@ -63,7 +63,11 @@ Development is spec-kit driven and orchestrated with subagents. Each PR gets a `
 
 ### Subagent Model Policy
 
-Subagents (`researcher`, `implementer`, `fixer`) inherit the main session's model — `model: inherit` in `.claude/agents/*.md`. The model chosen for the session drives the entire flow; no agent pins a specific model.
+Split roles (Paul's decision 2026-08-12): the **orchestrator session runs Fable**;
+**`implementer` and `fixer` are pinned to Opus** (`model: opus` in
+`.claude/agents/*.md`) — implementation and fix work always runs on Opus
+regardless of the session model. `researcher` stays `model: inherit` (research
+follows the orchestrator's model).
 
 ## Git Strategy
 
