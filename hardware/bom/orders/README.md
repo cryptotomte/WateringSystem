@@ -50,7 +50,7 @@ losing one costs a re-order:
 | Item | Where | Note |
 |---|---|---|
 | Weidmüller 1715010000 ×4 (J2, J3, J8, J9) | **Already in Paul's stock** | Off-LCSC; chosen precisely because they were on hand |
-| 2.54 mm pin headers + female sockets (J100/J101 module interconnect, J6, J7) | LCSC, but **pick the C-numbers yourself** | The old BOM listed `C2337` for J6 with status *Partial* (unverified). Search LCSC for 1×40 male/female 2.54 mm and add to the cart manually rather than trusting an unverified number |
+| 2.54 mm pin headers + female sockets (J100/J101 module interconnect, J6, J7) | **Already in Paul's stock** | Assorted female-header kit + breakable male strips. Deliberately no C-number here: the old BOM's `C2337` for J6 was status *Partial* (unverified) and is not worth trusting |
 | Solder paste, flux, braid, 0.1 mm stencil | JLCPCB (stencil) / local | See `../../rev2/HOWTO-module-pcb.md` §9 |
 | 10 A blade fuse + waterproof inline holder | Jula, at install | `../../rev2/design-notes/01-power.md` §1.1 — SAFETY-REQUIRED |
 
