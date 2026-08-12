@@ -93,7 +93,7 @@ labels.**
 | Boot | `BOOT` | **IO0** | bidir | strapping; BOOT btn + auto-program; pullup R12 |
 | Reset | `EN` | **EN** | bidir | RESET btn + auto-program; pullup R11 + RC |
 | JTAG | — | **IO12–IO15** | — | J6; **local** (no hierarchical label); IO12/IO15 strapping — see below |
-| Expansion (J7) | `EXP_*` | **IO18, IO19, IO23, IO4, IO27** | bidir | locked: VSPI SCK/MOSI/MISO + CS/IRQ (`08-expansion.md`) |
+| Expansion (J7) | `EXP_*` | **IO18, IO19, IO23, IO4, IO27** | bidir | locked: SCK=IO18, MISO=IO19, MOSI=IO23, CS=IO4, IRQ=IO27 (`08-expansion.md` §8.3) |
 
 **Free/spare after assignment:** IO5 (strapping), IO13/IO14 (if JTAG unused),
 IO36(VP), IO39(VN, input-only). (IO4/IO27 now on the expansion header J7.)
