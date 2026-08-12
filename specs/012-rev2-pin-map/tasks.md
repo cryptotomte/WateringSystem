@@ -46,10 +46,10 @@ capability flags.
 **Independent test**: rev2 TU asserts the three pins/flags; rev1 TU proves
 unguarded references cannot compile on rev1.
 
-- [ ] T008 [US2] Extend `firmware/test_apps/host/main/test_board_contract_rev2.cpp`: assert `BOARD_HAS_VBAT_SENSE == 1` / `BOARD_PIN_VBAT_SENSE == 34`, `BOARD_HAS_PWR_PG == 1` / `BOARD_PIN_PWR_PG == 35`, `BOARD_HAS_SENS_PWR_EN == 1` / `BOARD_PIN_SENS_PWR_EN == 25`; fold the three pins into the T002 expansion-disjointness asserts. Red until T010.
-- [ ] T009 [US2] Extend `firmware/test_apps/host/main/test_board_contract_rev1.cpp`: assert all three flags are `== 0` and pins undefined (`#ifdef` → `#error`) on rev1.
-- [ ] T010 [US2] Edit `firmware/components/board/include/board/board.h`: rev1 section — three flags at 0; rev2 section — three flags at 1 with pins 34/35/25 and constraint comments (IO34 input-only ADC1, ADC2 dead with WiFi, FW-1 pointer; IO35 input-only, open-drain + external pull-up, no internal pulls IO34–39, FW-6; IO25 output, sensor rail OFF default, FW-3 settle owned by PR-14). Add the three flag↔pin sanity pairs; confirm the pin-distinctness checks still pass (25 = RS485_DE on rev1 vs SENS_PWR_EN on rev2 — never same target).
-- [ ] T011 [US2] Validate US2: host suite green, both board targets build green.
+- [x] T008 [US2] Extend `firmware/test_apps/host/main/test_board_contract_rev2.cpp`: assert `BOARD_HAS_VBAT_SENSE == 1` / `BOARD_PIN_VBAT_SENSE == 34`, `BOARD_HAS_PWR_PG == 1` / `BOARD_PIN_PWR_PG == 35`, `BOARD_HAS_SENS_PWR_EN == 1` / `BOARD_PIN_SENS_PWR_EN == 25`; fold the three pins into the T002 expansion-disjointness asserts. Red until T010.
+- [x] T009 [US2] Extend `firmware/test_apps/host/main/test_board_contract_rev1.cpp`: assert all three flags are `== 0` and pins undefined (`#ifdef` → `#error`) on rev1.
+- [x] T010 [US2] Edit `firmware/components/board/include/board/board.h`: rev1 section — three flags at 0; rev2 section — three flags at 1 with pins 34/35/25 and constraint comments (IO34 input-only ADC1, ADC2 dead with WiFi, FW-1 pointer; IO35 input-only, open-drain + external pull-up, no internal pulls IO34–39, FW-6; IO25 output, sensor rail OFF default, FW-3 settle owned by PR-14). Add the three flag↔pin sanity pairs; confirm the pin-distinctness checks still pass (25 = RS485_DE on rev1 vs SENS_PWR_EN on rev2 — never same target).
+- [x] T011 [US2] Validate US2: host suite green, both board targets build green.
 
 **Checkpoint**: PR-14 driver work now has every frozen fact available.
 

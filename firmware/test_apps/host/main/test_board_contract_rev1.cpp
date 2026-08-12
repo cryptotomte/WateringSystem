@@ -79,3 +79,25 @@ static_assert(BOARD_HAS_BTN_CONFIG == 1,
 static_assert(BOARD_PIN_BTN_CONFIG == 18,
               "rev1 board contract: config button pin unchanged (FR-002, "
               "feature 007 boot provisioning path)");
+
+// Power / rail signals: rev2-only hardware (feature 012, FR-005). The devkit
+// rig runs off USB with a permanently powered sensor rail, so battery sense,
+// buck power-good and sensor-rail enable do not exist here — flags 0 and pin
+// macros undefined, so a PR-14 driver that references them without an
+// #if BOARD_HAS_* guard fails the rev1 build instead of driving a phantom
+// GPIO (the RS485-DE enforcement pattern).
+static_assert(BOARD_HAS_VBAT_SENSE == 0,
+              "rev1 board contract: no battery voltage sense on the devkit rig");
+#ifdef BOARD_PIN_VBAT_SENSE
+#error "rev1 board contract: BOARD_PIN_VBAT_SENSE must NOT be defined"
+#endif
+static_assert(BOARD_HAS_PWR_PG == 0,
+              "rev1 board contract: no buck power-good on the devkit rig");
+#ifdef BOARD_PIN_PWR_PG
+#error "rev1 board contract: BOARD_PIN_PWR_PG must NOT be defined"
+#endif
+static_assert(BOARD_HAS_SENS_PWR_EN == 0,
+              "rev1 board contract: sensor rail is permanently on (no switch)");
+#ifdef BOARD_PIN_SENS_PWR_EN
+#error "rev1 board contract: BOARD_PIN_SENS_PWR_EN must NOT be defined"
+#endif

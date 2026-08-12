@@ -151,6 +151,34 @@
 /* Status LED */
 #define BOARD_PIN_STATUS_LED            2   // TODO(SYNC1): final rev2 pin map frozen at hardware sync 1
 
+/* Power and rail monitoring — rev 2 only.
+ *
+ * VBAT_SENSE (IO34): battery voltage through the 470 k/100 k divider.
+ * Input-only pin on ADC1 — mandatory, since ADC2 is unusable while WiFi is
+ * active. Readings compress above ~2.45 V at the pin (~14 V battery): the
+ * ESP32 11 dB linear range ends there, so top-of-charge accuracy is reduced
+ * (FW-1). Telemetry and soft-UVLO only — no safety decision depends on it.
+ *
+ * PWR_PG (IO35): 3V3 buck power-good, HIGH = in regulation. Input-only and
+ * open-drain with an external pull-up (R30) — configure as a plain input;
+ * IO34-39 have no internal pulls at all (FW-6).
+ *
+ * SENS_PWR_EN (IO25): enables the switched 12 V sensor domain (Q60 gate,
+ * also the THVD1426 SHDN-bar). The rail is OFF by HARDWARE default — the
+ * R61 gate pull-up holds the high-side switch off while the GPIO is hi-Z,
+ * so no firmware action is needed to keep it off at boot, and this feature
+ * deliberately does NOT drive the pin. Rail sequencing (assert, the 500 ms
+ * XKC-Y26 settle before level reads are trustworthy per FW-3, and the IO17
+ * pull-up rule of FW-2 while the domain is off) is PR-14 scope.
+ *
+ * Consumers of all three land in PR-14; the profile only states the facts. */
+#define BOARD_HAS_VBAT_SENSE            1
+#define BOARD_PIN_VBAT_SENSE            34
+#define BOARD_HAS_PWR_PG                1
+#define BOARD_PIN_PWR_PG                35
+#define BOARD_HAS_SENS_PWR_EN           1
+#define BOARD_PIN_SENS_PWR_EN           25
+
 /* Buttons: rev 2 has NONE. The frozen board carries only the BOOT (IO0) and
  * RESET (EN) switches plus the status LED — no manual-watering and no
  * WiFi-config button. BOARD_PIN_BTN_MANUAL / BOARD_PIN_BTN_CONFIG are
@@ -263,6 +291,28 @@
 #error "Board sanity: BOARD_PIN_BTN_CONFIG is defined but BOARD_HAS_BTN_CONFIG is 0"
 #endif
 
+/* Feature flag consistency: the rev2-only power/rail signals. Same pattern —
+ * on boards without them the pin macros stay undefined so a PR-14 driver
+ * cannot reference them unguarded. */
+#if BOARD_HAS_VBAT_SENSE && !defined(BOARD_PIN_VBAT_SENSE)
+#error "Board sanity: BOARD_HAS_VBAT_SENSE is 1 but BOARD_PIN_VBAT_SENSE is not defined"
+#endif
+#if !BOARD_HAS_VBAT_SENSE && defined(BOARD_PIN_VBAT_SENSE)
+#error "Board sanity: BOARD_PIN_VBAT_SENSE is defined but BOARD_HAS_VBAT_SENSE is 0"
+#endif
+#if BOARD_HAS_PWR_PG && !defined(BOARD_PIN_PWR_PG)
+#error "Board sanity: BOARD_HAS_PWR_PG is 1 but BOARD_PIN_PWR_PG is not defined"
+#endif
+#if !BOARD_HAS_PWR_PG && defined(BOARD_PIN_PWR_PG)
+#error "Board sanity: BOARD_PIN_PWR_PG is defined but BOARD_HAS_PWR_PG is 0"
+#endif
+#if BOARD_HAS_SENS_PWR_EN && !defined(BOARD_PIN_SENS_PWR_EN)
+#error "Board sanity: BOARD_HAS_SENS_PWR_EN is 1 but BOARD_PIN_SENS_PWR_EN is not defined"
+#endif
+#if !BOARD_HAS_SENS_PWR_EN && defined(BOARD_PIN_SENS_PWR_EN)
+#error "Board sanity: BOARD_PIN_SENS_PWR_EN is defined but BOARD_HAS_SENS_PWR_EN is 0"
+#endif
+
 /* Feature flag consistency: BOARD_HAS_INA226 == 1 iff the address exists */
 #if BOARD_HAS_INA226 && !defined(BOARD_INA226_ADDR)
 #error "Board sanity: BOARD_HAS_INA226 is 1 but BOARD_INA226_ADDR is not defined"
@@ -289,7 +339,10 @@
     BOARD_PIN_IS_EXPANSION(BOARD_PIN_MAIN_PUMP) ||  \
     BOARD_PIN_IS_EXPANSION(BOARD_PIN_LEVEL_LOW) ||  \
     BOARD_PIN_IS_EXPANSION(BOARD_PIN_LEVEL_HIGH) || \
-    BOARD_PIN_IS_EXPANSION(BOARD_PIN_STATUS_LED)
+    BOARD_PIN_IS_EXPANSION(BOARD_PIN_STATUS_LED) || \
+    BOARD_PIN_IS_EXPANSION(BOARD_PIN_VBAT_SENSE) || \
+    BOARD_PIN_IS_EXPANSION(BOARD_PIN_PWR_PG) ||     \
+    BOARD_PIN_IS_EXPANSION(BOARD_PIN_SENS_PWR_EN)
 #error "Board sanity: a rev2 core pin lands on the reserved expansion set (IO18/19/23/4/27)"
 #endif
 

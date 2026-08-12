@@ -73,6 +73,34 @@ static_assert(BOARD_HAS_BTN_CONFIG == 0,
 (unguarded references must fail the build)"
 #endif
 
+// Power / rail signals the frozen rev2 board provides (feature 012,
+// FR-005). Consumers (ADC calibration, PG monitoring, rail sequencing) are
+// PR-14 scope; the profile only has to state the facts.
+static_assert(BOARD_HAS_VBAT_SENSE == 1,
+              "rev2 board contract: battery voltage sense present");
+#ifndef BOARD_PIN_VBAT_SENSE
+#error "rev2 board contract: BOARD_PIN_VBAT_SENSE must be defined"
+#endif
+static_assert(BOARD_PIN_VBAT_SENSE == 34,
+              "rev2 board contract: VBAT_SENSE on IO34 (ADC1_CH6, input-only)");
+
+static_assert(BOARD_HAS_PWR_PG == 1,
+              "rev2 board contract: buck power-good present");
+#ifndef BOARD_PIN_PWR_PG
+#error "rev2 board contract: BOARD_PIN_PWR_PG must be defined"
+#endif
+static_assert(BOARD_PIN_PWR_PG == 35,
+              "rev2 board contract: PWR_PG on IO35 (input-only, ext. pull-up)");
+
+static_assert(BOARD_HAS_SENS_PWR_EN == 1,
+              "rev2 board contract: switched sensor rail present");
+#ifndef BOARD_PIN_SENS_PWR_EN
+#error "rev2 board contract: BOARD_PIN_SENS_PWR_EN must be defined"
+#endif
+static_assert(BOARD_PIN_SENS_PWR_EN == 25,
+              "rev2 board contract: SENS_PWR_EN on IO25 (output, rail OFF "
+              "by hardware default)");
+
 // Expansion reservation (feature 012, FR-004). J7 carries VSPI
 // SCK/MOSI/MISO plus CS and IRQ on IO18/19/23/4/27; core firmware must not
 // claim any of them on rev2. board.h enforces this too — this TU is the
@@ -95,5 +123,10 @@ static_assert(WS_REV2_NOT_EXPANSION(BOARD_PIN_LEVEL_LOW) &&
               "rev2 board contract: level pins must stay off the expansion set");
 static_assert(WS_REV2_NOT_EXPANSION(BOARD_PIN_STATUS_LED),
               "rev2 board contract: status LED must stay off the expansion set");
+static_assert(WS_REV2_NOT_EXPANSION(BOARD_PIN_VBAT_SENSE) &&
+                  WS_REV2_NOT_EXPANSION(BOARD_PIN_PWR_PG) &&
+                  WS_REV2_NOT_EXPANSION(BOARD_PIN_SENS_PWR_EN),
+              "rev2 board contract: power/rail pins must stay off the "
+              "expansion set");
 
 #undef WS_REV2_NOT_EXPANSION
