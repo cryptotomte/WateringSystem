@@ -64,9 +64,9 @@ unguarded references cannot compile on rev1.
 
 ## Phase 6: Polish & cross-cutting
 
-- [ ] T014 [P] Check `firmware/CLAUDE.md` board-profile documentation (plan D4): if it enumerates capability flags or the pin-table convention, add the five new flags and the frozen-map citation convention; if it doesn't document the profile, change nothing.
-- [ ] T015 Negative proof (quickstart §4): temporarily add an unguarded `BOARD_PIN_BTN_CONFIG` use to the rev2 TU, confirm the build FAILS, revert. Record in the implementation notes.
-- [ ] T016 Full quickstart pass (§1–3) as the feature's final gate; assemble the implementer's test checklist for CP3 (host-test PR — CI suite is the verifier; no HIL needed, note the deferred bench verification lands in PR-14).
+- [x] T014 [P] Check `firmware/CLAUDE.md` board-profile documentation (plan D4): if it enumerates capability flags or the pin-table convention, add the five new flags and the frozen-map citation convention; if it doesn't document the profile, change nothing.
+- [x] T015 Negative proof (quickstart §4): temporarily add an unguarded `BOARD_PIN_BTN_CONFIG` use to the rev2 TU, confirm the build FAILS, revert. Record in the implementation notes.
+- [x] T016 Full quickstart pass (§1–3) as the feature's final gate; assemble the implementer's test checklist for CP3 (host-test PR — CI suite is the verifier; no HIL needed, note the deferred bench verification lands in PR-14).
 
 ## Dependencies & execution order
 

@@ -239,16 +239,30 @@ Two board revisions exist, selected via Kconfig (`main/Kconfig.projbuild`):
   manual RS485 DE pin, level sensors active HIGH).
 - `CONFIG_BOARD_REV2` — custom PCB (THVD1426 auto-direction RS485 — no DE
   pin, INA226 current monitors, level sensors active LOW via 2N7002 inverter).
-  Rev2 pins are provisional until hardware sync 1 (`TODO(SYNC1)` markers).
+  **Rev2 pins are FROZEN** (feature 012): they come from the SYNC 1 map in
+  `hardware/rev2/design-notes/02-mcu.md` §2.2 (frozen 2026-08-12), which each
+  rev2 pin group in `board.h` cites — a pin change goes schematic-first and
+  re-opens the profile deliberately. rev2 has **no buttons** (BOOT/RESET
+  only) and reserves IO18/19/23/4/27 for the expansion header J7; `board.h`
+  fails the build if a rev2 pin lands on that set (a rev2-only invariant —
+  rev1 legitimately uses IO18 and IO27).
 
 All pins and polarity/feature flags come from `board/board.h`
 (`BOARD_PIN_*`, `BOARD_HAS_RS485_DE`, `BOARD_HAS_RESERVOIR_PUMP`,
-`BOARD_LEVEL_ACTIVE_LOW`, `BOARD_HAS_INA226`, `BOARD_NAME`). Never
+`BOARD_LEVEL_ACTIVE_LOW`, `BOARD_HAS_INA226`, `BOARD_HAS_BTN_MANUAL`,
+`BOARD_HAS_BTN_CONFIG`, `BOARD_HAS_VBAT_SENSE`, `BOARD_HAS_PWR_PG`,
+`BOARD_HAS_SENS_PWR_EN`, `BOARD_NAME`). Never
 hard-code GPIO numbers elsewhere. Board-conditional code uses
 `#if CONFIG_BOARD_REV2` / `#if BOARD_HAS_INA226`. Enforcement pattern: a
 capability flag at 0 leaves its pin/address macro UNDEFINED
-(`BOARD_PIN_RS485_DE`, `BOARD_PIN_RESERVOIR_PUMP`, `BOARD_INA226_ADDR`),
-so an unguarded reference is a compile error, never a phantom GPIO.
+(`BOARD_PIN_RS485_DE`, `BOARD_PIN_RESERVOIR_PUMP`, `BOARD_INA226_ADDR`,
+`BOARD_PIN_BTN_MANUAL`/`_CONFIG` on rev2, `BOARD_PIN_VBAT_SENSE`/
+`_PWR_PG`/`_SENS_PWR_EN` on rev1), so an unguarded reference is a compile
+error, never a phantom GPIO. The rev2-only power/rail signals
+(`VBAT_SENSE` IO34 ADC1 input-only, `PWR_PG` IO35 input-only + external
+pull-up, `SENS_PWR_EN` IO25 output with the rail OFF by hardware default)
+are declared but have no consumers yet — drivers and rail sequencing are
+PR-14 scope.
 
 ## BME280 environmental sensor (I2C)
 
@@ -375,7 +389,10 @@ watering. Credentials come from PR-06's `IConfigStore` (never logged, FR-004).
 config button (`BOARD_PIN_BTN_CONFIG`, GPIO18, active LOW, >= 5 s hold, 100 ms
 LED blink) → `decideBootMode` → provisioning (button-forced on a configured
 device clears credentials first, per the data-model boot rule) or station
-(`begin(Station)` + `wifi_task_start`). Kconfig: `WS_PROV_AP_SSID`,
+(`begin(Station)` + `wifi_task_start`). The whole button read is compiled out
+where `BOARD_HAS_BTN_CONFIG == 0` — rev2 has no button, so the
+credentials-absent path is its sole provisioning trigger (feature 012 FR-003).
+Kconfig: `WS_PROV_AP_SSID`,
 `WS_PROV_AP_PASSWORD`, `WS_WIFI_*` reconnect constants. LED scope (parity
 §7/§9): 500 ms connect-attempt toggle (wifi task) + 100 ms config-button-hold
 blink (app_main); HIL checklist in `specs/007-wifi-provisioning/checklists/hil.md`.
