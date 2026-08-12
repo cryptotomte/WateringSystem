@@ -25,9 +25,10 @@ static_assert(BOARD_HAS_RESERVOIR_PUMP == 0,
 (unguarded references must fail the build)"
 #endif
 
-// rev2 carries the pump INA226 at 0x40 (A0 = A1 = GND; 0x41 reserved for
-// the DNP solar footprint, 0x76/0x77 BME280 — the board-profile address
-// map).
+// rev2 carries the pump INA226 at 0x40 (A0 = A1 = GND). The board-profile
+// address map also lists 0x41 (solar INA226 — populated on this node since
+// the 2026-08-12 decision; its driver lands in PR-14) and 0x77 (BME280).
+// BOARD_INA226_ADDR names the PUMP monitor specifically.
 static_assert(BOARD_HAS_INA226 == 1,
               "rev2 board contract: INA226 pump monitor present");
 #ifndef BOARD_INA226_ADDR

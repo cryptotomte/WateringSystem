@@ -92,27 +92,31 @@
 
 /* ------------------------------------------------------------------------
  * Rev 2 — custom PCB (THVD1426 auto-direction RS485, INA226, CP2102N).
- * GPIO numbers provisionally mirror rev 1 until the rev 2 pin map is frozen.
+ * Every GPIO number below is FROZEN: it comes from the SYNC 1 map in
+ * hardware/rev2/design-notes/02-mcu.md §2.2 (frozen 2026-08-12, all sheets
+ * drawn, ERC clean, components ordered). Changing one here changes nothing
+ * on the board — pin changes go schematic-first and re-open this profile
+ * deliberately.
  * ------------------------------------------------------------------------ */
 
 #define BOARD_NAME                      "rev2"
 
-/* I2C bus (BME280, INA226) */
-#define BOARD_PIN_I2C_SDA               21  // TODO(SYNC1): final rev2 pin map frozen at hardware sync 1
-#define BOARD_PIN_I2C_SCL               22  // TODO(SYNC1): final rev2 pin map frozen at hardware sync 1
+/* I2C bus (BME280, INA226 x2) — 02-mcu.md §2.2 SYNC 1 map
+ * (frozen 2026-08-12). */
+#define BOARD_PIN_I2C_SDA               21
+#define BOARD_PIN_I2C_SCL               22
 
-/* RS485 (THVD1426 with automatic direction control — no DE pin).
- * UART pins provisionally mirror rev 1 (TX=16/RX=17 per src/main.cpp). */
-#define BOARD_PIN_RS485_TX              16  // TODO(SYNC1): final rev2 pin map frozen at hardware sync 1
-#define BOARD_PIN_RS485_RX              17  // TODO(SYNC1): final rev2 pin map frozen at hardware sync 1
+/* RS485 (THVD1426 with automatic direction control — no DE pin) —
+ * 02-mcu.md §2.2 SYNC 1 map (frozen 2026-08-12). */
+#define BOARD_PIN_RS485_TX              16
+#define BOARD_PIN_RS485_RX              17
 #define BOARD_HAS_RS485_DE              0
 /* BOARD_PIN_RS485_DE is deliberately NOT defined when BOARD_HAS_RS485_DE
  * is 0: any reference that is not guarded by #if BOARD_HAS_RS485_DE becomes
  * a compile error instead of undefined behavior (e.g. 1ULL << -1) or a
  * silently dropped ESP_ERR_INVALID_ARG at runtime. */
 /* Modbus RTU runs on UART2 at 9600 baud 8N1 (parity: legacy Serial2,
- * docs/parity-checklist.md §5). The UART number is a parity fact, not part
- * of the provisional rev2 pin map — no TODO(SYNC1). */
+ * docs/parity-checklist.md §5) — a parity fact, not a pin-map fact. */
 #define BOARD_RS485_UART_PORT           2
 
 /* Pumps (MOSFET gates, active high).
@@ -121,8 +125,9 @@
  * defined when BOARD_HAS_RESERVOIR_PUMP is 0: any reference that is not
  * guarded by #if BOARD_HAS_RESERVOIR_PUMP becomes a compile error instead
  * of driving a phantom GPIO (same enforcement pattern as
- * BOARD_PIN_RS485_DE above). */
-#define BOARD_PIN_MAIN_PUMP             26  // TODO(SYNC1): final rev2 pin map frozen at hardware sync 1
+ * BOARD_PIN_RS485_DE above).
+ * Pin: 02-mcu.md §2.2 SYNC 1 map (frozen 2026-08-12). */
+#define BOARD_PIN_MAIN_PUMP             26
 #define BOARD_HAS_RESERVOIR_PUMP        0
 
 /* Reservoir level sensors (XKC-Y26), low/high mark with internal pull-ups
@@ -132,26 +137,33 @@
  * active LOW (water present = LOW) — FW-5. See PRD FR5.
  * Settle: the XKC-Y26 needs ≥500 ms after its rail powers on before the
  * output is trustworthy (FW-3); rail control itself arrives in PR-14 —
- * this feature arms the gate once at boot. */
-#define BOARD_PIN_LEVEL_LOW             32  // TODO(SYNC1): final rev2 pin map frozen at hardware sync 1
-#define BOARD_PIN_LEVEL_HIGH            33  // TODO(SYNC1): final rev2 pin map frozen at hardware sync 1
+ * this feature arms the gate once at boot.
+ * Pins: 02-mcu.md §2.2 SYNC 1 map (frozen 2026-08-12). */
+#define BOARD_PIN_LEVEL_LOW             32
+#define BOARD_PIN_LEVEL_HIGH            33
 #define BOARD_LEVEL_ACTIVE_LOW          1
 #define BOARD_LEVEL_DEBOUNCE_MS         300
 #define BOARD_LEVEL_SETTLE_MS           500
 
 /* Pump current monitoring (INA226 on the shared I2C bus).
- * Rev 2 I2C address map (design notes §5.2.2):
+ * Rev 2 I2C address map (07-i2c-env.md §7.4, frozen 2026-08-12):
  *   0x40  INA226 pump monitor (A0 = A1 = GND)
- *   0x41  reserved — solar-input INA226 footprint, DNP
- *   0x76 / 0x77  BME280
- * The ALERT pin is not connected — no Mask/Enable/Alert register use. */
+ *   0x41  INA226 solar/panel telemetry (A0 → VS) — populated on this node
+ *         (decision 2026-08-12; driver support PR-14)
+ *   0x77  BME280 (SDO → VDDIO, rev1 parity; the driver still probes
+ *         0x76 first and settles on whichever answers)
+ * The ALERT pin is not connected — no Mask/Enable/Alert register use.
+ * BOARD_INA226_ADDR names the PUMP monitor; the solar device gets its own
+ * constant when PR-14 adds the second driver instance. */
 #define BOARD_HAS_INA226                1
 #define BOARD_INA226_ADDR               0x40
 
-/* Status LED */
-#define BOARD_PIN_STATUS_LED            2   // TODO(SYNC1): final rev2 pin map frozen at hardware sync 1
+/* Status LED — 02-mcu.md §2.2 SYNC 1 map (frozen 2026-08-12). */
+#define BOARD_PIN_STATUS_LED            2
 
 /* Power and rail monitoring — rev 2 only.
+ * Pins: 02-mcu.md §2.2 SYNC 1 map (frozen 2026-08-12); electrical
+ * constraints: docs/rev2-firmware-notes.md FW-1/FW-3/FW-6.
  *
  * VBAT_SENSE (IO34): battery voltage through the 470 k/100 k divider.
  * Input-only pin on ADC1 — mandatory, since ADC2 is unusable while WiFi is

@@ -59,8 +59,8 @@ unguarded references cannot compile on rev1.
 
 **Independent test**: quickstart §3 grep returns nothing.
 
-- [ ] T012 [US3] Edit `firmware/components/board/include/board/board.h`: delete all 11 `TODO(SYNC1)` markers and the "GPIO numbers provisionally mirror rev 1…" header sentence; each rev2 pin group cites `hardware/rev2/design-notes/02-mcu.md §2.2 SYNC 1 map (frozen 2026-08-12)` once, group-level not per-line; update the I²C address-map comment: `0x41 solar INA226 — populated on this node (decision 2026-08-12; driver support PR-14)`, BME280 = 0x77.
-- [ ] T013 [US3] Validate US3: `grep -rn "TODO(SYNC1)\|provisionally" firmware/components/board/` returns nothing (quickstart §3); host suite + both targets still green.
+- [x] T012 [US3] Edit `firmware/components/board/include/board/board.h`: delete all 11 `TODO(SYNC1)` markers and the "GPIO numbers provisionally mirror rev 1…" header sentence; each rev2 pin group cites `hardware/rev2/design-notes/02-mcu.md §2.2 SYNC 1 map (frozen 2026-08-12)` once, group-level not per-line; update the I²C address-map comment: `0x41 solar INA226 — populated on this node (decision 2026-08-12; driver support PR-14)`, BME280 = 0x77.
+- [x] T013 [US3] Validate US3: `grep -rn "TODO(SYNC1)\|provisionally" firmware/components/board/` returns nothing (quickstart §3); host suite + both targets still green.
 
 ## Phase 6: Polish & cross-cutting
 
