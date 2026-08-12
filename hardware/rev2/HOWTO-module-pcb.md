@@ -208,12 +208,17 @@ Ask for the stencil to match the panel, not the individual boards.
 C-number, **2× quantity on passives** (hand-assembly attrition), plus:
 
 - 2.54 mm pin headers (male) and matching female sockets/jumper leads for J100/J101
-- Weidmüller 1715010000 ×4 — **off-LCSC**, source from Mouser/Elfa
 - Solder paste (Sn63Pb37 or SAC305 — leaded is more forgiving on a hot plate),
   flux, braid, tweezers, 0.1 mm stencil (above)
-- Decide before ordering: **populate the solar telemetry group?** `U20`, `R27`,
-  `C29`, `J8/J9` are DNP by default (`01` §1.5). The panel and controller are
-  ordered, so populate it — add those C-numbers to the order.
+
+**Already in stock — do not re-order:** Weidmüller 1715010000 ×4 (J2 battery,
+J3 pump, J8/J9 panel). They are off-LCSC and were chosen because Paul already
+had them.
+
+**Solar telemetry group is POPULATED** (decided 2026-06-20, gate cleared
+2026-08-10 — `01` §1.5): `U20` C49851, `R27` C553969, `C29` C14663 belong in
+the LCSC order like any other part. The old "DNP by default" wording in the
+design notes and BOM was stale and has been corrected.
 
 ## 10. Bring-up order and acceptance per module
 

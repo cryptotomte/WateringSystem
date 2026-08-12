@@ -2,7 +2,7 @@
 
 **Status:** Draft for review · 2026-06-11
 **Scope:** Battery input, protection, 3.3V buck, battery voltage sense, switched
-12V sensor rail (power path only), optional solar-panel telemetry (INA226 #3).
+12V sensor rail (power path only), solar-panel telemetry (INA226 #3 — populated).
 **Out of scope:** Pump driver + pump shunt/INA226 (block 5), sensor-rail enable
 GPIO assignment (SYNC 1), control side of sensor rail (block 4/RS485).
 
@@ -40,8 +40,8 @@ Shape is from this block's POV (matches `00-architecture.md §0.5` power).
 | `VBAT_SENSE` | **output** | batt-sense divider tap (R25/R26) | mcu IO34 |
 | `PWR_PG` | **output** | U4 PG + R30 pull-up | mcu IO35 |
 | `SENS_GATE` | **input** | Q21 gate (via R31) | rs485-sensor (Q60 driver) |
-| `I2C_SDA` | **bidirectional** | U20 SDA *(solar, DNP)* | shared I²C |
-| `I2C_SCL` | **bidirectional** | U20 SCL *(solar, DNP)* | shared I²C |
+| `I2C_SDA` | **bidirectional** | U20 SDA *(solar telemetry)* | shared I²C |
+| `I2C_SCL` | **bidirectional** | U20 SCL *(solar telemetry)* | shared I²C |
 
 **Rails are global power symbols, not labels — and block 1 is their SOURCE.** Place a
 **`PWR_FLAG` on each** of `+3V3`, `VBAT`, `SENS_12V`, `GND` here (one per rail, §0.3) so
@@ -87,11 +87,13 @@ ERC sees them driven. `VBAT_IN`, `RP_GATE`, `SW_NODE`/`BST_NODE`/`FB_NODE`/`SS_N
 | R25 | 1 | Resistor 1% | 470 kΩ | 0603 | — | Battery sense, top |
 | R26 | 1 | Resistor 1% | 100 kΩ | 0603 | — | Battery sense, bottom |
 
-**Optional group — solar telemetry (DNP by default, populate per node):**
+**Solar telemetry group — POPULATED on this node** (decision 2026-06-20 to carry
+the footprints on every board; gate cleared 2026-08-10, see §1.5. Still a per-node
+BOM toggle for future nodes without a panel):
 
 | Ref | Qty | Component | Value / type | Package | MPN (suggestion) | Function |
 |---|---|---|---|---|---|---|
-| J8, J9 | 2 | Terminal block 2-pin (ganged = 4 pos) | 5.08 mm | THT | Weidmüller, same series as J2 | Panel pass-through (DNP; J8=PANEL_IN/OUT, J9=PANEL_RTN isolated pass-through) |
+| J8, J9 | 2 | Terminal block 2-pin (ganged = 4 pos) | 5.08 mm | THT | Weidmüller 1715010000 *(in stock)* | Panel pass-through: J8 = `PANEL_IN`/`PANEL_OUT`, J9 = `PANEL_RTN` in/out (isolated) |
 | U20 | 1 | Current/power monitor | I2C, addr 0x41 | VSSOP-10 | INA226AIDGSR | Panel telemetry |
 | R27 | 1 | Shunt resistor 1% | 20 mΩ, 1 W | 2512 | Vishay WSL2512R0200FEA | Panel current shunt |
 | C29 | 1 | Ceramic cap | 100 nF | 0603 | — | U20 supply decoupling |
@@ -254,10 +256,11 @@ pulls low to enable). **Gate clamp (review A2, 2026-06-24):** at turn-on Vgs ≈
 **D22 (10 V zener, G–S) clamps Vgs to −10 V** (still full enhancement); **R31 (1 kΩ
 series)** limits the clamp current (≈ (VBAT−10)/R31 ≈ 4.6 mA). Mirrors D21 on Q20.
 
-## 1.5 Optional: solar panel telemetry (DNP by default)
+## 1.5 Solar panel telemetry (populated on this node)
 
-Pass-through current loop on the panel + conductor. Populate per node only if
-panel telemetry wanted. **Controller verified against datasheet 2026-08-10:
+Pass-through current loop on the panel + conductor. **Populated on this node**
+(decision 2026-06-20 + gate cleared 2026-08-10); the footprints stay on every
+board so a future panel-less node can simply skip them. **Controller verified against datasheet 2026-08-10:
 Renogy Voyager RCC10VOYP is COMMON-POSITIVE** ("Grounding Type: Positive" —
 PV+ internally tied to BAT+, PWM switch in the negative leg). Consequences:
 the shunt in the panel + lead still carries the full (PWM-chopped) charge
@@ -334,7 +337,7 @@ common-mode max ✓.
 
 Consumes from BOM changelog 2026-06-11: items **2** (battery feed, fuse,
 reverse protection, TVS, 14.6 V tolerance), **3** (switched rail — power path
-half), **4** (battery sense divider), **7** (panel INA226, DNP).
+half), **4** (battery sense divider), **7** (panel INA226 — populated).
 Touches BOM rows: U4 (MP2393 + its passives now explicit), J2.
 Defers: item 1 (32UE → block 2/MCU), item 5 (J7 → block 7), control side of
 item 3 (→ block 4), pump shunt + INA226 0x40 (→ block 5), I2C bus (→ block 6).

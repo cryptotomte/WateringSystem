@@ -120,16 +120,22 @@ pullup), C30 (feedforward), C31 (PG cap), C32 (input HF). New signal **`PWR_PG`*
 **Decision 2026-06-20: the design includes the solar section** — J8/J9, U20, R27,
 C29 footprints are on every board. Whether they are *placed* at assembly is a
 per-node BOM toggle, so it can be dropped later at no PCB cost.
-**Gate before populating:** the pass-through shunt assumes a **common-negative**
-charge controller (`01-power.md` §1.5, open item 3 — `[VERIFY]` at controller
-purchase). Confirm common-negative before populating U20/R27; on a
-common-positive controller leave them unpopulated.
+~~**Gate before populating:** confirm a common-negative charge controller;
+on a common-positive controller leave U20/R27 unpopulated.~~
+**GATE CLEARED 2026-08-10 — this node POPULATES the solar group.** The chosen
+Renogy Voyager RCC10VOYP is **common-positive**, but the analysis in
+`01-power.md` §1.5 showed the telemetry loop works regardless: the shunt sits in
+the panel **+** lead, so its common-mode potential is battery voltage — well
+inside the INA226's 36 V range. The old gate assumed a common-negative
+controller was *required*; it is not. The one real constraint is wiring:
+**J9 must never be tied to board GND** (it is the isolated `PANEL_RTN`
+pass-through, §1.5.1). Populate U20, R27, C29, J8, J9 on this node.
 
 | Ref | Qty | Value / part | Package | MPN | LCSC# | St | JLC | Alternatives (≤3) | Role |
 |---|---|---|---|---|---|---|---|---|---|
-| J8, J9 | 2 | Terminal block 2-pin 5.08 mm (2× ganged = 4 pos) | THT | Weidmüller 1715010000 | — | — | — | — | Panel + pass-through (DNP) — off-LCSC, same part as J2; gang two 2-pole at 5.08 mm pitch (PANEL_IN/PANEL_OUT/GND/n.c.) |
+| J8, J9 | 2 | Terminal block 2-pin 5.08 mm (2× ganged = 4 pos) | THT | Weidmüller 1715010000 | — | — | — | — | Panel pass-through — **off-LCSC, already in Paul's stock** (same part as J2/J3); gang two 2-pole at 5.08 mm pitch: J8 = `PANEL_IN`/`PANEL_OUT`, J9 = `PANEL_RTN` in/out (isolated, never GND) |
 | U20 | 1 | INA226, addr 0x41 | VSSOP-10 (MSOP-10) | INA226AIDGSR | C49851 | ✓ | EP | — | Panel telemetry |
-| R27 | 1 | Shunt 20 mΩ 1 W 1% | 2512 | WSL2512R0200FEA (Vishay) | C553969 | ✓ | EP | — | Panel current shunt (DNP) |
+| R27 | 1 | Shunt 20 mΩ 1 W 1% | 2512 | WSL2512R0200FEA (Vishay) | C553969 | ✓ | EP | — | Panel current shunt — populated (Isc 3.17 A → 63 mV, §1.5) |
 | C29 | 1 | Ceramic 100 nF, 50 V X7R | 0603 | CC0603KRX7R9BB104 | C14663 | ✓ | BP | — | U20 decoupling |
 
 ## Open procurement / design items for block 1

@@ -87,9 +87,18 @@ pull-ups on the board.)*
 | R91 (4.7 kΩ) pin 1 | `I2C_SCL` | `I2C_SCL` |
 | R91 (4.7 kΩ) pin 2 | `+3V3` (pullup) | `+3V3` |
 
-Note: 4.7 kΩ suits 3.3 V I²C at 100/400 kHz with the populated device count (BME280
-+ pump INA226; solar INA226 is DNP). If rise-time is marginal on a longer/heavier
-bus, drop to 2.2 kΩ — but **only here**, never add a second pair elsewhere.
+Note: 4.7 kΩ suits 3.3 V I²C at 100/400 kHz with the populated device count —
+**three devices on this node** (BME280 + pump INA226 + solar INA226; the solar
+part is populated, decision 2026-06-20 / `01` §1.5). Three slave inputs plus
+trace capacitance is still comfortably inside the 400 pF budget at 4.7 kΩ, but
+it is the case to measure at bring-up: if SDA/SCL rise time is marginal, drop
+to 2.2 kΩ — but **only here**, never add a second pair elsewhere.
+
+**Bring-up check (module stage):** scope SDA/SCL rise time with all three
+devices on the bus; ≤ 300 ns at 400 kHz. This is the one pull-up value the
+module-stage wiring can make *look* worse than the final board (header
+interconnects add capacitance), so re-check on the stage-B board before
+changing the value permanently.
 
 ---
 
@@ -99,7 +108,7 @@ bus, drop to 2.2 kΩ — but **only here**, never add a second pair elsewhere.
 |---|---|---|---|
 | BME280 (U6) | 7 | **0x77** | SDO → VDDIO (rev1 parity) |
 | INA226 pump (U5) | 5 | **0x40** | A0/A1 → GND |
-| INA226 solar (U20, DNP) | 1 | **0x41** | A0 → VS, A1 → GND |
+| INA226 solar (U20) | 1 | **0x41** | A0 → VS, A1 → GND |
 
 All distinct ✓. ESP32 master on IO21 (SDA) / IO22 (SCL).
 

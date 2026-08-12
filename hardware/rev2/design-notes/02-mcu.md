@@ -137,8 +137,8 @@ match the export — `SENS_GATE` is **not** here (it is internal to power↔rs48
 | `PUMP_EN` | **output** | IO26 | block 5 pump — Q2 gate via R9 (input) |
 | `RESERVOIR_LOW_LEVEL` | **input** | IO32 | block 6 level — Q1 drain (output) |
 | `RESERVOIR_HIGH_LEVEL` | **input** | IO33 | block 6 level — Q1 drain (output) |
-| `I2C_SDA` | **bidirectional** | IO21 | blocks 5/7 (+ DNP 1) — shared I²C |
-| `I2C_SCL` | **bidirectional** | IO22 | blocks 5/7 (+ DNP 1) — shared I²C |
+| `I2C_SDA` | **bidirectional** | IO21 | blocks 1/5/7 — shared I²C (3 devices) |
+| `I2C_SCL` | **bidirectional** | IO22 | blocks 1/5/7 — shared I²C (3 devices) |
 | `U0TXD` | **output** | IO1 | block 3 USB-UART — CP2102N RXD (input) |
 | `U0RXD` | **input** | IO3 | block 3 USB-UART — CP2102N TXD (output) |
 | `EN` | **bidirectional** | EN | block 3 auto-program (RTS→NPN); shared w/ R11/C42/SW2 |

@@ -81,7 +81,7 @@ design-notes are the source of truth for *connectivity*, not numbering.
 
 | # | Sheet file | Owns (BOM refs) | Design-note |
 |---|---|---|---|
-| 1 | `power.kicad_sch` | J2, Q20 (AOD4185 rev-prot), Q21 (AO3401A sensor-rail FET) + gate clamp D22/R31, D20/D21, U4 (MP2393) + buck passives (L20 3.3 µH, C20–C32, R20–R31), batt-sense divider (R25/R26/C28); optional solar (DNP): U20 (INA226), R27, J8/J9, C29 | `01-power.md` |
+| 1 | `power.kicad_sch` | J2, Q20 (AOD4185 rev-prot), Q21 (AO3401A sensor-rail FET) + gate clamp D22/R31, D20/D21, U4 (MP2393) + buck passives (L20 3.3 µH, C20–C32, R20–R31), batt-sense divider (R25/R26/C28); solar telemetry (populated on this node): U20 (INA226), R27, J8/J9, C29 | `01-power.md` |
 | 2 | `mcu.kicad_sch` | U1 (ESP32-WROOM-32UE/-32E), R11 (EN pullup), R12 (BOOT pullup), R40, SW1, SW2, LED2, J6 (JTAG) | `02-mcu.md` |
 | 3 | `usb-uart.kicad_sch` | U2 (CP2102N-A02-GQFN24R, QFN-24), J1 (USB-C), D50 (USBLC6 ESD), Q50/Q51 (auto-reset NPN), R50–R55, C50–C53 | `03-usb-uart.md` |
 | 4 | `rs485-sensor.kicad_sch` | U3 (THVD1426), R3 (120 Ω term), D4 (SM712), J4, C60 + sensor-rail gate driver (Q60/R60/R61). *R4/R5 bias removed — internal fail-safe* | `04-rs485.md` |
@@ -110,7 +110,7 @@ labels (open-drain, both directions). Pull-ups live once in block 7 (i2c-env).
 | sensor-rail gate | in | `SENS_GATE` | rs485-sensor (driver) |
 | battery sense | out | `VBAT_SENSE` | mcu (ADC1) |
 | buck power-good | out | `PWR_PG` | mcu GPIO (MP2393 PG, open-drain + 3V3 pullup) |
-| panel I²C *(opt, DNP)* | bidir | `I2C_SDA`, `I2C_SCL` | i2c-env |
+| panel I²C *(solar telemetry)* | bidir | `I2C_SDA`, `I2C_SCL` | i2c-env |
 
 Provides global rails `+3V3`, `VBAT`, `GND`, and `SENS_12V` (drain of the
 high-side FET; enabled via `SENS_GATE`).
