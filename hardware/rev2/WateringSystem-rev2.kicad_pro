@@ -39,9 +39,9 @@
         "other_text_thickness": 0.15,
         "other_text_upright": false,
         "pads": {
-          "drill": 0.0,
-          "height": 1.8,
-          "width": 2.7
+          "drill": 0.8,
+          "height": 1.27,
+          "width": 2.54
         },
         "silk_line_width": 0.1,
         "silk_text_italic": false,
@@ -69,23 +69,7 @@
           "thermal_relief_spoke_width": 0.5
         }
       },
-      "diff_pair_dimensions": [
-        {
-          "gap": 0.0,
-          "via_gap": 0.0,
-          "width": 0.0
-        },
-        {
-          "gap": 0.2,
-          "via_gap": 0.25,
-          "width": 0.2
-        },
-        {
-          "gap": 0.2,
-          "via_gap": 0.3,
-          "width": 0.25
-        }
-      ],
+      "diff_pair_dimensions": [],
       "drc_exclusions": [],
       "meta": {
         "version": 2
@@ -126,9 +110,9 @@
         "missing_tuning_profile": "warning",
         "net_conflict": "warning",
         "nonmirrored_text_on_back_layer": "warning",
-        "npth_inside_courtyard": "ignore",
+        "npth_inside_courtyard": "error",
         "padstack": "warning",
-        "pth_inside_courtyard": "ignore",
+        "pth_inside_courtyard": "error",
         "shorting_items": "error",
         "silk_edge_clearance": "warning",
         "silk_over_copper": "warning",
@@ -169,10 +153,10 @@
         "min_text_height": 0.8,
         "min_text_thickness": 0.08,
         "min_through_hole_diameter": 0.3,
-        "min_track_width": 0.0,
+        "min_track_width": 0.2,
         "min_via_annular_width": 0.1,
         "min_via_diameter": 0.5,
-        "solder_mask_to_copper_clearance": 0.005,
+        "solder_mask_to_copper_clearance": 0.0,
         "use_height_for_length_calcs": true
       },
       "teardrop_options": [
@@ -219,14 +203,7 @@
           "td_width_to_size_filter_ratio": 0.9
         }
       ],
-      "track_widths": [
-        0.0,
-        0.2,
-        0.254,
-        0.3,
-        0.4,
-        0.6
-      ],
+      "track_widths": [],
       "tuning_pattern_settings": {
         "diff_pair_defaults": {
           "corner_radius_percentage": 80,
@@ -253,28 +230,7 @@
           "spacing": 0.6
         }
       },
-      "via_dimensions": [
-        {
-          "diameter": 0.0,
-          "drill": 0.0
-        },
-        {
-          "diameter": 0.4,
-          "drill": 0.2
-        },
-        {
-          "diameter": 0.45,
-          "drill": 0.25
-        },
-        {
-          "diameter": 0.5,
-          "drill": 0.3
-        },
-        {
-          "diameter": 0.6,
-          "drill": 0.4
-        }
-      ],
+      "via_dimensions": [],
       "zones_allow_external_fillets": false
     },
     "ipc2581": {
@@ -493,7 +449,6 @@
       "footprint_filter": "ignore",
       "footprint_link_issues": "warning",
       "four_way_junction": "ignore",
-      "global_label_dangling": "warning",
       "ground_pin_not_ground": "warning",
       "hier_label_mismatch": "error",
       "isolated_pin_label": "warning",
@@ -511,7 +466,7 @@
       "no_connect_dangling": "warning",
       "pin_not_connected": "error",
       "pin_not_driven": "error",
-      "pin_to_pin": "error",
+      "pin_to_pin": "warning",
       "power_pin_not_driven": "error",
       "same_local_global_label": "warning",
       "similar_label_and_power": "warning",
@@ -533,7 +488,7 @@
     "pinned_symbol_libs": []
   },
   "meta": {
-    "filename": "WateringSystem.kicad_pro",
+    "filename": "WateringSystem-rev2.kicad_pro",
     "version": 3
   },
   "net_settings": {
@@ -556,150 +511,6 @@
         "via_diameter": 0.6,
         "via_drill": 0.3,
         "wire_width": 6
-      },
-      {
-        "bus_width": 12,
-        "clearance": 0.4,
-        "diff_pair_gap": 0.2,
-        "diff_pair_width": 0.2,
-        "line_style": 0,
-        "microvia_diameter": 0.4,
-        "microvia_drill": 0.1,
-        "name": "12V",
-        "pcb_color": "rgba(0, 0, 0, 0.000)",
-        "priority": 4,
-        "schematic_color": "rgba(0, 0, 0, 0.000)",
-        "track_width": 0.8,
-        "tuning_profile": "",
-        "via_diameter": 0.6,
-        "via_drill": 0.4,
-        "wire_width": 6
-      },
-      {
-        "bus_width": 12,
-        "clearance": 0.2,
-        "diff_pair_gap": 0.2,
-        "diff_pair_width": 0.2,
-        "line_style": 0,
-        "microvia_diameter": 0.4,
-        "microvia_drill": 0.1,
-        "name": "3.3V",
-        "pcb_color": "rgba(0, 0, 0, 0.000)",
-        "priority": 6,
-        "schematic_color": "rgba(0, 0, 0, 0.000)",
-        "track_width": 0.5,
-        "tuning_profile": "",
-        "via_diameter": 0.6,
-        "via_drill": 0.4,
-        "wire_width": 6
-      },
-      {
-        "bus_width": 12,
-        "clearance": 0.2,
-        "diff_pair_gap": 0.2,
-        "diff_pair_width": 0.2,
-        "line_style": 0,
-        "microvia_diameter": 0.4,
-        "microvia_drill": 0.1,
-        "name": "5V",
-        "pcb_color": "rgba(0, 0, 0, 0.000)",
-        "priority": 5,
-        "schematic_color": "rgba(0, 0, 0, 0.000)",
-        "track_width": 0.5,
-        "tuning_profile": "",
-        "via_diameter": 0.6,
-        "via_drill": 0.4,
-        "wire_width": 6
-      },
-      {
-        "bus_width": 12,
-        "clearance": 0.2,
-        "diff_pair_gap": 0.2,
-        "diff_pair_width": 0.2,
-        "line_style": 0,
-        "microvia_diameter": 0.4,
-        "microvia_drill": 0.1,
-        "name": "GND",
-        "pcb_color": "rgba(0, 0, 0, 0.000)",
-        "priority": 7,
-        "schematic_color": "rgba(0, 0, 0, 0.000)",
-        "track_width": 0.5,
-        "tuning_profile": "",
-        "via_diameter": 0.6,
-        "via_drill": 0.4,
-        "wire_width": 6
-      },
-      {
-        "bus_width": 12,
-        "clearance": 0.15,
-        "diff_pair_gap": 0.2,
-        "diff_pair_width": 0.2,
-        "line_style": 0,
-        "microvia_diameter": 0.4,
-        "microvia_drill": 0.1,
-        "name": "I2C",
-        "pcb_color": "rgba(0, 0, 0, 0.000)",
-        "priority": 3,
-        "schematic_color": "rgba(0, 0, 0, 0.000)",
-        "track_width": 0.3,
-        "tuning_profile": "",
-        "via_diameter": 0.5,
-        "via_drill": 0.3,
-        "wire_width": 6
-      },
-      {
-        "bus_width": 12,
-        "clearance": 0.15,
-        "diff_pair_gap": 0.2,
-        "diff_pair_width": 0.2,
-        "line_style": 0,
-        "microvia_diameter": 0.4,
-        "microvia_drill": 0.1,
-        "name": "RS485",
-        "pcb_color": "rgba(0, 0, 0, 0.000)",
-        "priority": 0,
-        "schematic_color": "rgba(0, 0, 0, 0.000)",
-        "track_width": 0.25,
-        "tuning_profile": "",
-        "via_diameter": 0.5,
-        "via_drill": 0.3,
-        "wire_width": 6
-      },
-      {
-        "bus_width": 12,
-        "clearance": 0.15,
-        "diff_pair_gap": 0.2,
-        "diff_pair_width": 0.2,
-        "line_style": 0,
-        "microvia_diameter": 0.4,
-        "microvia_drill": 0.1,
-        "name": "control",
-        "pcb_color": "rgba(0, 0, 0, 0.000)",
-        "priority": 2,
-        "schematic_color": "rgba(0, 0, 0, 0.000)",
-        "track_width": 0.3,
-        "tuning_profile": "",
-        "via_diameter": 0.5,
-        "via_drill": 0.3,
-        "wire_width": 6
-      },
-      {
-        "bus_width": 12,
-        "clearance": 0.15,
-        "diff_pair_gap": 0.2,
-        "diff_pair_width": 0.2,
-        "line_style": 0,
-        "microvia_diameter": 0.4,
-        "microvia_drill": 0.1,
-        "name": "sensor_data",
-        "pcb_color": "rgba(0, 0, 0, 0.000)",
-        "priority": 1,
-        "schematic_color": "rgba(0, 0, 0, 0.000)",
-        "track_width": 0.25,
-        "tuning_profile": "",
-        "via_diameter": 0.5,
-        "via_drill": 0.3,
-        "wire_width": 6
       }
     ],
     "meta": {
@@ -707,59 +518,14 @@
     },
     "net_colors": null,
     "netclass_assignments": null,
-    "netclass_patterns": [
-      {
-        "netclass": "3.3V",
-        "pattern": "*+3V3*"
-      },
-      {
-        "netclass": "sensor_data",
-        "pattern": "*BUTTON*"
-      },
-      {
-        "netclass": "control",
-        "pattern": "*CONTROL*"
-      },
-      {
-        "netclass": "I2C",
-        "pattern": "*I2C_*"
-      },
-      {
-        "netclass": "control",
-        "pattern": "*LED*"
-      },
-      {
-        "netclass": "sensor_data",
-        "pattern": "*LEVEL*"
-      },
-      {
-        "netclass": "RS485",
-        "pattern": "*RS485*"
-      },
-      {
-        "netclass": "12V",
-        "pattern": "+12V"
-      },
-      {
-        "netclass": "5V",
-        "pattern": "*+5V*"
-      },
-      {
-        "netclass": "12V",
-        "pattern": "*RELAY_CTRL"
-      }
-    ]
+    "netclass_patterns": []
   },
   "pcbnew": {
     "last_paths": {
-      "gencad": "",
       "idf": "",
       "netlist": "",
       "plot": "",
-      "pos_files": "",
       "specctra_dsn": "",
-      "step": "WateringSystem.step",
-      "svg": "",
       "vrml": ""
     },
     "page_layout_descr_file": ""
@@ -835,98 +601,20 @@
         },
         {
           "group_by": false,
-          "label": "Description_1",
-          "name": "Description_1",
-          "show": false
-        },
-        {
-          "group_by": false,
-          "label": "DigiKey_Part_Number",
-          "name": "DigiKey_Part_Number",
-          "show": false
-        },
-        {
-          "group_by": false,
-          "label": "Height",
-          "name": "Height",
-          "show": false
-        },
-        {
-          "group_by": false,
           "label": "LCSC Part",
           "name": "LCSC Part",
           "show": true
         },
         {
           "group_by": false,
-          "label": "MANUFACTURER",
-          "name": "MANUFACTURER",
+          "label": "Manufacturer",
+          "name": "Manufacturer",
           "show": false
         },
         {
           "group_by": false,
-          "label": "MF",
-          "name": "MF",
-          "show": false
-        },
-        {
-          "group_by": false,
-          "label": "MP",
-          "name": "MP",
-          "show": false
-        },
-        {
-          "group_by": false,
-          "label": "Manufacturer_Name",
-          "name": "Manufacturer_Name",
-          "show": false
-        },
-        {
-          "group_by": false,
-          "label": "Manufacturer_Part_Number",
-          "name": "Manufacturer_Part_Number",
-          "show": false
-        },
-        {
-          "group_by": false,
-          "label": "Mouser Part Number",
-          "name": "Mouser Part Number",
-          "show": true
-        },
-        {
-          "group_by": false,
-          "label": "Mouser Price/Stock",
-          "name": "Mouser Price/Stock",
-          "show": false
-        },
-        {
-          "group_by": false,
-          "label": "PARTREV",
-          "name": "PARTREV",
-          "show": false
-        },
-        {
-          "group_by": false,
-          "label": "Package",
-          "name": "Package",
-          "show": false
-        },
-        {
-          "group_by": false,
-          "label": "STANDARD",
-          "name": "STANDARD",
-          "show": false
-        },
-        {
-          "group_by": false,
-          "label": "SnapEDA_Link",
-          "name": "SnapEDA_Link",
-          "show": false
-        },
-        {
-          "group_by": false,
-          "label": "Check_prices",
-          "name": "Check_prices",
+          "label": "MPN",
+          "name": "MPN",
           "show": false
         },
         {
@@ -978,24 +666,16 @@
     "meta": {
       "version": 1
     },
-    "net_format_name": "",
     "page_layout_descr_file": "",
     "plot_directory": "",
     "reuse_designators": true,
-    "space_save_all_events": true,
-    "spice_current_sheet_as_root": false,
-    "spice_external_command": "spice \"%I\"",
-    "spice_model_current_sheet_as_root": true,
-    "spice_save_all_currents": false,
-    "spice_save_all_dissipations": false,
-    "spice_save_all_voltages": false,
     "subpart_first_id": 65,
     "subpart_id_separator": 0,
     "top_level_sheets": [
       {
-        "filename": "WateringSystem.kicad_sch",
-        "name": "WateringSystem",
-        "uuid": "00000000-0000-0000-0000-000000000000"
+        "filename": "WateringSystem-rev2.kicad_sch",
+        "name": "Rotark",
+        "uuid": "50e4c79a-cd91-4ab8-9cfe-fdd5e01dd496"
       }
     ],
     "used_designators": "",
@@ -1003,8 +683,40 @@
   },
   "sheets": [
     [
-      "48c2e22f-8006-434e-86fa-459a1d38947a",
-      "Root"
+      "50e4c79a-cd91-4ab8-9cfe-fdd5e01dd496",
+      "Rotark"
+    ],
+    [
+      "4a49a82e-6872-4083-b747-93a7ac011f3d",
+      "power"
+    ],
+    [
+      "796b9fac-1063-4bf9-a20a-1131ba3afb53",
+      "mcu"
+    ],
+    [
+      "14e605da-5270-426f-ba62-7bc393b89d74",
+      "usb-uart"
+    ],
+    [
+      "a2611f8c-f4df-44ca-adcf-90a7787fc337",
+      "rs485_sensor"
+    ],
+    [
+      "ab7b0607-7484-4951-9101-acd10d5ad9dc",
+      "pump"
+    ],
+    [
+      "9a03a55f-d6e2-496c-b319-2bb45f852ac3",
+      "level-sensors"
+    ],
+    [
+      "06a9a4b4-fdeb-4ee8-8493-1f912e837fee",
+      "i2c-env"
+    ],
+    [
+      "86184c22-8603-48a0-842a-8ee2de95b1c9",
+      "expansion"
     ]
   ],
   "text_variables": {},
