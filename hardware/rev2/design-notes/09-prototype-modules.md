@@ -7,6 +7,10 @@ module PCBs**, hand-assembled on Paul's hot plate and interconnected with
 2.54 mm pin headers — devkit style. A wiring or component error then costs one
 cheap module respin, not a full-board respin.
 
+**Step-by-step execution: `../HOWTO-module-pcb.md`** (module projects that
+reference the shared block sheets, header pinouts, panelization, bring-up
+acceptance criteria).
+
 ## Stage A — modules (now)
 
 - **One module PCB per schematic block** (or a sensible grouping — see bring-up
