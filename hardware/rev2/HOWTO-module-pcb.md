@@ -21,10 +21,19 @@ Only layout is done twice (module boards now, integrated board later).
 ## 1. Preflight — blockers to clear before starting
 
 1. **Four symbols still have no footprint.** `Update PCB from Schematic` (F8)
-   refuses to run until every symbol has one:
-   - `J6` (JTAG 1×6, mcu) → `Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical`
-   - `J7` (expansion 1×8, expansion) → `…:PinHeader_1x08_P2.54mm_Vertical`
-   - `JP1`, `JP2` (MODE solder jumpers, level-sensors) → `Jumper:SolderJumper-2_P1.3mm_Open_TrapezoidPad`
+   refuses to run until every symbol has one. Names verified against the
+   KiCad 10 libraries on disk 2026-08-12:
+
+   | Symbol | Sheet | Footprint |
+   |---|---|---|
+   | `J6` (JTAG 1×6, DNP) | mcu | `Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical` |
+   | `J7` (expansion 1×8) | expansion | `Connector_PinHeader_2.54mm:PinHeader_1x08_P2.54mm_Vertical` |
+   | `JP1`, `JP2` (MODE) | level-sensors | `Jumper:SolderJumper-2_P1.3mm_Open_TrianglePad1.0x1.5mm` |
+
+   Solder-jumper choice: **Open** matches the design default (floating MODE =
+   active-HIGH, `06` §6.3); the **TrianglePad** variant is the easiest of the
+   three open variants to bridge with an iron after assembly.
+
    Assign these in the block sheets (they belong to the design, not to the
    prototype) so stage B inherits them.
 2. **Off-LCSC parts** — the LCSC order will NOT cover these; source separately:
