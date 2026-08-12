@@ -72,9 +72,21 @@
 /* Status LED */
 #define BOARD_PIN_STATUS_LED            2
 
-/* Buttons (manual watering trigger, WiFi config/AP mode) */
+/* Buttons (manual watering trigger, WiFi config/AP mode).
+ * Rev 1 has both physical buttons; the config button drives the boot
+ * provisioning-force path (feature 007, docs/parity-checklist.md §7). */
+#define BOARD_HAS_BTN_MANUAL            1
 #define BOARD_PIN_BTN_MANUAL            5
+#define BOARD_HAS_BTN_CONFIG            1
 #define BOARD_PIN_BTN_CONFIG            18
+
+/* Power/rail monitoring: none on rev1. The devkit rig runs off USB with a
+ * permanently powered sensor rail, so battery sense, buck power-good and
+ * sensor-rail enable do not exist here. The pin macros are deliberately NOT
+ * defined (RS485-DE pattern): unguarded references fail the build. */
+#define BOARD_HAS_VBAT_SENSE            0
+#define BOARD_HAS_PWR_PG                0
+#define BOARD_HAS_SENS_PWR_EN           0
 
 #elif CONFIG_BOARD_REV2
 
@@ -139,9 +151,22 @@
 /* Status LED */
 #define BOARD_PIN_STATUS_LED            2   // TODO(SYNC1): final rev2 pin map frozen at hardware sync 1
 
-/* Buttons (manual watering trigger, WiFi config/AP mode) */
-#define BOARD_PIN_BTN_MANUAL            5   // TODO(SYNC1): final rev2 pin map frozen at hardware sync 1
-#define BOARD_PIN_BTN_CONFIG            18  // TODO(SYNC1): final rev2 pin map frozen at hardware sync 1
+/* Buttons: rev 2 has NONE. The frozen board carries only the BOOT (IO0) and
+ * RESET (EN) switches plus the status LED — no manual-watering and no
+ * WiFi-config button. BOARD_PIN_BTN_MANUAL / BOARD_PIN_BTN_CONFIG are
+ * therefore deliberately NOT defined when their flags are 0: any reference
+ * that is not guarded by #if BOARD_HAS_BTN_* becomes a compile error instead
+ * of reading a phantom GPIO (same enforcement pattern as
+ * BOARD_PIN_RS485_DE / BOARD_PIN_RESERVOIR_PUMP above).
+ *
+ * This is a correctness fix, not cosmetics: the pin the profile previously
+ * used for BTN_CONFIG is IO18 = EXP_SCK on the frozen board — an expansion
+ * header signal. Reading it at boot could mistake expansion-bus traffic for
+ * "operator holds the config button". Provisioning on rev2 is entered via
+ * the credentials-absent path (feature 007); a BOOT-button trigger is a
+ * possible future feature. */
+#define BOARD_HAS_BTN_MANUAL            0
+#define BOARD_HAS_BTN_CONFIG            0
 
 #else
 #error "No board selected: enable CONFIG_BOARD_REV1_DEVKIT or CONFIG_BOARD_REV2"
@@ -164,8 +189,14 @@
 #if BOARD_PIN_LEVEL_LOW == BOARD_PIN_LEVEL_HIGH
 #error "Board sanity: BOARD_PIN_LEVEL_LOW and BOARD_PIN_LEVEL_HIGH must differ"
 #endif
+/* Buttons are optional hardware (rev2 has none), so the distinctness check
+ * is guarded exactly like the reservoir pump's: with both flags at 0 the
+ * undefined macros would otherwise compare 0 == 0 in #if and fire a
+ * spurious error. */
+#if BOARD_HAS_BTN_MANUAL && BOARD_HAS_BTN_CONFIG
 #if BOARD_PIN_BTN_MANUAL == BOARD_PIN_BTN_CONFIG
 #error "Board sanity: BOARD_PIN_BTN_MANUAL and BOARD_PIN_BTN_CONFIG must differ"
+#endif
 #endif
 
 /* Pumps must not share a pin with the level sensors */
@@ -217,6 +248,21 @@
 #error "Board sanity: BOARD_PIN_RESERVOIR_PUMP is defined but BOARD_HAS_RESERVOIR_PUMP is 0"
 #endif
 
+/* Feature flag consistency: BOARD_HAS_BTN_* == 1 iff the button pin exists
+ * (rev2 has no buttons — same pattern as RS485 DE) */
+#if BOARD_HAS_BTN_MANUAL && !defined(BOARD_PIN_BTN_MANUAL)
+#error "Board sanity: BOARD_HAS_BTN_MANUAL is 1 but BOARD_PIN_BTN_MANUAL is not defined"
+#endif
+#if !BOARD_HAS_BTN_MANUAL && defined(BOARD_PIN_BTN_MANUAL)
+#error "Board sanity: BOARD_PIN_BTN_MANUAL is defined but BOARD_HAS_BTN_MANUAL is 0"
+#endif
+#if BOARD_HAS_BTN_CONFIG && !defined(BOARD_PIN_BTN_CONFIG)
+#error "Board sanity: BOARD_HAS_BTN_CONFIG is 1 but BOARD_PIN_BTN_CONFIG is not defined"
+#endif
+#if !BOARD_HAS_BTN_CONFIG && defined(BOARD_PIN_BTN_CONFIG)
+#error "Board sanity: BOARD_PIN_BTN_CONFIG is defined but BOARD_HAS_BTN_CONFIG is 0"
+#endif
+
 /* Feature flag consistency: BOARD_HAS_INA226 == 1 iff the address exists */
 #if BOARD_HAS_INA226 && !defined(BOARD_INA226_ADDR)
 #error "Board sanity: BOARD_HAS_INA226 is 1 but BOARD_INA226_ADDR is not defined"
@@ -224,5 +270,46 @@
 #if !BOARD_HAS_INA226 && defined(BOARD_INA226_ADDR)
 #error "Board sanity: BOARD_INA226_ADDR is defined but BOARD_HAS_INA226 is 0"
 #endif
+
+/* Expansion-header reservation — REV 2 ONLY.
+ * J7 carries VSPI SCK/MOSI/MISO plus CS and IRQ on IO18/19/23/4/27; core
+ * firmware must never claim one of them, or an attached expansion device
+ * fights the core (and its bus traffic can be misread as core input).
+ * This is deliberately NOT a cross-board check: rev1 legitimately uses IO18
+ * (config button) and IO27 (reservoir pump) — the reservation is a property
+ * of the rev2 board, not of the firmware. */
+#if CONFIG_BOARD_REV2
+#define BOARD_PIN_IS_EXPANSION(pin)                                     \
+    ((pin) == 18 || (pin) == 19 || (pin) == 23 || (pin) == 4 || (pin) == 27)
+
+#if BOARD_PIN_IS_EXPANSION(BOARD_PIN_I2C_SDA) ||    \
+    BOARD_PIN_IS_EXPANSION(BOARD_PIN_I2C_SCL) ||    \
+    BOARD_PIN_IS_EXPANSION(BOARD_PIN_RS485_TX) ||   \
+    BOARD_PIN_IS_EXPANSION(BOARD_PIN_RS485_RX) ||   \
+    BOARD_PIN_IS_EXPANSION(BOARD_PIN_MAIN_PUMP) ||  \
+    BOARD_PIN_IS_EXPANSION(BOARD_PIN_LEVEL_LOW) ||  \
+    BOARD_PIN_IS_EXPANSION(BOARD_PIN_LEVEL_HIGH) || \
+    BOARD_PIN_IS_EXPANSION(BOARD_PIN_STATUS_LED)
+#error "Board sanity: a rev2 core pin lands on the reserved expansion set (IO18/19/23/4/27)"
+#endif
+
+/* Optional pins too — checked under their capability flags so an undefined
+ * macro is never evaluated. None of these exist on rev2 today; the checks
+ * exist so a future re-addition cannot silently take an expansion pin. */
+#if BOARD_HAS_RS485_DE && BOARD_PIN_IS_EXPANSION(BOARD_PIN_RS485_DE)
+#error "Board sanity: BOARD_PIN_RS485_DE lands on the reserved expansion set"
+#endif
+#if BOARD_HAS_RESERVOIR_PUMP && BOARD_PIN_IS_EXPANSION(BOARD_PIN_RESERVOIR_PUMP)
+#error "Board sanity: BOARD_PIN_RESERVOIR_PUMP lands on the reserved expansion set"
+#endif
+#if BOARD_HAS_BTN_MANUAL && BOARD_PIN_IS_EXPANSION(BOARD_PIN_BTN_MANUAL)
+#error "Board sanity: BOARD_PIN_BTN_MANUAL lands on the reserved expansion set"
+#endif
+#if BOARD_HAS_BTN_CONFIG && BOARD_PIN_IS_EXPANSION(BOARD_PIN_BTN_CONFIG)
+#error "Board sanity: BOARD_PIN_BTN_CONFIG lands on the reserved expansion set"
+#endif
+
+#undef BOARD_PIN_IS_EXPANSION
+#endif /* CONFIG_BOARD_REV2 */
 
 #endif /* WATERINGSYSTEM_BOARD_BOARD_H */

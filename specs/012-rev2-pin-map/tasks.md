@@ -14,7 +14,7 @@ build failure, which is the intended TDD signal for compile-time contracts.
 
 ## Phase 1: Setup
 
-- [ ] T001 Record the green baseline: run the host test suite and both board-target builds per `specs/012-rev2-pin-map/quickstart.md` §1–2 on the unmodified branch; note results in the task log. A pre-existing red here is a STOP — this feature must start from green.
+- [x] T001 Record the green baseline: run the host test suite and both board-target builds per `specs/012-rev2-pin-map/quickstart.md` §1–2 on the unmodified branch; note results in the task log. A pre-existing red here is a STOP — this feature must start from green.
 
 ## Phase 2: Foundational
 
@@ -29,12 +29,12 @@ boot), guard the boot provisioning button path, reserve the expansion set.
 core pin collides with the expansion set; app_main compiles for rev2 without
 the button block and for rev1 with it, unchanged.
 
-- [ ] T002 [US1] Extend `firmware/test_apps/host/main/test_board_contract_rev2.cpp`: assert `BOARD_HAS_BTN_MANUAL == 0` and `BOARD_HAS_BTN_CONFIG == 0`; `#ifdef BOARD_PIN_BTN_MANUAL/`BOARD_PIN_BTN_CONFIG` → `#error`; add static_asserts that every defined core `BOARD_PIN_*` (I2C, RS485, pump, levels, LED — and the US2 signals once they exist) differs from each of 18, 19, 23, 4, 27. Expect the build to go red (pins still defined).
-- [ ] T003 [US1] Extend `firmware/test_apps/host/main/test_board_contract_rev1.cpp`: assert `BOARD_HAS_BTN_MANUAL == 1`, `BOARD_PIN_BTN_MANUAL == 5`, `BOARD_HAS_BTN_CONFIG == 1`, `BOARD_PIN_BTN_CONFIG == 18` — pins rev1 genuinely has, values frozen (FR-002 regression guard). Document in the TU comment that the expansion reservation is rev2-only (rev1 legitimately uses 18/27 — data-model invariant 3).
-- [ ] T004 [US1] Edit `firmware/components/board/include/board/board.h`: add `BOARD_HAS_BTN_MANUAL 1` / `BOARD_HAS_BTN_CONFIG 1` to the rev1 section above the existing pins; in the rev2 section set both flags 0 and DELETE both pin defines (deliberate-undefine pattern, comment mirroring the RS485_DE/reservoir-pump wording).
-- [ ] T005 [US1] Edit `firmware/components/board/include/board/board.h` sanity section: add flag↔pin consistency `#error` pairs for both button flags (pattern of lines 211–217); add the rev2-only expansion-reservation check (`#if`-chain erroring if any defined core pin ∈ {18,19,23,4,27}), placed inside a `CONFIG_BOARD_REV2` conditional per data-model invariant 3.
-- [ ] T006 [US1] Edit `firmware/main/app_main.cpp`: wrap the config-button provisioning block (input `gpio_config` of `BOARD_PIN_BTN_CONFIG`, the poll loop and its STATUS_LED feedback, approx. lines 148–217) in `#if BOARD_HAS_BTN_CONFIG`; the credentials-absent provisioning path and all pump boot-safety code stay untouched. Update the block comment to state why (no button on rev2; IO18 is EXP_SCK).
-- [ ] T007 [US1] Validate US1: host suite green, both board targets build green (quickstart §1–2).
+- [x] T002 [US1] Extend `firmware/test_apps/host/main/test_board_contract_rev2.cpp`: assert `BOARD_HAS_BTN_MANUAL == 0` and `BOARD_HAS_BTN_CONFIG == 0`; `#ifdef BOARD_PIN_BTN_MANUAL/`BOARD_PIN_BTN_CONFIG` → `#error`; add static_asserts that every defined core `BOARD_PIN_*` (I2C, RS485, pump, levels, LED — and the US2 signals once they exist) differs from each of 18, 19, 23, 4, 27. Expect the build to go red (pins still defined).
+- [x] T003 [US1] Extend `firmware/test_apps/host/main/test_board_contract_rev1.cpp`: assert `BOARD_HAS_BTN_MANUAL == 1`, `BOARD_PIN_BTN_MANUAL == 5`, `BOARD_HAS_BTN_CONFIG == 1`, `BOARD_PIN_BTN_CONFIG == 18` — pins rev1 genuinely has, values frozen (FR-002 regression guard). Document in the TU comment that the expansion reservation is rev2-only (rev1 legitimately uses 18/27 — data-model invariant 3).
+- [x] T004 [US1] Edit `firmware/components/board/include/board/board.h`: add `BOARD_HAS_BTN_MANUAL 1` / `BOARD_HAS_BTN_CONFIG 1` to the rev1 section above the existing pins; in the rev2 section set both flags 0 and DELETE both pin defines (deliberate-undefine pattern, comment mirroring the RS485_DE/reservoir-pump wording).
+- [x] T005 [US1] Edit `firmware/components/board/include/board/board.h` sanity section: add flag↔pin consistency `#error` pairs for both button flags (pattern of lines 211–217); add the rev2-only expansion-reservation check (`#if`-chain erroring if any defined core pin ∈ {18,19,23,4,27}), placed inside a `CONFIG_BOARD_REV2` conditional per data-model invariant 3.
+- [x] T006 [US1] Edit `firmware/main/app_main.cpp`: wrap the config-button provisioning block (input `gpio_config` of `BOARD_PIN_BTN_CONFIG`, the poll loop and its STATUS_LED feedback, approx. lines 148–217) in `#if BOARD_HAS_BTN_CONFIG`; the credentials-absent provisioning path and all pump boot-safety code stay untouched. Update the block comment to state why (no button on rev2; IO18 is EXP_SCK).
+- [x] T007 [US1] Validate US1: host suite green, both board targets build green (quickstart §1–2).
 
 **Checkpoint**: US1 delivers the safety/correctness fix on its own.
 

@@ -53,3 +53,29 @@ static_assert(BOARD_LEVEL_SETTLE_MS == 0,
               "rev1 board contract: no settle gating (rail always on)");
 static_assert(BOARD_LEVEL_DEBOUNCE_MS == 300,
               "rev1 board contract: 300 ms debounce window");
+
+// Buttons: the rev1 devkit rig HAS both buttons, and feature 012 must not
+// change a single rev1 value (FR-002 regression guard). The manual-watering
+// button sits on IO5, the WiFi-config button on IO18 — the pins the boot
+// path reads today (feature 007, parity checklist §7).
+//
+// NOTE for future readers: feature 012 reserves IO18/19/23/4/27 for the
+// rev2 expansion header J7, and rev1 legitimately uses two of them (IO18
+// config button, IO27 reservoir pump). That reservation is a rev2-ONLY
+// invariant (data-model.md invariant 3) — never "fix" the rev1 values to
+// satisfy it.
+static_assert(BOARD_HAS_BTN_MANUAL == 1,
+              "rev1 board contract: manual button present on the devkit rig");
+#ifndef BOARD_PIN_BTN_MANUAL
+#error "rev1 board contract: BOARD_PIN_BTN_MANUAL must be defined"
+#endif
+static_assert(BOARD_PIN_BTN_MANUAL == 5,
+              "rev1 board contract: manual button pin unchanged (FR-002)");
+static_assert(BOARD_HAS_BTN_CONFIG == 1,
+              "rev1 board contract: config button present on the devkit rig");
+#ifndef BOARD_PIN_BTN_CONFIG
+#error "rev1 board contract: BOARD_PIN_BTN_CONFIG must be defined"
+#endif
+static_assert(BOARD_PIN_BTN_CONFIG == 18,
+              "rev1 board contract: config button pin unchanged (FR-002, "
+              "feature 007 boot provisioning path)");

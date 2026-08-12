@@ -52,3 +52,48 @@ static_assert(BOARD_HAS_RS485_DE == 0,
 #ifdef BOARD_PIN_RS485_DE
 #error "rev2 board contract: BOARD_PIN_RS485_DE must NOT be defined"
 #endif
+
+// Buttons: the frozen rev2 board has NO manual or config button — only the
+// BOOT/RESET switches (IO0/EN) and the status LED (feature 012, FR-001).
+// Both pin macros are therefore removed, so the boot path's button block
+// cannot compile on this board (the same enforcement pattern as the
+// reservoir pump above). This matters beyond tidiness: the pin the old
+// profile used for BTN_CONFIG is IO18 = EXP_SCK, an expansion-header signal
+// the boot path must never read.
+static_assert(BOARD_HAS_BTN_MANUAL == 0,
+              "rev2 board contract: no manual button on the frozen rev2 board");
+#ifdef BOARD_PIN_BTN_MANUAL
+#error "rev2 board contract: BOARD_PIN_BTN_MANUAL must NOT be defined \
+(unguarded references must fail the build)"
+#endif
+static_assert(BOARD_HAS_BTN_CONFIG == 0,
+              "rev2 board contract: no config button on the frozen rev2 board");
+#ifdef BOARD_PIN_BTN_CONFIG
+#error "rev2 board contract: BOARD_PIN_BTN_CONFIG must NOT be defined \
+(unguarded references must fail the build)"
+#endif
+
+// Expansion reservation (feature 012, FR-004). J7 carries VSPI
+// SCK/MOSI/MISO plus CS and IRQ on IO18/19/23/4/27; core firmware must not
+// claim any of them on rev2. board.h enforces this too — this TU is the
+// belt to that header's braces: the contract survives even if the header
+// check is ever removed. NOTE: this is a rev2-ONLY invariant; rev1
+// legitimately uses IO18 (config button) and IO27 (reservoir pump).
+#define WS_REV2_NOT_EXPANSION(pin) \
+    ((pin) != 18 && (pin) != 19 && (pin) != 23 && (pin) != 4 && (pin) != 27)
+
+static_assert(WS_REV2_NOT_EXPANSION(BOARD_PIN_I2C_SDA) &&
+                  WS_REV2_NOT_EXPANSION(BOARD_PIN_I2C_SCL),
+              "rev2 board contract: I2C pins must stay off the expansion set");
+static_assert(WS_REV2_NOT_EXPANSION(BOARD_PIN_RS485_TX) &&
+                  WS_REV2_NOT_EXPANSION(BOARD_PIN_RS485_RX),
+              "rev2 board contract: RS485 pins must stay off the expansion set");
+static_assert(WS_REV2_NOT_EXPANSION(BOARD_PIN_MAIN_PUMP),
+              "rev2 board contract: pump pin must stay off the expansion set");
+static_assert(WS_REV2_NOT_EXPANSION(BOARD_PIN_LEVEL_LOW) &&
+                  WS_REV2_NOT_EXPANSION(BOARD_PIN_LEVEL_HIGH),
+              "rev2 board contract: level pins must stay off the expansion set");
+static_assert(WS_REV2_NOT_EXPANSION(BOARD_PIN_STATUS_LED),
+              "rev2 board contract: status LED must stay off the expansion set");
+
+#undef WS_REV2_NOT_EXPANSION
