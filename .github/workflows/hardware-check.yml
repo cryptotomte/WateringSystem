@@ -1,0 +1,44 @@
+name: hardware-check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "hardware/**"
+      - ".github/workflows/hardware-check.yml"
+  pull_request:
+    paths:
+      - "hardware/**"
+      - ".github/workflows/hardware-check.yml"
+  workflow_dispatch:
+
+# Headless KiCad: ERC on the rev2 schematic, DRC on every board that has an
+# outline, and SVG/PDF exports of the rev2 sheets as a downloadable artifact.
+# Mirrors hardware/rev2/tools/kicad-check.sh — keep the two in step.
+# Image pinned by digest (constitution III): kicad/kicad:10.0 @ 2026-09-02.
+env:
+  KICAD_IMAGE: kicad/kicad:10.0@sha256:fdcfa0e8d41f640d16edfb28e027fe8862ab31af9e45dcacbc662cec5c916e4c
+
+jobs:
+  kicad:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: ERC + DRC + exports (kicad-cli in container)
+        run: |
+          docker run --rm --user root -v "$PWD":/work -w /work \
+            -e KICAD_CLI=kicad-cli -e HOME=/tmp "$KICAD_IMAGE" \
+            bash hardware/rev2/tools/kicad-check.sh
+
+      - name: Upload reports and schematic exports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kicad-rev2-exports
+          path: |
+            hardware/rev2/export/*.rpt
+            hardware/rev2/export/*.pdf
+            hardware/rev2/export/svg/*.svg
+          if-no-files-found: warn

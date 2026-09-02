@@ -87,6 +87,14 @@ docker run --rm -v "$PWD/firmware":/project -w /project espressif/idf:v6.0.1 idf
 
 Board selection (Kconfig: `BOARD_REV1_DEVKIT` / `BOARD_REV2`), flashing, host tests, and all other build details are documented in `firmware/CLAUDE.md`.
 
+### Hardware checks (KiCad, headless)
+
+```bash
+hardware/rev2/tools/kicad-check.sh   # ERC (rev2 schematic) + DRC (boards with an outline) + SVG/PDF exports → hardware/rev2/export/ (gitignored)
+```
+
+CI runs the same script in the pinned `kicad/kicad:10.0` image on every `hardware/**` change (`.github/workflows/hardware-check.yml`) and uploads the schematic exports as a workflow artifact. Rendered sheets are the way to *look* at the schematic from a session — never redraw a sheet by hand.
+
 ### Arduino legacy (frozen)
 
 Built by CI only, on the `arduino-maintenance` branch (pinned PlatformIO platform + library versions). Do not build it from `main`.
