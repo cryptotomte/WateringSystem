@@ -158,7 +158,7 @@ current_paths = f'''
       <text x="85" y="52" text-anchor="middle" font-weight="600">Battery 12.8 V</text>
       <text x="85" y="70" text-anchor="middle" font-size="10">10 A blade fuse in + lead</text>
       <line x1="160" y1="50" x2="270" y2="50" stroke="{C["body"]}" stroke-width="3" marker-end="url(#ah)"/>
-      <text x="215" y="42" text-anchor="middle" font-size="10">VBAT_IN ≥1.5 mm²</text>
+      <text x="215" y="42" text-anchor="middle" font-size="10">VBAT_IN</text>
       <line x1="160" y1="70" x2="270" y2="70" stroke="#222" stroke-width="3" marker-end="url(#ah)"/>
       <text x="215" y="86" text-anchor="middle" font-size="10">GND</text>
       <rect x="272" y="20" width="190" height="78" fill="{C["fill"]}" stroke="{C["group"]}" stroke-width="1.5"/>
@@ -167,7 +167,7 @@ current_paths = f'''
       <text x="367" y="74" text-anchor="middle" font-size="10">J8/J9 panel loop (INA226 0x41)</text>
       <text x="367" y="90" text-anchor="middle" font-size="10">VBAT/GND out → pump feed</text>
       <line x1="462" y1="50" x2="590" y2="50" stroke="{C["body"]}" stroke-width="3" marker-end="url(#ah)"/>
-      <text x="526" y="42" text-anchor="middle" font-size="10">VBAT ~4 A run / 8 A max</text>
+      <text x="526" y="42" text-anchor="middle" font-size="10">VBAT ≤ 8 A</text>
       <line x1="462" y1="70" x2="590" y2="70" stroke="#222" stroke-width="3" marker-end="url(#ah)"/>
       <text x="526" y="86" text-anchor="middle" font-size="10">GND return</text>
       <rect x="592" y="20" width="170" height="78" fill="{C["fill"]}" stroke="{C["group"]}" stroke-width="1.5"/>
