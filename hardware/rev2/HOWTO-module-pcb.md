@@ -155,6 +155,14 @@ both ends (return + keying):
 `mod-mcu` keeps `U0TXD`/`U0RXD`/`EN`/`BOOT` internal (blocks 2+3 are on the same
 board) and exposes J7 expansion + J6 JTAG as their own headers, as designed.
 
+**Generated views of this contract:** `python3 hardware/rev2/tools/gen-module-canvas.py`
+renders the six module cards, the current-path strip and the net→pin bench
+matrix to `hardware/rev2/export/module-canvas/module-interconnect.html`
+(open in a browser). The script cross-checks its data against the J101 table
+above and refuses to run on a mismatch — edit the table here first, then the
+script, then regenerate. The same run also emits the artboards for the
+editable Claude Design canvas (published from a Claude Code session).
+
 **Silkscreen every header pin with its net name.** This is the whole
 self-documenting-bundle idea from `09-prototype-modules.md`.
 
