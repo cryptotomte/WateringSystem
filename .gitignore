@@ -84,3 +84,4 @@ docs/user-guide.md
 docs/safety.md
 .playwright-mcp/
 *.lck
+hardware/rev2/export/
