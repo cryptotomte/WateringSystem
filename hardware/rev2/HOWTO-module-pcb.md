@@ -20,9 +20,9 @@ Only layout is done twice (module boards now, integrated board later).
 
 ## 1. Preflight — blockers to clear before starting
 
-1. **Four symbols still have no footprint.** `Update PCB from Schematic` (F8)
-   refuses to run until every symbol has one. Names verified against the
-   KiCad 10 libraries on disk 2026-08-12:
+1. ~~Four symbols still have no footprint.~~ **DONE 2026-08-12** — all 172
+   symbol instances carry a footprint (`Update PCB from Schematic` runs).
+   Kept for the record; names verified against the KiCad 10 libraries:
 
    | Symbol | Sheet | Footprint |
    |---|---|---|
@@ -36,9 +36,9 @@ Only layout is done twice (module boards now, integrated board later).
 
    Assign these in the block sheets (they belong to the design, not to the
    prototype) so stage B inherits them.
-2. **Off-LCSC parts** — the LCSC order will NOT cover these; source separately:
-   Weidmüller 1715010000 ×4 (J2 battery, J3 pump, J8/J9 panel), and the generic
-   pin headers. See §9.
+2. **Off-LCSC parts** — the LCSC order does not cover Weidmüller 1715010000 ×4
+   (J2 battery, J3 pump, J8/J9 panel) nor the 2.54 mm pin headers: **both are
+   already in Paul's stock**, nothing to buy. See §9.
 3. Close KiCad before any scripted edit; stale `~*.lck` files are gitignored but
    a second KiCad instance on the same sheet file will fight you.
 
@@ -154,6 +154,14 @@ both ends (return + keying):
 
 `mod-mcu` keeps `U0TXD`/`U0RXD`/`EN`/`BOOT` internal (blocks 2+3 are on the same
 board) and exposes J7 expansion + J6 JTAG as their own headers, as designed.
+
+**Generated views of this contract:** `python3 hardware/rev2/tools/gen-module-canvas.py`
+renders the six module cards, the current-path strip and the net→pin bench
+matrix to `hardware/rev2/export/module-canvas/module-interconnect.html`
+(open in a browser). The script cross-checks its data against the J101 table
+above and refuses to run on a mismatch — edit the table here first, then the
+script, then regenerate. The same run also emits the artboards for the
+editable Claude Design canvas (published from a Claude Code session).
 
 **Silkscreen every header pin with its net name.** This is the whole
 self-documenting-bundle idea from `09-prototype-modules.md`.
