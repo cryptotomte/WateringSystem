@@ -64,10 +64,12 @@ Development is spec-kit driven and orchestrated with subagents. Each PR gets a `
 ### Subagent Model Policy
 
 Split roles (Paul's decision 2026-08-12): the **orchestrator session runs Fable**;
-**`implementer` and `fixer` are pinned to Opus** (`model: opus` in
-`.claude/agents/*.md`) — implementation and fix work always runs on Opus
-regardless of the session model. `researcher` stays `model: inherit` (research
-follows the orchestrator's model).
+**`implementer` and `fixer` are pinned to Opus** (`model: opus` in their
+frontmatter) — implementation and fix work always runs on Opus regardless of
+the session model. `researcher` stays `model: inherit` (research follows the
+orchestrator's model). The agent files are user-global (`~/.claude/agents/`,
+since 2026-11-12); this repository carries no project-local copies. Model and
+effort choices live in agent frontmatter only, never per spawn call.
 
 ## Git Strategy
 
